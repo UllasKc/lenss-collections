@@ -1,0 +1,123 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>LensS Collections Intelligence</title>
+<script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.3/dist/chart.umd.min.js"></script>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=Manrope:wght@600;700;800&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="/css/style.css">
+</head>
+<body>
+<nav class="nav">
+  <div class="brand"><div class="n">LensS <span>Collections Intelligence</span></div><small>Performance &amp; Recovery Analytics</small></div>
+  <div class="tabs">
+    <button class="on" data-tab="home">Command Center</button>
+    <button data-tab="assistant">Chat + Agent</button>
+    <button data-tab="obs">Monitoring</button>
+  </div>
+  <div class="user-bar"><span id="userNameDisplay"></span></div>
+</nav>
+
+<div class="wrap">
+  <!-- ============ HOME ============ -->
+  <section class="tab on" id="tab-home">
+    <div class="hgroup">
+      <div><h1>Command Center</h1><div class="sub">Portfolio-wide performance snapshot — 2026-09-15</div></div>
+    </div>
+
+    <h2 class="sect">Key metrics</h2>
+    <div class="grid kpis" id="kpis"></div>
+
+    <h2 class="sect">MTD achievement by product</h2>
+    <div class="card chart-card"><div class="cv"><canvas id="productChart"></canvas></div></div>
+
+    <h2 class="sect">Per-segment KPI drivers</h2>
+    <div class="card table-scroll">
+      <table id="segmentTable">
+        <thead>
+          <tr>
+            <th>Product</th><th>DPD Bucket</th><th>Accounts</th><th>Outstanding Balance</th>
+            <th>MTD Collections</th><th>Recovery Rate</th><th>RPC Rate</th><th>PTP Conv.</th><th>Cure Rate</th>
+          </tr>
+        </thead>
+        <tbody></tbody>
+      </table>
+    </div>
+  </section>
+
+  <!-- ============ ASSISTANT ============ -->
+  <section class="tab" id="tab-assistant">
+    <div class="hgroup"><div><h1>Chat + Agent</h1><div class="sub">Ask a quick question, or run a deep multi-step analysis</div></div></div>
+    <div class="chatwrap">
+      <aside class="card sidebar">
+        <button class="btn newchat" id="newSessionBtn">＋ New chat</button>
+        <div class="session-list" id="sessionList"></div>
+        <div class="whoami" id="assistantUserGreeting"></div>
+      </aside>
+      <div class="card chat">
+        <div class="chat-head"><div class="chat-title" id="chatTitle">New chat</div></div>
+        <div class="msgs" id="chatMsgs"></div>
+        <div class="empty" id="chatEmpty">
+          <div class="empty-h">What would you like to know?</div>
+          <div class="empty-sub">Use <b>Chat</b> for quick answers and <b>Agent</b> for multi-step "why / what should we do" analysis.</div>
+          <div class="starters">
+            <button class="starter" data-mode="chat" data-q="What is my MTD collections performance versus target by product?"><span class="tag chat">Chat</span>MTD performance vs target by product</button>
+            <button class="starter" data-mode="chat" data-q="Which accounts require immediate intervention?"><span class="tag chat">Chat</span>Accounts needing immediate intervention</button>
+            <button class="starter" data-mode="chat" data-q="Which treatment strategy has the best cure rate?"><span class="tag chat">Chat</span>Best cure rate by strategy</button>
+            <button class="starter" data-mode="agent" data-q="Why are collections lagging this month and what should we do about it?"><span class="tag agent">Agent</span>Why are collections lagging, and what should we do?</button>
+            <button class="starter" data-mode="agent" data-q="Are our current collections policies too aggressive? Look at over-contact risk, complaints and vulnerable customers."><span class="tag agent">Agent</span>Are our policies too aggressive?</button>
+            <button class="starter" data-mode="agent" data-q="Where is the biggest recovery opportunity and which channel should we use for each segment?"><span class="tag agent">Agent</span>Biggest recovery opportunity and best channel</button>
+          </div>
+        </div>
+        <div class="composer">
+          <textarea id="chatInput" rows="1" placeholder="Ask about targets, collections, strategies, or collectors…"></textarea>
+          <div class="composer-bar">
+            <div class="mode-pills" id="modeToggle" role="radiogroup" aria-label="Answer mode">
+              <button class="mode-pill on" data-mode="chat" role="radio" aria-checked="true" title="Fast single answer (~20s)">💬 Chat</button>
+              <button class="mode-pill" data-mode="agent" role="radio" aria-checked="false" title="Multi-step deep analysis (1–3 min)">✦ Agent</button>
+            </div>
+            <span class="mode-hint" id="modeHint">Quick answer · ~20s</span>
+            <button class="iconbtn send" id="chatSend" title="Send (Enter)">&#10148;</button>
+          </div>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- ============ MONITORING ============ -->
+  <section class="tab" id="tab-obs">
+    <div class="hgroup"><div><h1>Monitoring</h1><div class="sub">Usage, mode mix, and per-turn audit trail across all users</div></div></div>
+
+    <h2 class="sect">Usage summary</h2>
+    <div class="grid kpis" id="obsKpis"></div>
+
+    <div class="grid charts" style="margin-top:14px">
+      <div class="card chart-card"><h3>Questions by mode</h3><div class="cv"><canvas id="obsModeChart"></canvas></div></div>
+      <div class="card chart-card"><h3>Avg latency by mode (ms)</h3><div class="cv"><canvas id="obsLatencyChart"></canvas></div></div>
+    </div>
+
+    <h2 class="sect">By user</h2>
+    <div class="card table-scroll">
+      <table id="userTable">
+        <thead><tr><th>User</th><th>Sessions</th><th>Questions</th><th>Successful</th><th>Avg Latency</th><th>Last Active</th></tr></thead>
+        <tbody></tbody>
+      </table>
+    </div>
+
+    <h2 class="sect">Recent activity</h2>
+    <div class="card table-scroll">
+      <table id="recentTable">
+        <thead><tr><th>When</th><th>User</th><th>Mode</th><th>Question</th><th>Result</th></tr></thead>
+        <tbody></tbody>
+      </table>
+    </div>
+  </section>
+</div>
+
+<script src="/js/app.js"></script>
+<script src="/js/chat.js"></script>
+<script src="/js/monitoring.js"></script>
+</body>
+</html>

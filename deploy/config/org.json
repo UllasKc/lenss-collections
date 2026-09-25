@@ -1,0 +1,13 @@
+{
+  "profile": "lenss-org",
+  "catalog": "cnx_automl_dev",
+  "create_catalog": false,
+  "schema_prefix": "lenss_collections",
+  "warehouse_id": null,
+  "warehouse_name": "Starter Warehouse",
+  "genie_space_title": "LensS Collections Analytics",
+  "lakebase_project": "lenss-collections-app",
+  "lakebase_database": "chatapp",
+  "app_name": "lenss-collections",
+  "readers_group": null
+}

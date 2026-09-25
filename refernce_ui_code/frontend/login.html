@@ -1,0 +1,80 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Sign in — Canara HSBC Policy Book Intelligence</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=Manrope:wght@600;700;800&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="/static/css/style.css">
+<style>
+  body{display:flex;align-items:center;justify-content:center;min-height:100vh}
+  .login-card{width:100%;max-width:360px;padding:32px 30px}
+  .login-brand{text-align:center;margin-bottom:22px}
+  .login-brand .n{font-family:var(--display);font-weight:800;font-size:18px;letter-spacing:-.02em}
+  .login-brand .n span{color:var(--accent)}
+  .login-brand small{display:block;margin-top:4px;font:500 10px var(--body);letter-spacing:.09em;text-transform:uppercase;color:var(--muted)}
+  .login-field{margin-bottom:14px}
+  .login-field label{display:block;font:600 11px var(--body);letter-spacing:.04em;color:var(--muted);margin-bottom:6px}
+  .login-field input{width:100%;padding:10px 12px;border:1px solid var(--line);border-radius:8px;font:500 14px var(--body);background:#fff}
+  .login-field input:focus{outline:2px solid var(--accent-soft);border-color:var(--accent)}
+  .login-error{background:var(--red-soft);color:var(--red);border-radius:8px;padding:9px 12px;font:500 12.5px var(--body);margin-bottom:14px;display:none}
+  .login-error.show{display:block}
+  .login-submit{width:100%;justify-content:center;margin-top:4px}
+</style>
+</head>
+<body>
+<div class="card login-card">
+  <div class="login-brand">
+    <div class="n">Canara HSBC <span>Policy Book Intelligence</span></div>
+    <small>Sign in to continue</small>
+  </div>
+  <div class="login-error" id="loginError"></div>
+  <form id="loginForm">
+    <div class="login-field">
+      <label for="loginEmail">Email</label>
+      <input type="email" id="loginEmail" autocomplete="username" required>
+    </div>
+    <div class="login-field">
+      <label for="loginPassword">Password</label>
+      <input type="password" id="loginPassword" autocomplete="current-password" required>
+    </div>
+    <button type="submit" class="btn login-submit" id="loginSubmit">Sign in</button>
+  </form>
+</div>
+<script>
+document.getElementById('loginForm').addEventListener('submit', async (e) => {
+  e.preventDefault();
+  const errEl = document.getElementById('loginError');
+  const btn = document.getElementById('loginSubmit');
+  errEl.classList.remove('show');
+  btn.disabled = true;
+  btn.textContent = 'Signing in…';
+  try {
+    const res = await fetch('/api/auth/login', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        email: document.getElementById('loginEmail').value.trim(),
+        password: document.getElementById('loginPassword').value,
+      }),
+    });
+    if (!res.ok) {
+      const data = await res.json().catch(() => ({}));
+      errEl.textContent = data.detail || 'Sign in failed. Please try again.';
+      errEl.classList.add('show');
+      btn.disabled = false;
+      btn.textContent = 'Sign in';
+      return;
+    }
+    window.location.href = '/';
+  } catch (err) {
+    errEl.textContent = 'Could not reach the server. Please try again.';
+    errEl.classList.add('show');
+    btn.disabled = false;
+    btn.textContent = 'Sign in';
+  }
+});
+</script>
+</body>
+</html>

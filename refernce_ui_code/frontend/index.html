@@ -1,0 +1,219 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Canara HSBC Policy Book Intelligence</title>
+<script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.3/dist/chart.umd.min.js"></script>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=Manrope:wght@600;700;800&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="/static/css/style.css">
+</head>
+<body>
+<nav class="nav">
+  <div class="brand"><div class="n">Canara HSBC <span>Policy Book Intelligence</span></div><small>Life Insurance &middot; 25,000 policies</small></div>
+  <div class="tabs">
+    <button class="on" data-tab="home">Command Center</button>
+    <button data-tab="explorer">Explorer</button>
+    <button data-tab="assistant">Assistant</button>
+    <button data-tab="obs">Observability</button>
+  </div>
+</nav>
+
+<div class="wrap">
+  <!-- ============ HOME ============ -->
+  <section class="tab on" id="tab-home">
+    <div class="hgroup">
+      <div><h1>Command Center</h1><div class="sub">Book-wide executive summary</div></div>
+      <div class="user-bar">
+        <span id="userNameDisplay"></span>
+        <button class="btn ghost" id="logoutBtn">Log out</button>
+      </div>
+    </div>
+
+    <div class="card narr-card">
+      <div class="eyebrow">Executive Summary</div>
+      <p class="narr" id="narrative">Loading executive summary…</p>
+    </div>
+
+    <h2 class="sect">Key metrics</h2>
+    <div class="grid kpis" id="kpis"></div>
+
+    <h2 class="sect">Business trend — 36 months</h2>
+    <div class="card chart-card"><div class="cv"><canvas id="trendChart"></canvas></div></div>
+
+    <h2 class="sect">At a glance</h2>
+    <div class="grid tiles" id="tiles"></div>
+
+    <h2 class="sect">Per-plan summary</h2>
+    <div class="card table-scroll">
+      <table id="planTable">
+        <thead>
+          <tr>
+            <th>Plan Name</th><th>Type</th><th>Policies</th><th>Total APE</th>
+            <th>Total Sum Assured</th><th>Lapse + Surrender %</th><th>Claims</th>
+          </tr>
+        </thead>
+        <tbody></tbody>
+      </table>
+    </div>
+  </section>
+
+  <!-- ============ EXPLORER ============ -->
+  <section class="tab" id="tab-explorer">
+    <div class="hgroup"><div><h1>Explorer</h1><div class="sub">Filters drive every visual below</div></div></div>
+
+    <div class="card filters-card">
+      <div class="filters-head">
+        <h3>Filters</h3>
+        <button type="button" class="collapse-btn" id="explorerFiltersToggle" aria-expanded="true" aria-controls="explorerFilters">
+          <span>Hide filters</span>
+          <svg class="chevron" viewBox="0 0 24 24" width="15" height="15" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="6 9 12 15 18 9"/></svg>
+        </button>
+      </div>
+      <div class="filters-collapse" id="explorerFiltersCollapse">
+        <div class="filters-collapse-inner">
+          <div class="filters" id="explorerFilters">
+            <div class="field"><label>Plan Name</label>
+              <div class="dd" id="dd-plan"><button type="button" class="dd-btn">All plans</button><div class="dd-panel"></div></div>
+            </div>
+            <div class="field"><label>Product Type</label>
+              <div class="dd" id="dd-ptype"><button type="button" class="dd-btn">All types</button><div class="dd-panel"></div></div>
+            </div>
+            <div class="field"><label>Policy Status</label>
+              <div class="dd" id="dd-status"><button type="button" class="dd-btn">All statuses</button><div class="dd-panel"></div></div>
+            </div>
+            <div class="field"><label>State</label>
+              <div class="dd" id="dd-state"><button type="button" class="dd-btn">All states</button><div class="dd-panel"></div></div>
+            </div>
+            <div class="field"><label>Owner Occupation</label>
+              <div class="dd" id="dd-occ"><button type="button" class="dd-btn">All occupations</button><div class="dd-panel"></div></div>
+            </div>
+            <div class="field"><label>Owner Education</label>
+              <div class="dd" id="dd-edu"><button type="button" class="dd-btn">All education levels</button><div class="dd-panel"></div></div>
+            </div>
+            <div class="field"><label>Owner Gender</label>
+              <div class="dd" id="dd-gender"><button type="button" class="dd-btn">All genders</button><div class="dd-panel"></div></div>
+            </div>
+            <div class="field range-field"><label>Premium Paying Term (yrs)</label>
+              <div class="range-row"><input type="number" id="f-ppt-min"><span>to</span><input type="number" id="f-ppt-max"></div>
+            </div>
+            <div class="field range-field"><label>Owner Age <span class="hint">(sub-18 = known anomaly, not excluded)</span></label>
+              <div class="range-row"><input type="number" id="f-age-min"><span>to</span><input type="number" id="f-age-max"></div>
+            </div>
+            <div class="field range-field"><label>Sum Assured (₹)</label>
+              <div class="range-row"><input type="number" id="f-sa-min"><span>to</span><input type="number" id="f-sa-max"></div>
+            </div>
+            <div class="field range-field"><label>APE (₹)</label>
+              <div class="range-row"><input type="number" id="f-ape-min"><span>to</span><input type="number" id="f-ape-max"></div>
+            </div>
+          </div>
+          <div class="filters-actions">
+            <button class="btn" id="applyFilters">Apply filters</button>
+            <button class="btn ghost" id="resetFilters">Reset</button>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <h2 class="sect">Filtered summary</h2>
+    <div class="grid kpis" id="explorerKpis"></div>
+    <div class="card placeholder" id="explorerNote" style="display:none"></div>
+
+    <h2 class="sect">Visuals</h2>
+    <div class="grid charts">
+      <div class="card chart-card"><h3>Geographic breakdown (by state)</h3><div class="cv"><canvas id="geoChart"></canvas></div></div>
+      <div class="card chart-card"><h3>Age-band distribution</h3><div class="cv"><canvas id="ageChart"></canvas></div></div>
+      <div class="card chart-card"><h3>Plan mix</h3><div class="cv"><canvas id="planMixChart"></canvas></div></div>
+      <div class="card chart-card"><h3>Status breakdown</h3><div class="cv"><canvas id="statusChart"></canvas></div></div>
+    </div>
+
+    <h2 class="sect">Trend within filter</h2>
+    <div class="card chart-card"><div class="cv"><canvas id="explorerTrendChart"></canvas></div></div>
+  </section>
+
+  <!-- ============ ASSISTANT ============ -->
+  <section class="tab" id="tab-assistant">
+    <div class="hgroup"><div><h1>Assistant</h1><div class="sub">Ask questions about the policy book — answers include charts where useful</div></div></div>
+    <div class="chatwrap">
+      <div class="card chat">
+        <div class="msgs" id="chatMsgs"></div>
+        <div class="inputrow">
+          <select id="chatLang" title="Speech language">
+            <option value="en-IN">EN</option>
+            <option value="hi-IN">HI</option>
+          </select>
+          <button class="iconbtn mic" id="chatMic" title="Speak your question">
+            <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="9" y="2" width="6" height="11" rx="3"/><path d="M5 10a7 7 0 0 0 14 0"/><line x1="12" y1="19" x2="12" y2="22"/><line x1="8" y1="22" x2="16" y2="22"/></svg>
+          </button>
+          <input id="chatInput" placeholder="Ask about plans, lapse rate, claims, agents, or persistency…" autocomplete="off">
+          <button class="iconbtn tts" id="chatTts" title="Read answers aloud">
+            <svg viewBox="0 0 24 24" width="18" height="18"><polygon points="3,9 8,9 13,4.5 13,19.5 8,15 3,15" fill="currentColor"/><path d="M16.2 8.3a5.2 5.2 0 0 1 0 7.4" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"/><path d="M18.8 5.7a9 9 0 0 1 0 12.6" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" class="tts-outer-wave"/></svg>
+          </button>
+          <button class="iconbtn send" id="chatSend" title="Send">&#10148;</button>
+          <button class="iconbtn stop" id="chatStop" title="Stop" hidden>&#9632;</button>
+        </div>
+      </div>
+      <div class="card rail">
+        <div class="sub" id="assistantUserGreeting" style="margin-bottom:14px"></div>
+        <h3>This session</h3>
+        <div class="turncount"><span id="turnNo">0</span><small> / 20 turns</small></div>
+        <h3 style="margin-top:16px">Try asking</h3>
+        <div class="suggest" data-q="What can you help me with?">What can you help me with? <span class="hint">(capabilities)</span></div>
+        <div class="suggest" data-q="Which state has the most policies?">Which state has the most policies?</div>
+        <div class="suggest" data-q="Does lapse rate vary by owner age band?">Does lapse rate vary by owner age band?</div>
+        <div class="suggest" data-q="Which customers should we call today to prevent lapse">Which customers should we call today to prevent lapse <span class="hint">(predictive tool)</span></div>
+        <div class="suggest" data-q="Which branches persistency needs improvement">Which branches persistency needs improvement</div>
+        <div class="suggest" data-q="Why is the Uttar Pradesh and Business Owner cohort lapsing at 2 times the overall average">Why is the Uttar Pradesh and Business Owner cohort lapsing at 2 times the overall average <span class="hint">(cohort · SHAP)</span></div>
+        <div class="suggest" data-q="Why are low-APE policies settling claims faster than high-APE ones?">Why are low-APE policies settling claims faster than high-APE ones? <span class="hint">(claims · SHAP)</span></div>
+        <div class="suggest" data-q="Why did claims TAT increase in July compared to June?">Why did claims TAT increase in July compared to June? <span class="hint">(claims root cause · SHAP)</span></div>
+        <div class="suggest" data-q="Create an executive summary for Karnataka">Create an executive summary for Karnataka <span class="hint">(predictive tool)</span></div>
+        <div style="display:flex;flex-direction:column;gap:8px;margin-top:16px">
+          <button class="btn ghost" style="justify-content:center" id="chatExportPdf">Download conversation (PDF)</button>
+          <button class="btn ghost" style="justify-content:center" id="chatReset">Reset conversation</button>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- ============ OBSERVABILITY ============ -->
+  <section class="tab" id="tab-obs">
+    <div class="hgroup"><div><h1>Observability</h1><div class="sub">Part 1 — pipeline health · Part 2 — per-turn audit trail</div></div></div>
+
+    <h2 class="sect">Pipeline health</h2>
+    <div class="grid kpis" id="obsKpis"></div>
+
+    <div class="grid charts" style="margin-top:14px">
+      <div class="card chart-card"><h3>Usage per day (turns)</h3><div class="cv"><canvas id="obsUsageChart"></canvas></div></div>
+      <div class="card chart-card"><h3>Faithfulness score trend</h3><div class="cv"><canvas id="obsFaithChart"></canvas></div></div>
+      <div class="card chart-card"><h3>Token usage by pipeline stage</h3><div class="cv"><canvas id="obsTokenChart"></canvas></div></div>
+      <div class="card chart-card"><h3>Cache hit-rate</h3><div class="cv"><canvas id="obsCacheChart"></canvas></div></div>
+    </div>
+
+    <h2 class="sect">Guardrail rejections</h2>
+    <div class="grid tiles tiles-3" id="obsGuardrailTiles"></div>
+
+    <h2 class="sect">Per-turn audit trail</h2>
+    <div class="card filters" style="margin-bottom:14px">
+      <div class="field"><label>Session</label>
+        <select id="obsSessionFilter" style="padding:8px 10px;border:1px solid var(--line);border-radius:8px;min-width:280px">
+          <option value="">All sessions (most recent 200 turns)</option>
+        </select>
+      </div>
+    </div>
+    <div class="card table-scroll">
+      <table id="obsTurnsTable">
+        <thead>
+          <tr>
+            <th>Turn</th><th>User</th><th>Question</th><th>Status</th><th>Cache</th><th>Faithfulness</th><th>Latency</th><th></th>
+          </tr>
+        </thead>
+        <tbody></tbody>
+      </table>
+    </div>
+  </section>
+</div>
+
+<script src="/static/js/app.js"></script>
+</body>
+</html>
