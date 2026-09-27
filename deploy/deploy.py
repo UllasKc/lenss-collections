@@ -483,6 +483,20 @@ def step_app(db: Databricks, sql: Sql, cfg: dict, state: dict, cfg_path: Path) -
     log(f"Syncing {app_dir.name} -> {ws_path}")
     db.run("sync", str(app_dir), ws_path, "--full",
            "--exclude", "node_modules/**", "--exclude", "dist/**", "--exclude", ".git/**", output_json=False)
+    # A stopped app (idle policy, workspace quota, or someone pressed Stop) rejects deploys.
+    compute = (db.run("apps", "get", name).get("compute_status") or {}).get("state")
+    if compute != "ACTIVE":
+        log(f"App compute is {compute}; starting it (a few minutes)…")
+        db.run("apps", "start", name)
+    # Starting an app redeploys its previous version, and only one deployment may run at a time.
+    for _ in range(120):
+        app_now = db.run("apps", "get", name)
+        states = {(app_now.get(k) or {}).get("status", {}).get("state") for k in ("active_deployment", "pending_deployment")}
+        if "IN_PROGRESS" not in states:
+            break
+        if _ == 0:
+            log("Waiting for the app's current deployment to finish…")
+        time.sleep(10)
     log("Deploying (the platform runs npm install + build)…")
     dep = db.run("apps", "deploy", name, "--source-code-path", ws_path)
     status = dep.get("status", {})

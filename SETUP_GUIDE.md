@@ -307,6 +307,7 @@ It ends with `17/17 checks passed`. It covers the UI, the dashboard, Chat and Ag
 | `Workbook not found` | Running from the wrong folder, or the xlsx was not downloaded | `cd` to the project root; check `all_details_and _data/LensS_Collections_Demo_Development_Pack.xlsx` exists |
 | `No Postgres role for <you>` | You don't manage the Lakebase project (someone else created it) | Ask its owner for `CAN_MANAGE`, or set a different `lakebase_project` name |
 | `lakebase` step hangs, or `could not connect to server … 5432` | Corporate network/VPN blocks PostgreSQL port 5432 | Try off VPN or another network, or ask IT to allow outbound 5432 to `*.cloud.databricks.com`. Every other step works without it: run `--skip lakebase` for the rest, then run `--only lakebase,app` from a network that allows 5432 |
+| App URL shows "App not running", or `Cannot deploy app … not in RUNNING state` | The app's compute was stopped (idle policy or workspace quota) | Re-run `--only app`: it starts the app before deploying. Or **Apps → (your app) → Start** |
 | `App deployment did not succeed` | Build or start failure on the Databricks side | Workspace → **Apps → (your app) → Logs** shows the npm/Node error |
 | App opens but Agent answers "Sorry — that question couldn't be answered" | Agent mode not enabled in this workspace, or the app lost its grants | Check that Agent mode exists in Genie (section 3); re-run `--only app`, which re-applies the grants |
 | Smoke test: `401` for the service principal | Missing **Workspace access** entitlement | Section 9.2, step 3 |
