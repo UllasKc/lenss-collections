@@ -44,6 +44,14 @@ async function loadHome() {
     fetch('/api/dashboard/segments').then(r => r.json()),
   ]);
 
+  const narrativeEl = document.getElementById('narrative');
+  narrativeEl.textContent = summary.narrative ||
+    'No executive summary yet. Run the deploy\'s summary step: python deploy/deploy.py --config <config> --only summary';
+  const gen = summary.narrative_generated_at ? new Date(summary.narrative_generated_at.replace(' ', 'T') + 'Z') : null;
+  document.getElementById('narrativeMeta').textContent = summary.narrative_generated_at
+    ? `Generated from the certified views on ${gen && !isNaN(gen) ? gen.toLocaleString() : summary.narrative_generated_at}`
+    : '';
+
   const kpis = document.getElementById('kpis');
   kpis.innerHTML = '';
   kpis.appendChild(kpiCard('MTD Collections', fmtMoney(summary.mtd_collections), 'vs. target ' + fmtMoney(summary.monthly_target)));

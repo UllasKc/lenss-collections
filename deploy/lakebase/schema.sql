@@ -51,6 +51,16 @@ UPDATE chatapp.chat_sessions s
          ORDER BY session_id, created_at) m
  WHERE s.session_id = m.session_id AND s.title IS NULL;
 
+-- v3: answer feedback (synced to Genie) and per-question observability details.
+-- genie_* ids identify the answer in Genie, which is what its feedback API needs.
+ALTER TABLE chatapp.chat_messages ADD COLUMN IF NOT EXISTS genie_conversation_id TEXT;
+ALTER TABLE chatapp.chat_messages ADD COLUMN IF NOT EXISTS genie_message_id TEXT;
+ALTER TABLE chatapp.chat_messages ADD COLUMN IF NOT EXISTS feedback SMALLINT;      -- 1 helpful, -1 not helpful
+ALTER TABLE chatapp.chat_messages ADD COLUMN IF NOT EXISTS feedback_at TIMESTAMPTZ;
+ALTER TABLE chatapp.usage_log ADD COLUMN IF NOT EXISTS assistant_message_id UUID;
+ALTER TABLE chatapp.usage_log ADD COLUMN IF NOT EXISTS feedback SMALLINT;
+ALTER TABLE chatapp.usage_log ADD COLUMN IF NOT EXISTS details JSONB;           -- SQL run, timings, Genie ids
+
 CREATE INDEX IF NOT EXISTS idx_chat_sessions_user ON chatapp.chat_sessions (user_email, updated_at DESC);
 CREATE INDEX IF NOT EXISTS idx_chat_messages_session ON chatapp.chat_messages (session_id, created_at);
 CREATE INDEX IF NOT EXISTS idx_usage_log_created ON chatapp.usage_log (created_at);

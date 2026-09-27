@@ -68,11 +68,13 @@ def ask(base, headers, mode, question, session_id=None):
         timeout=600,
     ) as r:
         r.raise_for_status()
-        events, answer, success, error, title = [], {}, False, None, None
+        events, answer, success, error, title, saved = [], {}, False, None, None, {}
         for event, data in read_sse(r):
             events.append(event)
             if event == "answer":
                 answer = data
+            elif event == "saved":
+                saved = data
             elif event == "error":
                 error = data
             elif event == "session_title":
@@ -88,6 +90,7 @@ def ask(base, headers, mode, question, session_id=None):
         "answer_preview": (answer.get("text") or "")[:200].replace("\n", " "),
         "charts": answer.get("charts") or [],
         "title": title,
+        "message_id": saved.get("messageId"),
         "error": error,
         "event_types": sorted(set(events)),
     }
@@ -154,7 +157,7 @@ def main():
 
     def mixed_chat():
         res = ask(base, headers, "chat", "Show MTD collections versus target by product")
-        convo.update(session_id=res["session_id"], title=res["title"])
+        convo.update(session_id=res["session_id"], title=res["title"], message_id=res["message_id"])
         if not res["success"]:
             raise RuntimeError(json.dumps(res)[:300])
         if not any(len(c["rows"]) > 1 for c in res["charts"]):
@@ -194,7 +197,42 @@ def main():
             raise RuntimeError("session still listed after delete")
         return "renamed and deleted"
 
+    def feedback():
+        mid = convo.get("message_id")
+        if not mid:
+            raise RuntimeError("no saved answer id from the chat step")
+        url = f"{base}/api/chat/messages/{mid}/feedback"
+        up = requests.post(url, headers=headers, json={"rating": "up"}, timeout=60)
+        up.raise_for_status()
+        if not up.json().get("sentToGenie"):
+            raise RuntimeError(f"rating saved but not delivered to Genie: {up.text}")
+        stored = [m for m in get_ok(f"/api/chat/sessions/{convo['session_id']}/messages") if m["message_id"] == mid]
+        if not stored or stored[0].get("feedback") != 1:
+            raise RuntimeError(f"rating not stored: {stored[:1]}")
+        requests.post(url, headers=headers, json={"rating": None}, timeout=60).raise_for_status()
+        return "👍 stored, delivered to Genie, then cleared"
+
+    def audit_trail():
+        recent = get_ok("/api/admin/usage")["recent"]
+        mine = [e for e in recent if e.get("session_id") == convo.get("session_id") and e.get("details")]
+        if not mine:
+            raise RuntimeError("no audit-trail entry with details for the smoke session")
+        d = mine[-1]["details"]
+        if not d.get("queries") or not d["queries"][0].get("sql") or not d.get("timeline"):
+            raise RuntimeError(f"details missing SQL or timings: {json.dumps(d)[:300]}")
+        stages = ", ".join(f"{s['stage']} {s['ms']}ms" for s in d["timeline"])
+        return f"{len(d['queries'])} SQL query, {d['queries'][0].get('rows')} rows; stages: {stages}"
+
+    def exec_summary():
+        text = get_ok("/api/dashboard/summary").get("narrative")
+        if not text:
+            raise RuntimeError("no narrative; run the deploy's summary step")
+        return text[:120] + "…"
+
+    check("GET /api/dashboard/summary has the executive summary", exec_summary)
     check("[session] chat question returns a chart + auto-named session", mixed_chat)
+    check("[session] 👍/👎 feedback is stored and sent to Genie", feedback)
+    check("[monitoring] audit trail records the SQL and stage timings", audit_trail)
     if not args.skip_agent:
         check("[session] agent follow-up in the same session", mixed_agent)
         check("[session] history keeps both modes and the charts", history)

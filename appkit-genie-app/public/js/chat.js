@@ -160,7 +160,7 @@ async function openSession(id) {
   if (activeSessionId !== id) return;
   messages.forEach(m => {
     if (m.role === 'user') addUserBubble(m.content, m.mode);
-    else addAnswer(normalizeStored(m), { mode: m.mode, at: m.created_at });
+    else addAnswer(normalizeStored(m), { mode: m.mode, at: m.created_at, messageId: m.message_id, feedback: m.feedback });
   });
   updateEmpty();
 }
@@ -243,6 +243,40 @@ function renderAnswer(msg, answer, opts) {
   const when = opts.at ? new Date(opts.at).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }) : '';
   const took = opts.latencyMs ? `${(opts.latencyMs / 1000).toFixed(0)}s` : '';
   msg.insertAdjacentHTML('beforeend', metaLine(mode, [took, when].filter(Boolean).join(' · ')));
+  if (opts.messageId) addFeedback(msg.lastElementChild, opts.messageId, opts.feedback);
+}
+
+/** 👍/👎 on an answer: saved in the app and sent to the Genie space's Monitor. Click again to clear. */
+function addFeedback(metaEl, messageId, current) {
+  const box = document.createElement('span');
+  box.className = 'fb';
+  const thumb = '<svg viewBox="0 0 24 24" width="15" height="15" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M7 10v11"/><path d="M15 5.9 14 10h5.8a2 2 0 0 1 1.9 2.6l-2.3 7A2 2 0 0 1 17.5 21H4a1 1 0 0 1-1-1v-9a1 1 0 0 1 1-1h2.8a2 2 0 0 0 1.8-1.1L12 2a3.1 3.1 0 0 1 3 3.9Z"/></svg>';
+  box.innerHTML = `<span class="fb-note"></span>
+    <button class="fb-up" data-r="up" title="Helpful" aria-label="Helpful">${thumb}</button>
+    <button class="fb-down" data-r="down" title="Not helpful" aria-label="Not helpful">${thumb}</button>`;
+  let rating = current === 1 ? 'up' : current === -1 ? 'down' : null;
+  const paintFb = () => box.querySelectorAll('button').forEach(b => {
+    b.classList.toggle('on', b.dataset.r === rating);
+    b.setAttribute('aria-pressed', String(b.dataset.r === rating));
+  });
+  paintFb();
+  box.querySelectorAll('button').forEach(b => b.addEventListener('click', async () => {
+    const next = rating === b.dataset.r ? null : b.dataset.r;
+    box.querySelectorAll('button').forEach(x => { x.disabled = true; });
+    try {
+      const r = await fetch(`/api/chat/messages/${messageId}/feedback`, {
+        method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ rating: next }),
+      });
+      if (r.ok) {
+        rating = next;
+        box.querySelector('.fb-note').textContent = next ? 'Thanks for the feedback' : '';
+      }
+    } finally {
+      box.querySelectorAll('button').forEach(x => { x.disabled = false; });
+      paintFb();
+    }
+  }));
+  metaEl.appendChild(box);
 }
 
 // ---------------------------------------------------------------- sending
@@ -286,6 +320,7 @@ async function sendMessage(preset) {
   let answer = null;
   let errorText = null;
   let latencyMs = null;
+  let savedId = null;
   try {
     const sessionId = await ensureSession();
     const res = await fetch(`/api/chat/sessions/${sessionId}/messages`, {
@@ -323,6 +358,8 @@ async function sendMessage(preset) {
           scrollToEnd();
         } else if (type === 'answer') {
           answer = data;
+        } else if (type === 'saved') {
+          savedId = data.messageId;
         } else if (type === 'error') {
           errorText = data.error;
         } else if (type === 'session_title') {
@@ -340,7 +377,7 @@ async function sendMessage(preset) {
   clearInterval(timer);
   thinking.classList.remove('thinking');
   if (answer) {
-    renderAnswer(thinking, answer, { mode, latencyMs, at: new Date(), live: true });
+    renderAnswer(thinking, answer, { mode, latencyMs, at: new Date(), live: true, messageId: savedId });
   } else {
     thinking.classList.add('failed');
     thinking.innerHTML = `Sorry — that question couldn't be answered. Please try again${mode === 'chat' ? ', or switch to Agent for a deeper analysis' : ''}.` +

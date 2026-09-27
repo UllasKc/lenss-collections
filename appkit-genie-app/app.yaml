@@ -18,5 +18,3 @@ env:
     value: require
   - name: LAKEBASE_ENDPOINT
     value: projects/lenss-collections-app/branches/production/endpoints/primary
-  - name: LENSS_TITLE_ENDPOINT
-    valueFrom: title-model

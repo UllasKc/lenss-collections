@@ -207,7 +207,7 @@ Open it in any editor (Notepad works):
 | `lakebase_database` | Leave as `chatapp` | |
 | `app_name` | The app's name, which becomes part of its URL | lowercase letters, digits, hyphens; must be unique in the workspace |
 | `readers_group` | *(optional)* A workspace group, e.g. `"lenss-users"` | Gets `CAN_USE` on the app and `SELECT` on the gold schema |
-| `title_endpoint` | *(optional, not in the file by default)* Chat model endpoint used to name sessions | Default `databricks-meta-llama-3-3-70b-instruct`. Set to `null` to always name sessions from the question |
+| `title_endpoint` | *(optional, not in the file by default)* Chat model endpoint used to name sessions | Off by default: sessions are named from their first question. To turn it on, set it to a chat model endpoint that exists, e.g. `"databricks-meta-llama-3-3-70b-instruct"` |
 
 ---
 
@@ -229,7 +229,8 @@ Output looks like this. Each step prints as it goes:
 [10:03:30] === context ===          governance tables                                   ~20 s
 [10:03:50] === transform ===        silver, gold config, 2 metric views, 16 views       ~1 min
            Transform done — sanity check: qry_immediate_intervention = 604 accounts (604 expected for the demo pack)
-[10:05:00] === genie ===            creates or updates the Genie space                   ~5 s
+[10:05:00] === summary ===          writes the Command Center's executive summary         ~30 s
+[10:05:30] === genie ===            creates or updates the Genie space                   ~5 s
 [10:05:05] === lakebase ===         Postgres project, database, tables                   ~1–2 min the first time
 [10:06:30] === app ===              creates the app, grants access, uploads and builds   ~2–5 min the first time
 [10:10:00] App live at https://lenss-collections-<id>.<region>.databricksapps.com
@@ -249,7 +250,7 @@ python deploy/deploy.py --config deploy/config/org.json --only ingest,transform
 python deploy/deploy.py --config deploy/config/org.json --skip smoke
 ```
 
-Steps, in order: `schemas, ingest, context, transform, genie, lakebase, app, smoke`. The `app` step needs `genie` and `lakebase` to have run at least once on this laptop, because it reads their IDs from `deploy/.state/<config-name>.json`. On a new laptop, run the full command once. It re-finds everything that already exists instead of creating duplicates.
+Steps, in order: `schemas, ingest, context, transform, summary, genie, lakebase, app, smoke`. The `app` step needs `genie` and `lakebase` to have run at least once on this laptop, because it reads their IDs from `deploy/.state/<config-name>.json`. On a new laptop, run the full command once. It re-finds everything that already exists instead of creating duplicates.
 
 ---
 
@@ -283,7 +284,7 @@ The `smoke` step asks real questions through the deployed URL as a separate, non
 python deploy/deploy.py --config deploy/config/org.json --only smoke
 ```
 
-It ends with `17/17 checks passed`. It covers the UI, the dashboard, Chat and Agent questions, the personal-data refusal, charts, session naming, history, rename/delete and monitoring. The Agent questions take 1–2 minutes each.
+It ends with `20/20 checks passed`. It covers the UI, the dashboard and executive summary, Chat and Agent questions, the personal-data refusal, charts, session naming, history, 👍/👎 feedback (including delivery to Genie), the Monitoring audit trail, rename/delete and monitoring. The Agent questions take 1–2 minutes each.
 
 **Never commit the secret** or paste it into a file in this folder.
 
@@ -311,7 +312,8 @@ It ends with `17/17 checks passed`. It covers the UI, the dashboard, Chat and Ag
 | `App deployment did not succeed` | Build or start failure on the Databricks side | Workspace → **Apps → (your app) → Logs** shows the npm/Node error |
 | App opens but Agent answers "Sorry — that question couldn't be answered" | Agent mode not enabled in this workspace, or the app lost its grants | Check that Agent mode exists in Genie (section 3); re-run `--only app`, which re-applies the grants |
 | Smoke test: `401` for the service principal | Missing **Workspace access** entitlement | Section 9.2, step 3 |
-| Sessions are named after the question instead of a short title | No `title_endpoint` model in this workspace | Expected; set `title_endpoint` to a chat model that exists (sidebar → **Serving**) |
+| Sessions are named after the question instead of a short title | Expected: `title_endpoint` is off by default | To use a model for titles, set `title_endpoint` to a chat model that exists (sidebar → **Serving**) and re-run `--only app` |
+| Command Center says "No executive summary yet" | The `summary` step hasn't run in this workspace | `python deploy/deploy.py --config <config> --only summary`. Re-run it whenever the data changes |
 | Warehouse takes minutes on the first command | Warehouse was stopped; the script starts it | Wait. Serverless starts in seconds, Pro in a few minutes |
 
 ---
@@ -360,3 +362,65 @@ Open http://localhost:8000. Locally you're signed in as `local-dev@localhost`.
 ## 13. Where things are
 
 See [README.md](README.md) for the repository layout, and [DATABRICKS_IMPLEMENTATION_GUIDE.md](DATABRICKS_IMPLEMENTATION_GUIDE.md) for the design decisions and every gotcha found while building this.
+
+---
+
+## 14. Databricks features used, and why
+
+### Data and governance
+
+| Feature | What it's used for | Why |
+|---|---|---|
+| **Unity Catalog** | Catalog (`cnx_automl_dev`) with schemas `lenss_collections_bronze / silver / gold / context` | One place for access control, and the same names work in every workspace |
+| **UC Volumes** | `raw_files` volume holds the uploaded workbook and one CSV per sheet | A governed place for raw files that SQL can read directly with `read_files()` |
+| **Delta tables** | Bronze and context tables (the 11 sheets as-is), typed silver tables | Bronze keeps the source untouched; silver fixes types and adds a primary key and NOT NULL rules so Genie joins tables correctly |
+| **Metric views** | `mv_performance_targets`, `mv_collections_funnel` | Measures such as achievement % and recovery rate are defined once, and monthly targets can't be double-counted when joined to account-level data |
+| **Certified views** | 16 `qry_*` views, e.g. `qry_mtd_vs_target`, `qry_immediate_intervention` | Checked SQL for the key business questions, reused by both the dashboard and Genie |
+| **Grants** | `USE CATALOG`, `USE SCHEMA`, `SELECT` on gold for the app's service principal | The app reads only gold. Without these grants Agent mode fails with "internal error" |
+
+### Compute and querying
+
+| Feature | What it's used for | Why |
+|---|---|---|
+| **SQL warehouse** (Serverless or Pro) | All deploy SQL, the dashboard queries, and Genie's queries | Genie requires Serverless or Pro; serverless starts in seconds |
+| **SQL Statement Execution API** | Running SQL from `deploy.py` and from the app's dashboard endpoints | Runs SQL over HTTPS, with no JDBC driver or cluster needed |
+
+### AI
+
+| Feature | What it's used for | Why |
+|---|---|---|
+| **Genie space** | 19 data sources, instructions, 19 example SQLs, sample questions, 7 benchmarks | Turns plain-English questions into governed SQL; the benchmarks measure answer accuracy |
+| **Genie space as code** | `deploy/genie/space.py` produces the space definition, which the Genie API creates or updates | The Genie setup is recreated identically in any workspace instead of rebuilt by hand |
+| **Genie Chat mode** (Conversation API) | The app's **Chat** answers: text, the SQL used, and result rows, which become the charts | Fast answers of about 20 seconds |
+| **Genie Agent mode** | The app's **Agent** answers: several SQL steps, generated charts, a written report | "Why is this happening / what should we do" questions, in 1–3 minutes |
+| **Model Serving** (foundation model, e.g. Llama 3.3 70B) | Can give each chat session a short title | **Off by default** (`title_endpoint`); sessions are named from their first question |
+| **Genie feedback API** | 👍/👎 on each answer, stored in the app and sent to the Genie space's Monitor | Space owners see which answers to fix, with the real user recorded in the app |
+
+### App and storage
+
+| Feature | What it's used for | Why |
+|---|---|---|
+| **Databricks Apps** | Hosts the web app (Command Center, Chat + Agent, Monitoring) | Company sign-in (SSO) built in and no servers to run; Databricks builds the Node app on each deploy |
+| **App resources** | The app is linked to the Genie space (Can run), the SQL warehouse (Can use) and the model endpoint (Can query) | Grants these permissions to the app's identity automatically, with no secrets in code |
+| **App service principal** | The identity the app uses to call Genie, SQL and Lakebase | Users only need **Can use** on the app, not their own data permissions |
+| **User identity header** | `x-forwarded-email` identifies the signed-in user | Keeps each person's chat history private to them |
+| **AppKit** (`@databricks/appkit`) | Databricks' Node framework: Genie, Lakebase and server plugins | Handles authentication and connections; custom routes are added on top |
+| **Lakebase Postgres** | The `chatapp` database: chat sessions, messages, usage log | Chat history needs fast small reads and writes, which suits Postgres better than Delta. Logins use Databricks OAuth, so there are no passwords |
+
+### Identity, access and deployment
+
+| Feature | What it's used for | Why |
+|---|---|---|
+| **Service principal + OAuth M2M** | The smoke-test identity (section 9.2) | Tests the deployed URL as a non-admin identity, which catches missing permissions |
+| **Entitlements** | **Workspace access** entitlement for that identity | Without it the app returns `401` even with a valid token |
+| **App permissions** | **Can use** for users and groups (the `readers_group` setting) | How people are given access to the app |
+| **Databricks CLI** | Every step of `deploy.py` | One tool with one sign-in, which works in any terminal |
+| **Workspace files / sync** | App source uploaded to `/Workspace/Users/<you>/apps/<app>` before each deploy | Databricks Apps deploy from a workspace folder |
+| **OAuth login or personal access token** | Signing the CLI in to the workspace (section 6) | Either works; use a token if the browser login does nothing |
+
+### Considered but not used
+
+- **Asset Bundles:** they can't upload the workbook, write Genie's content, or create the Lakebase tables, so `deploy.py` does the whole job instead. The `databricks.yml` in `appkit-genie-app/` comes from the app template and isn't used by the deploy.
+- **Jobs, notebooks, Lakeflow/DLT:** not needed for a one-time load of a static workbook. They would matter once real data arrives on a schedule.
+- **AI/BI dashboards, Delta Sharing:** options for giving external clients read-only access instead of the app.
+- **On-behalf-of-user auth:** `asUser()` doesn't work in this AppKit version, so the app calls Genie and SQL as its service principal.

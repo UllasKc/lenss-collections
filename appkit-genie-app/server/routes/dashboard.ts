@@ -31,7 +31,11 @@ export function buildDashboardRouter(): express.Router {
       const [overContact] = await runSql(`
         SELECT COUNT(*) AS over_contact_segments FROM ${GOLD}.qry_over_contact_risk
       `);
-      res.json({ ...totals, ...funnel, ...intervention, ...overContact });
+      // Written once by deploy.py's `summary` step; missing until that step has run.
+      const [narrative] = await runSql(`
+        SELECT narrative, CAST(generated_at AS STRING) AS narrative_generated_at FROM ${GOLD}.exec_summary LIMIT 1
+      `).catch(() => [{ narrative: null, narrative_generated_at: null }]);
+      res.json({ ...totals, ...funnel, ...intervention, ...overContact, ...narrative });
     } catch (err) {
       res.status(500).json({ error: err instanceof Error ? err.message : String(err) });
     }

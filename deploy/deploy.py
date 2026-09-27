@@ -8,7 +8,8 @@ Creates/updates, idempotently and in order:
   ingest     uploads the workbook, lands all 11 sheets as bronze/context tables
   context    governance tables that only exist in the Word docs
   transform  silver typed tables, gold config, 2 metric views, 16 certified views
-  genie      Genie space: 19 sources, instructions, examples, benchmarks
+  summary    writes the Command Center's executive summary to gold.exec_summary (no LLM)
+  genie     Genie space: 19 sources, instructions, examples, benchmarks
   lakebase   Postgres project/database + chat-history/usage schema
   app        Databricks App (create/update, bind resources, grants, deploy)
   smoke      end-to-end test of the deployed URL (needs LENSS_SMOKE_CLIENT_ID/SECRET)
@@ -32,7 +33,7 @@ from pathlib import Path
 
 DEPLOY_DIR = Path(__file__).resolve().parent
 REPO_DIR = DEPLOY_DIR.parent
-STEPS = ["schemas", "ingest", "context", "transform", "genie", "lakebase", "app", "smoke"]
+STEPS = ["schemas", "ingest", "context", "transform", "summary", "genie", "lakebase", "app", "smoke"]
 
 SHEETS = {  # sheet name -> (layer, table)
     "Fact_Collections_Snapshot": ("bronze", "fact_collections_snapshot"),
@@ -190,8 +191,9 @@ def load_config(path: Path) -> dict:
         "app_dir": "appkit-genie-app",
         "app_workspace_path": None,
         "readers_group": None,
-        # Chat model that names chat sessions; skipped if the endpoint doesn't exist.
-        "title_endpoint": "databricks-meta-llama-3-3-70b-instruct",
+        # Optional chat model that names chat sessions, e.g. "databricks-meta-llama-3-3-70b-instruct".
+        # Off by default: sessions are named from the first question.
+        "title_endpoint": None,
     }
     for k, v in defaults.items():
         cfg.setdefault(k, v)
@@ -298,6 +300,82 @@ def step_transform(sql: Sql, cfg: dict) -> None:
     c, p = cfg["catalog"], cfg["schema_prefix"]
     n = sql.execute(f"SELECT COUNT(*) FROM {c}.{p}_gold.qry_immediate_intervention")[0][0]
     log(f"Transform done — sanity check: qry_immediate_intervention = {n} accounts (604 expected for the demo pack)")
+
+
+def money(v) -> str:
+    v = float(v or 0)
+    return f"${v / 1e6:.1f}M" if abs(v) >= 1e6 else f"${v / 1e3:.0f}K" if abs(v) >= 1e3 else f"${v:,.0f}"
+
+
+def pct(v) -> str:
+    return f"{float(v or 0) * 100:.1f}%"
+
+
+def build_exec_summary(sql: Sql, gold: str) -> tuple[str, str]:
+    """The Command Center's executive summary, written from the certified views.
+
+    Deterministic on purpose: every number is read straight from gold, so the
+    text can't drift from the dashboard, and it only changes when this step
+    re-runs (after new data), not on every page load.
+    """
+    (snapshot,) = sql.execute(f"SELECT CAST(MAX(Snapshot_Date) AS STRING) FROM {gold}.qry_month_end_forecast")[0]
+    collected, target, below, segments = sql.execute(
+        f"SELECT SUM(MTD_Collections), SUM(Monthly_Target), COUNT_IF(MTD_Collections < Monthly_Target), COUNT(*) "
+        f"FROM {gold}.qry_mtd_vs_target")[0]
+    products = sql.execute(
+        f"SELECT Product, SUM(MTD_Collections)/SUM(Monthly_Target), SUM(Monthly_Target)-SUM(MTD_Collections) "
+        f"FROM {gold}.qry_mtd_vs_target GROUP BY Product ORDER BY 2")
+    worst_seg = sql.execute(
+        f"SELECT Product, DPD_Bucket, Target_Gap, Target_Achievement_Pct FROM {gold}.qry_mtd_vs_target "
+        f"ORDER BY Target_Gap DESC LIMIT 1")[0]
+    worst_bucket = sql.execute(
+        f"SELECT DPD_Bucket, SUM(Monthly_Target)-SUM(MTD_Collections) FROM {gold}.qry_mtd_vs_target "
+        f"GROUP BY DPD_Bucket ORDER BY 2 DESC LIMIT 1")[0]
+    dpd_order = ["1-30", "31-60", "61-90", "91-180", "180+"]
+    recovery = sorted(
+        sql.execute(f"SELECT DPD_Bucket, SUM(Recovery_MTD)/SUM(Outstanding_Balance) FROM {gold}.qry_kpi_drivers "
+                    f"GROUP BY DPD_Bucket"),
+        key=lambda r: dpd_order.index(r[0]) if r[0] in dpd_order else len(dpd_order))
+    accounts, opportunity = sql.execute(
+        f"SELECT COUNT(*), SUM(Incremental_Recovery_Opportunity) FROM {gold}.qry_immediate_intervention")[0]
+    (over_contact,) = sql.execute(f"SELECT COUNT(*) FROM {gold}.qry_over_contact_risk")[0]
+
+    gap = float(target) - float(collected)
+    month = time.strftime("%B %Y", time.strptime(snapshot[:7], "%Y-%m"))
+    day = int(snapshot[8:10])
+    worst_p, best_p = products[0], products[-1]
+    below_txt = f"all {segments}" if int(below) == int(segments) else f"{below} of {segments}"
+    parts = [
+        f"As of {day} {month.split()[0]}, collections stand at {money(collected)} against a {money(target)} target "
+        f"for {month}: {pct(float(collected) / float(target))} achieved, {money(gap)} short, "
+        f"with {below_txt} product and delinquency segments below target.",
+        f"{worst_p[0]} is furthest behind at {pct(worst_p[1])} of target ({money(worst_p[2])} short), "
+        f"while {best_p[0]} leads at {pct(best_p[1])}.",
+        f"The single largest gap is {worst_seg[0]} at {worst_seg[1]} days past due ({money(worst_seg[2])} short, "
+        f"{pct(worst_seg[3])} of target), and the {worst_bucket[0]} bucket carries the most shortfall overall "
+        f"({money(worst_bucket[1])}).",
+    ]
+    if len(recovery) > 1 and float(recovery[0][1]) > float(recovery[-1][1]):
+        parts.append(
+            f"Balance recovery falls with delinquency, from {pct(recovery[0][1])} of outstanding balance in the "
+            f"{recovery[0][0]} bucket to {pct(recovery[-1][1])} in {recovery[-1][0]}, so early-stage accounts "
+            f"are where effort converts best.")
+    parts.append(
+        f"{int(accounts):,} accounts need immediate intervention, representing {money(opportunity)} of additional "
+        f"recovery, and {int(over_contact)} segments are being contacted 4.5 or more times per account, "
+        f"a conduct and complaint risk to review.")
+    return " ".join(parts), snapshot
+
+
+def step_summary(sql: Sql, cfg: dict) -> None:
+    gold = f"{cfg['catalog']}.{cfg['schema_prefix']}_gold"
+    narrative, snapshot = build_exec_summary(sql, gold)
+    sql.execute(f"CREATE TABLE IF NOT EXISTS {gold}.exec_summary "
+                f"(generated_at TIMESTAMP, snapshot_date DATE, narrative STRING) "
+                f"COMMENT 'Command Center executive summary, written by deploy.py from the certified views'")
+    escaped = narrative.replace("\\", "\\\\").replace("'", "\\'")
+    sql.execute(f"INSERT OVERWRITE {gold}.exec_summary VALUES (current_timestamp(), DATE '{snapshot}', '{escaped}')")
+    log(f"Executive summary written ({len(narrative)} characters):\n    {narrative}")
 
 
 def step_genie(db: Databricks, cfg: dict, state: dict, cfg_path: Path) -> None:
@@ -556,6 +634,8 @@ def main() -> None:
                 step_context(sql, cfg)
             elif step == "transform":
                 step_transform(sql, cfg)
+            elif step == "summary":
+                step_summary(sql, cfg)
             elif step == "genie":
                 step_genie(db, cfg, state, cfg_path)
             elif step == "lakebase":

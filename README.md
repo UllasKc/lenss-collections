@@ -18,6 +18,7 @@ That single run, idempotently and in order:
 | `ingest` | Uploads the workbook to the volume and lands all 11 sheets as bronze/context tables, verifying row counts |
 | `context` | Creates the governance tables that exist only in the Word docs |
 | `transform` | Builds silver (typed + primary key), `business_rules_config`, 2 metric views, 16 certified views |
+| `summary` | Writes the Command Center's executive summary to `gold.exec_summary`, built from the certified views (no LLM); re-run it when the data changes |
 | `genie` | Creates or updates the Genie space: 19 sources, instructions, 19 examples, 8 sample questions, 7 benchmarks |
 | `lakebase` | Creates the Lakebase Postgres project/database and the chat-history + usage-log tables |
 | `app` | Creates or updates the Databricks App, binds the Genie space + SQL warehouse, grants the app's service principal read access on gold and access to Lakebase, then syncs and deploys |
@@ -42,7 +43,7 @@ VS Code is optional; any terminal (Command Prompt, PowerShell, bash) works. Node
 | `warehouse_id` or `warehouse_name` | SQL warehouse for all SQL and for Genie (Pro or Serverless) |
 | `app_name` | Databricks App name (lowercase, hyphens) |
 | `readers_group` | Optional workspace group to grant `SELECT` on gold and `CAN_USE` on the app |
-| `title_endpoint` | Chat model serving endpoint that names chat sessions (default `databricks-meta-llama-3-3-70b-instruct`). If it doesn't exist in the workspace, sessions are named from the question text instead |
+| `title_endpoint` | Optional chat model serving endpoint that names chat sessions, e.g. `databricks-meta-llama-3-3-70b-instruct`. Off by default: sessions are named from their first question |
 
 Permissions you need in the org workspace: `CREATE SCHEMA` on the catalog, permission to create Genie spaces, Lakebase project creation, and Databricks Apps creation. If any of those is missing, the script stops at that step with the platform's error message.
 

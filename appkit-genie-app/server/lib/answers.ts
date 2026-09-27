@@ -87,6 +87,26 @@ export function chatAnswer(
   return { version: 2, mode: 'chat', text, charts, suggestions };
 }
 
+/** One SQL statement Genie ran for an answer, for the Monitoring audit trail. */
+export interface QueryRun {
+  title: string;
+  sql: string;
+  rows: number | null;
+}
+
+export function chatQueries(
+  attachments: ChatAttachment[],
+  queryResults: Map<string, StatementResponse>,
+): QueryRun[] {
+  return attachments
+    .filter((a) => a.query?.query)
+    .map((a) => ({
+      title: a.query?.title || a.query?.description || 'Query',
+      sql: a.query?.query ?? '',
+      rows: a.attachmentId ? queryResults.get(a.attachmentId)?.result?.data_array?.length ?? null : null,
+    }));
+}
+
 // --- Agent mode --------------------------------------------------------------
 
 interface AgentOutputItem {
@@ -115,6 +135,30 @@ function inferType(values: Array<string | null>): string {
   if (present.length && present.every((v) => /^-?\d+(\.\d+)?([eE][-+]?\d+)?$/.test(v))) return 'DOUBLE';
   if (present.length && present.every((v) => /^\d{4}-\d{2}-\d{2}/.test(v))) return 'DATE';
   return 'STRING';
+}
+
+/** Every `execute_sql` step with its SQL and the number of rows it returned. */
+export function agentQueries(output: AgentOutputItem[]): QueryRun[] {
+  const calls = new Map<string, QueryRun>();
+  for (const item of output) {
+    if (item.type === 'function_call' && item.name === 'execute_sql' && item.call_id) {
+      let args: { title?: string; sql?: string } = {};
+      try { args = JSON.parse(item.arguments ?? '{}'); } catch { /* keep empty */ }
+      calls.set(item.call_id, { title: args.title ?? 'Query', sql: args.sql ?? '', rows: null });
+    } else if (item.type === 'function_call_output' && item.call_id && calls.has(item.call_id)) {
+      calls.get(item.call_id)!.rows = parseMarkdownTable(item.output ?? '')?.rows.length ?? null;
+    }
+  }
+  return [...calls.values()];
+}
+
+/** Genie's own id for the answer (needed for its feedback API); items carry it in metadata. */
+export function agentMessageId(output: Array<{ metadata?: { message_id?: string } }>): string | null {
+  for (let i = output.length - 1; i >= 0; i--) {
+    const id = output[i].metadata?.message_id;
+    if (id) return id;
+  }
+  return null;
 }
 
 export function agentAnswer(output: AgentOutputItem[]): Answer {

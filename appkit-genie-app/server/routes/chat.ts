@@ -1,7 +1,21 @@
 import express from 'express';
+import { getExecutionContext } from '@databricks/appkit';
 import { streamAgentResponse } from '../lib/agentMode.js';
-import { agentAnswer, chatAnswer, type Answer } from '../lib/answers.js';
+import {
+  agentAnswer, agentMessageId, agentQueries, chatAnswer, chatQueries, type Answer, type QueryRun,
+} from '../lib/answers.js';
 import { generateTitle } from '../lib/titles.js';
+
+/** Genie Chat-mode statuses, as the stage names shown in Monitoring. */
+const STAGE_NAMES: Record<string, string> = {
+  SUBMITTED: 'Queued',
+  FETCHING_METADATA: 'Reading table metadata',
+  FILTERING_CONTEXT: 'Selecting relevant context',
+  ASKING_AI: 'Writing SQL',
+  PENDING_WAREHOUSE: 'Waiting for warehouse',
+  EXECUTING_QUERY: 'Running SQL',
+  COMPLETED: 'Finishing',
+};
 
 /** `GenieStreamEvent` isn't part of `@databricks/appkit`'s public export
  * surface (only its internal `shared/src/genie.js`) — mirrored here rather
@@ -153,7 +167,7 @@ export function buildChatRouter(appkit: ChatAppKit): express.Router {
       return;
     }
     const { rows } = await appkit.lakebase.query(
-      `SELECT message_id, role, content, mode, attachment_json, created_at
+      `SELECT message_id, role, content, mode, attachment_json, feedback, created_at
          FROM chatapp.chat_messages
         WHERE session_id = $1
         ORDER BY created_at ASC`,
@@ -215,9 +229,21 @@ export function buildChatRouter(appkit: ChatAppKit): express.Router {
     let success = false;
     let errorMessage: string | null = null;
     let answer: Answer | null = null;
+    let queries: QueryRun[] = [];
+    let genieMessageId: string | null = null;
     const convColumn = mode === 'agent' ? 'agent_conversation_id' : 'genie_conversation_id';
     let conversationId: string | undefined = (session[convColumn] as string | null) ?? undefined;
     const question = preamble + content;
+
+    // Where the time went, for the Monitoring audit trail: each entry is how
+    // long one stage took, in the order Genie went through them.
+    const timeline: Array<{ stage: string; ms: number }> = [];
+    let lapStart = startedAt;
+    const lap = (stage: string) => {
+      const now = Date.now();
+      timeline.push({ stage, ms: now - lapStart });
+      lapStart = now;
+    };
 
     try {
       if (mode === 'agent') {
@@ -227,25 +253,37 @@ export function buildChatRouter(appkit: ChatAppKit): express.Router {
           if (evt.type === 'response.output_item.done') {
             // Forward progress only; the full answer is sent once, normalized.
             const item = (d?.item ?? {}) as Record<string, unknown>;
-            send('progress', agentProgress(item));
+            const step = agentProgress(item);
+            send('progress', step);
+            if (step.kind !== 'other') lap(agentStageName(step));
           } else if (evt.type === 'response.completed' && d?.response) {
             const responseObj = d.response as { conversation_id?: string; output?: unknown[] };
             conversationId = responseObj.conversation_id ?? conversationId;
-            answer = agentAnswer((responseObj.output ?? []) as never);
+            const output = (responseObj.output ?? []) as never;
+            answer = agentAnswer(output);
+            queries = agentQueries(output);
+            genieMessageId = agentMessageId(output);
             success = Boolean(answer.text);
           } else if (evt.type === 'response.failed' || evt.type === 'error') {
             errorMessage = JSON.stringify(d?.error ?? d);
           }
         }
+        lap('Finishing');
       } else {
         let attachments: unknown[] = [];
         const queryResults = new Map<string, never>();
+        let stage = 'Sending the question';
         for await (const evt of appkit.genie.sendMessage('default', question, conversationId)) {
           if (evt.type === 'message_start') {
             conversationId = evt.conversationId;
+            genieMessageId = evt.messageId;
           } else if (evt.type === 'status') {
             send('progress', { kind: 'status', text: evt.status });
+            const next = STAGE_NAMES[evt.status] ?? evt.status;
+            if (next !== stage) { lap(stage); stage = next; }
           } else if (evt.type === 'message_result') {
+            lap(stage);
+            stage = 'Fetching result rows';
             attachments = evt.message.attachments ?? [];
             success = evt.message.status !== 'FAILED';
             if (evt.message.error) errorMessage = evt.message.error;
@@ -255,20 +293,28 @@ export function buildChatRouter(appkit: ChatAppKit): express.Router {
             errorMessage = evt.error;
           }
         }
+        lap(stage);
         answer = chatAnswer(attachments as never, queryResults);
+        queries = chatQueries(attachments as never, queryResults);
         if (!answer.text && !answer.charts.length) success = false;
       }
     } catch (err) {
       errorMessage = err instanceof Error ? err.message : String(err);
     }
+    const latencyMs = Date.now() - startedAt;
 
+    let assistantMessageId: string | null = null;
     if (answer && (answer.text || answer.charts.length)) {
       send('answer', answer);
-      await appkit.lakebase.query(
-        `INSERT INTO chatapp.chat_messages (session_id, user_email, role, content, mode, attachment_json)
-         VALUES ($1, $2, 'assistant', $3, $4, $5)`,
-        [session.session_id, email, answer.text, mode, JSON.stringify(answer)],
+      const saved = await appkit.lakebase.query(
+        `INSERT INTO chatapp.chat_messages
+           (session_id, user_email, role, content, mode, attachment_json, genie_conversation_id, genie_message_id)
+         VALUES ($1, $2, 'assistant', $3, $4, $5, $6, $7)
+         RETURNING message_id`,
+        [session.session_id, email, answer.text, mode, JSON.stringify(answer), conversationId ?? null, genieMessageId],
       );
+      assistantMessageId = saved.rows[0]?.message_id as string;
+      send('saved', { messageId: assistantMessageId, feedbackEnabled: Boolean(conversationId && genieMessageId) });
     } else {
       send('error', { error: errorMessage ?? 'No answer was returned' });
     }
@@ -277,16 +323,65 @@ export function buildChatRouter(appkit: ChatAppKit): express.Router {
       `UPDATE chatapp.chat_sessions SET ${convColumn} = $1, updated_at = now() WHERE session_id = $2`,
       [conversationId ?? null, session.session_id],
     );
+    const details = {
+      timeline,
+      queries,
+      charts: answer?.charts.length ?? 0,
+      agentSteps: answer?.steps?.length ?? null,
+      answerPreview: (answer?.text ?? '').slice(0, 1500),
+      contextCarriedOver: Boolean(preamble),
+      genieConversationId: conversationId ?? null,
+      genieMessageId,
+    };
     await appkit.lakebase.query(
-      `INSERT INTO chatapp.usage_log (session_id, user_email, mode, question, success, latency_ms, error_message)
-       VALUES ($1, $2, $3, $4, $5, $6, $7)`,
-      [session.session_id, email, mode, content, success, Date.now() - startedAt, errorMessage],
+      `INSERT INTO chatapp.usage_log
+         (session_id, user_email, mode, question, success, latency_ms, error_message, assistant_message_id, details)
+       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)`,
+      [session.session_id, email, mode, content, success, latencyMs, errorMessage, assistantMessageId, JSON.stringify(details)],
     );
 
     const title = await titlePromise.catch(() => null);
     if (title) send('session_title', { sessionId: session.session_id, title });
-    send('done', { success, latencyMs: Date.now() - startedAt });
+    send('done', { success, latencyMs });
     res.end();
+  });
+
+  // --- answer feedback: stored here and sent to Genie's Monitor ----------
+
+  router.post('/api/chat/messages/:id/feedback', async (req, res) => {
+    const email = currentUserEmail(req);
+    const raw = req.body?.rating;
+    const value = raw === 'up' ? 1 : raw === 'down' ? -1 : null;
+    const { rows } = await appkit.lakebase.query(
+      `UPDATE chatapp.chat_messages SET feedback = $1, feedback_at = now()
+        WHERE message_id = $2 AND user_email = $3 AND role = 'assistant'
+        RETURNING genie_conversation_id, genie_message_id`,
+      [value, req.params.id, email],
+    );
+    if (!rows.length) {
+      res.status(404).json({ error: 'answer not found' });
+      return;
+    }
+    await appkit.lakebase.query(`UPDATE chatapp.usage_log SET feedback = $1 WHERE assistant_message_id = $2`, [value, req.params.id]);
+
+    // Genie's feedback API accepts both Chat and Agent answers (verified).
+    let sentToGenie = false;
+    const { genie_conversation_id: conv, genie_message_id: msg } = rows[0] as Record<string, string | null>;
+    if (GENIE_AGENT_ID && conv && msg) {
+      try {
+        await getExecutionContext().client.apiClient.request({
+          path: `/api/2.0/genie/spaces/${GENIE_AGENT_ID}/conversations/${conv}/messages/${msg}/feedback`,
+          method: 'POST',
+          headers: new Headers({ 'Content-Type': 'application/json' }),
+          raw: false,
+          payload: { rating: value === 1 ? 'POSITIVE' : value === -1 ? 'NEGATIVE' : 'NONE' },
+        } as never);
+        sentToGenie = true;
+      } catch (err) {
+        console.warn('Genie feedback not delivered:', err instanceof Error ? err.message : err);
+      }
+    }
+    res.json({ rating: raw ?? null, sentToGenie });
   });
 
   // --- monitoring / observability --------------------------------------
@@ -296,7 +391,9 @@ export function buildChatRouter(appkit: ChatAppKit): express.Router {
       appkit.lakebase.query(
         `SELECT COUNT(*)::int AS total_questions,
                 COUNT(*) FILTER (WHERE success)::int AS successful,
-                ROUND(AVG(latency_ms)) AS avg_latency_ms
+                ROUND(AVG(latency_ms)) AS avg_latency_ms,
+                COUNT(*) FILTER (WHERE feedback = 1)::int AS helpful,
+                COUNT(*) FILTER (WHERE feedback = -1)::int AS not_helpful
            FROM chatapp.usage_log`,
       ),
       appkit.lakebase.query(
@@ -318,10 +415,12 @@ export function buildChatRouter(appkit: ChatAppKit): express.Router {
           GROUP BY mode`,
       ),
       appkit.lakebase.query(
-        `SELECT user_email, mode, question, success, latency_ms, error_message, created_at
-           FROM chatapp.usage_log
-          ORDER BY created_at DESC
-          LIMIT 50`,
+        `SELECT u.event_id, u.session_id, s.title AS session_title, u.user_email, u.mode, u.question, u.success,
+                u.latency_ms, u.error_message, u.feedback, u.details, u.created_at
+           FROM chatapp.usage_log u
+           LEFT JOIN chatapp.chat_sessions s ON s.session_id = u.session_id
+          ORDER BY u.created_at DESC
+          LIMIT 100`,
       ),
     ]);
     res.json({
@@ -333,6 +432,18 @@ export function buildChatRouter(appkit: ChatAppKit): express.Router {
   });
 
   return router;
+}
+
+/** Stage name for the Monitoring timeline; the time is what led up to this step finishing. */
+function agentStageName(step: { kind: string; text: string }): string {
+  const t = step.text.length > 70 ? step.text.slice(0, 70) + '…' : step.text;
+  switch (step.kind) {
+    case 'reasoning': return 'Reasoning';
+    case 'sql': return `Running SQL: ${t}`;
+    case 'viz': return `Building chart: ${t}`;
+    case 'writing': return 'Writing the answer';
+    default: return t || 'Working';
+  }
 }
 
 /** A short, human-readable line for each finished Agent Mode step. */

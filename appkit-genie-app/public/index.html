@@ -27,6 +27,12 @@
       <div><h1>Command Center</h1><div class="sub">Portfolio-wide performance snapshot — 2026-09-15</div></div>
     </div>
 
+    <div class="card narr-card">
+      <div class="eyebrow">Executive Summary</div>
+      <p class="narr" id="narrative">Loading executive summary…</p>
+      <div class="narr-meta" id="narrativeMeta"></div>
+    </div>
+
     <h2 class="sect">Key metrics</h2>
     <div class="grid kpis" id="kpis"></div>
 
@@ -106,10 +112,16 @@
       </table>
     </div>
 
-    <h2 class="sect">Recent activity</h2>
+    <h2 class="sect">Per-question audit trail</h2>
+    <div class="card filters" style="margin-bottom:14px">
+      <div class="field"><label for="obsUserFilter">User</label>
+        <select id="obsUserFilter"><option value="">All users (latest 100 questions)</option></select>
+      </div>
+      <div class="audit-hint">Click a row for the answer, the SQL Genie ran, rows returned, and where the time went.</div>
+    </div>
     <div class="card table-scroll">
       <table id="recentTable">
-        <thead><tr><th>When</th><th>User</th><th>Mode</th><th>Question</th><th>Result</th></tr></thead>
+        <thead><tr><th>When</th><th>User</th><th>Mode</th><th>Question</th><th>Result</th><th>Rating</th><th>Time</th><th></th></tr></thead>
         <tbody></tbody>
       </table>
     </div>
