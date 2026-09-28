@@ -491,6 +491,38 @@ def write_app_yaml(app_dir: Path, cfg: dict, state: dict) -> None:
     )
 
 
+def grant_use_catalog(sql: Sql, catalog: str, sp: str) -> bool:
+    """USE CATALOG for the app's service principal. Returns False if it's still missing.
+
+    Granting it needs MANAGE on the catalog (or ownership), which the person
+    deploying into a shared catalog often doesn't have. Many shared catalogs
+    already give USE CATALOG to `account users`, which every service principal
+    belongs to, so that counts too. Otherwise this warns instead of failing,
+    so everything else still deploys and only this one grant is left to an admin.
+    """
+    try:
+        sql.execute(f"GRANT USE CATALOG ON CATALOG {catalog} TO `{sp}`")
+        log(f"Granted USE CATALOG on {catalog} to the app's service principal")
+        return True
+    except DeployError as e:
+        if "PERMISSION_DENIED" not in str(e):
+            raise
+    try:
+        grants = sql.execute(f"SHOW GRANTS ON CATALOG {catalog}")
+    except DeployError:
+        grants = []
+    for principal, action, *_ in grants:
+        if principal in ("account users", sp) and action.replace("_", " ").upper() in ("USE CATALOG", "ALL PRIVILEGES"):
+            log(f"USE CATALOG on {catalog} already comes from `{principal}`; no catalog grant needed")
+            return True
+    log(f"WARNING: you can't grant USE CATALOG on {catalog} (it needs MANAGE on the catalog), and it isn't "
+        f"granted to `account users`. Ask the catalog owner or an admin to run:\n"
+        f"    GRANT USE CATALOG ON CATALOG {catalog} TO `{sp}`;\n"
+        f"  It only lets the app enter the catalog; data access still comes only from your schema grants. "
+        f"Until then the app loads, but its dashboard and Genie answers fail.")
+    return False
+
+
 def step_app(db: Databricks, sql: Sql, cfg: dict, state: dict, cfg_path: Path) -> None:
     name = cfg["app_name"]
     app_dir = (REPO_DIR / cfg["app_dir"]).resolve()
@@ -533,10 +565,11 @@ def step_app(db: Databricks, sql: Sql, cfg: dict, state: dict, cfg_path: Path) -
     # Unity Catalog: only the app's service principal reads gold (Genie runs its SQL
     # as the app too). App users get no data grants: they see data only through the app.
     c, p = cfg["catalog"], cfg["schema_prefix"]
-    sql.execute(f"GRANT USE CATALOG ON CATALOG {c} TO `{sp}`")
+    catalog_ok = grant_use_catalog(sql, c, sp)
     sql.execute(f"GRANT USE SCHEMA ON SCHEMA {c}.{p}_gold TO `{sp}`")
     sql.execute(f"GRANT SELECT ON SCHEMA {c}.{p}_gold TO `{sp}`")
-    log("Granted USE CATALOG / USE SCHEMA / SELECT on gold to the app's service principal")
+    log("Granted USE SCHEMA / SELECT on gold to the app's service principal")
+    state["catalog_access_pending"] = not catalog_ok
 
     # Lakebase: a Postgres role for the app's service principal, then table grants.
     branch = state["lakebase_branch"]
@@ -589,6 +622,9 @@ def step_app(db: Databricks, sql: Sql, cfg: dict, state: dict, cfg_path: Path) -
         raise DeployError(f"App deployment did not succeed: {status}")
     save_state(cfg_path, state)
     log(f"App live at {state['app_url']}")
+    if state.get("catalog_access_pending"):
+        log(f"Still needed from an admin: GRANT USE CATALOG ON CATALOG {c} TO `{sp}`; (see the warning above). "
+            f"No redeploy is needed after they run it.")
 
 
 def step_smoke(cfg: dict, state: dict, db: Databricks) -> None:
