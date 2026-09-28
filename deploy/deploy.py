@@ -522,7 +522,8 @@ def step_app(db: Databricks, sql: Sql, cfg: dict, state: dict, cfg_path: Path) -
     # `apps update` replaces the fields it is sent, so always send the full spec.
     if db.run("apps", "get", name, check=False) is None:
         log(f"Creating app {name} (starts compute; a few minutes)…")
-        app = db.run("apps", "create", name, json_body=spec)
+        # With --json the CLI takes the name inside the body, not as an argument.
+        app = db.run("apps", "create", json_body={**spec, "name": name})
     else:
         app = db.run("apps", "update", name, json_body=spec)
     sp = app["service_principal_client_id"]
@@ -542,7 +543,9 @@ def step_app(db: Databricks, sql: Sql, cfg: dict, state: dict, cfg_path: Path) -
     roles = db.run("postgres", "list-roles", branch)
     roles = roles if isinstance(roles, list) else roles.get("roles", [])
     if not any(r["status"].get("postgres_role") == sp for r in roles):
-        role_id = re.sub(r"[^a-z0-9-]", "-", f"app-{name}".lower())[:63].strip("-")
+        # Unique per service principal: a recreated app gets a new one, and the old
+        # role (same app name) may still exist.
+        role_id = re.sub(r"[^a-z0-9-]", "-", f"app-{name}-{sp[:8]}".lower())[:63].strip("-")
         db.run("postgres", "create-role", branch, "--role-id", role_id, json_body={"spec": {
             "identity_type": "SERVICE_PRINCIPAL", "postgres_role": sp, "auth_method": "LAKEBASE_OAUTH_V1"}})
     conn = pg_connect(db, state, cfg["lakebase_database"])
