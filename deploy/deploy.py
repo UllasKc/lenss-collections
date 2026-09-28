@@ -539,6 +539,13 @@ def step_app(db: Databricks, sql: Sql, cfg: dict, state: dict, cfg_path: Path) -
              "genie_space": {"name": space["title"], "space_id": state["genie_space_id"], "permission": "CAN_RUN"}},
             {"name": "sql-warehouse", "description": "Warehouse for dashboard queries",
              "sql_warehouse": {"id": state["warehouse_id"], "permission": "CAN_USE"}},
+            # Lakebase database as a declared resource: Databricks creates the app's
+            # Postgres login (named dbrx-apps-<sp id>) and grants CONNECT/CREATE on it.
+            # Table-level grants on chatapp.* are still applied below.
+            {"name": "database", "description": "Lakebase database for chat history and usage log",
+             "postgres": {"branch": state["lakebase_branch"],
+                          "database": f"{state['lakebase_branch']}/databases/{cfg['lakebase_database']}",
+                          "permission": "CAN_CONNECT_AND_CREATE"}},
         ],
     }
     # Optional model that names chat sessions (the app falls back to the question text).

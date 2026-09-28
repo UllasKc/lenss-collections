@@ -409,7 +409,7 @@ See [README.md](README.md) for the repository layout, and [DATABRICKS_IMPLEMENTA
 | Feature | What it's used for | Why |
 |---|---|---|
 | **Databricks Apps** | Hosts the web app (Command Center, Chat + Agent, Monitoring) | Company sign-in (SSO) built in and no servers to run; Databricks builds the Node app on each deploy |
-| **App resources** | The app is linked to the Genie space (Can run), the SQL warehouse (Can use) and the model endpoint (Can query) | Grants these permissions to the app's identity automatically, with no secrets in code |
+| **App resources** | The app is linked to the Genie space (Can run), the SQL warehouse (Can use), the Lakebase database `chatapp` (Can connect and create) and, if enabled, the title model (Can query) | Grants these permissions to the app's identity automatically, with no secrets in code |
 | **App service principal** | The identity the app uses to call Genie, SQL and Lakebase | Users only need **Can use** on the app, not their own data permissions |
 | **User identity header** | `x-forwarded-email` identifies the signed-in user | Keeps each person's chat history private to them |
 | **AppKit** (`@databricks/appkit`) | Databricks' Node framework: Genie, Lakebase and server plugins | Handles authentication and connections; custom routes are added on top |
