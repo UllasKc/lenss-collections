@@ -498,7 +498,10 @@ def step_app(db: Databricks, sql: Sql, cfg: dict, state: dict, cfg_path: Path) -
     space = db.run("genie", "get-space", state["genie_space_id"])
     spec = {
         "description": "LensS Collections Intelligence — Genie chat + agent mode, command center, monitoring.",
-        "user_api_scopes": ["dashboards.genie"],
+        # No on-behalf-of-user scopes: the app calls Genie and SQL as its own service
+        # principal, so users need only CAN_USE on the app and are never asked to
+        # authorize anything. (Empty list also clears a scope set by an older deploy.)
+        "user_api_scopes": [],
         "resources": [
             {"name": "genie-space", "description": "Genie space for natural-language questions",
              "genie_space": {"name": space["title"], "space_id": state["genie_space_id"], "permission": "CAN_RUN"}},
@@ -526,14 +529,13 @@ def step_app(db: Databricks, sql: Sql, cfg: dict, state: dict, cfg_path: Path) -
     state["app_url"] = app.get("url")
     log(f"App {name}, service principal {sp}")
 
-    # Unity Catalog: the app (and Genie, which runs SQL as the app) reads gold.
+    # Unity Catalog: only the app's service principal reads gold (Genie runs its SQL
+    # as the app too). App users get no data grants: they see data only through the app.
     c, p = cfg["catalog"], cfg["schema_prefix"]
-    grantees = [f"`{sp}`"] + ([f"`{cfg['readers_group']}`"] if cfg["readers_group"] else [])
-    for g in grantees:
-        sql.execute(f"GRANT USE CATALOG ON CATALOG {c} TO {g}")
-        sql.execute(f"GRANT USE SCHEMA ON SCHEMA {c}.{p}_gold TO {g}")
-        sql.execute(f"GRANT SELECT ON SCHEMA {c}.{p}_gold TO {g}")
-    log("Granted USE CATALOG / USE SCHEMA / SELECT on gold to the app" + (" and readers group" if cfg["readers_group"] else ""))
+    sql.execute(f"GRANT USE CATALOG ON CATALOG {c} TO `{sp}`")
+    sql.execute(f"GRANT USE SCHEMA ON SCHEMA {c}.{p}_gold TO `{sp}`")
+    sql.execute(f"GRANT SELECT ON SCHEMA {c}.{p}_gold TO `{sp}`")
+    log("Granted USE CATALOG / USE SCHEMA / SELECT on gold to the app's service principal")
 
     # Lakebase: a Postgres role for the app's service principal, then table grants.
     branch = state["lakebase_branch"]
@@ -552,10 +554,12 @@ def step_app(db: Databricks, sql: Sql, cfg: dict, state: dict, cfg_path: Path) -
     conn.close()
     log("Granted the app's Postgres role access to chatapp.*")
 
+    # People: CAN_USE on the app is the only permission they get — no Genie space,
+    # warehouse, table or Lakebase access.
     if cfg["readers_group"]:
         db.run("apps", "update-permissions", name, json_body={"access_control_list": [
             {"group_name": cfg["readers_group"], "permission_level": "CAN_USE"}]})
-        log(f"Granted CAN_USE on the app to {cfg['readers_group']}")
+        log(f"Granted CAN_USE on the app (and nothing else) to {cfg['readers_group']}")
 
     write_app_yaml(app_dir, cfg, state)
     log(f"Syncing {app_dir.name} -> {ws_path}")

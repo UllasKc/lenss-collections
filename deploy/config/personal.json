@@ -9,5 +9,6 @@
   "lakebase_project": "lenss-collections-app",
   "lakebase_database": "chatapp",
   "app_name": "appkit-genie",
-  "app_workspace_path": "/Workspace/Users/ullaskc98@gmail.com/databricks_apps/appkit-genie_2026_09_25-09_49/appkit-genie"
+  "app_workspace_path": "/Workspace/Users/ullaskc98@gmail.com/databricks_apps/appkit-genie_2026_09_25-09_49/appkit-genie",
+  "readers_group": "lenss-users"
 }

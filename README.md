@@ -42,7 +42,7 @@ VS Code is optional; any terminal (Command Prompt, PowerShell, bash) works. Node
 | `catalog` / `create_catalog` | Target catalog; leave `create_catalog` false in the shared `cnx_automl_dev` catalog |
 | `warehouse_id` or `warehouse_name` | SQL warehouse for all SQL and for Genie (Pro or Serverless) |
 | `app_name` | Databricks App name (lowercase, hyphens) |
-| `readers_group` | Optional workspace group to grant `SELECT` on gold and `CAN_USE` on the app |
+| `readers_group` | Optional workspace group that gets `CAN_USE` on the app, and nothing else. Users need no Genie, warehouse or table permissions, because the app uses its own service principal |
 | `title_endpoint` | Optional chat model serving endpoint that names chat sessions, e.g. `databricks-meta-llama-3-3-70b-instruct`. Off by default: sessions are named from their first question |
 
 Permissions you need in the org workspace: `CREATE SCHEMA` on the catalog, permission to create Genie spaces, Lakebase project creation, and Databricks Apps creation. If any of those is missing, the script stops at that step with the platform's error message.

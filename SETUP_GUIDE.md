@@ -206,7 +206,7 @@ Open it in any editor (Notepad works):
 | `lakebase_project` | Lakebase project name | lowercase letters, digits, hyphens |
 | `lakebase_database` | Leave as `chatapp` | |
 | `app_name` | The app's name, which becomes part of its URL | lowercase letters, digits, hyphens; must be unique in the workspace |
-| `readers_group` | *(optional)* A workspace group, e.g. `"lenss-users"` | Gets `CAN_USE` on the app and `SELECT` on the gold schema |
+| `readers_group` | *(optional)* A workspace group, e.g. `"lenss-users"` | Gets **only** `CAN_USE` on the app: no access to the Genie space, warehouse, tables or Lakebase (see 9.1) |
 | `title_endpoint` | *(optional, not in the file by default)* Chat model endpoint used to name sessions | Off by default: sessions are named from their first question. To turn it on, set it to a chat model endpoint that exists, e.g. `"databricks-meta-llama-3-3-70b-instruct"` |
 
 ---
@@ -260,6 +260,14 @@ Steps, in order: `schemas, ingest, context, transform, summary, genie, lakebase,
 
 1. Open the URL printed at the end. You'll sign in with your normal Databricks login.
 2. Give other people access: workspace sidebar → **Compute → Apps → (your app) → Permissions → Add** → the user or group → **Can use**. Setting `readers_group` in the config does this for a whole group on every deploy.
+
+   **App access is the only permission people need.** Don't grant them the Genie space, the SQL warehouse or the tables: the app reads data and calls Genie as its own service principal. Someone with only **Can use** on the app can use everything in it, but is refused (`403`) if they try to open the Genie space, read the gold tables or run SQL directly. This was verified with an identity that has nothing but **Can use** on the app. Give app users only the **Consumer access** entitlement, not Workspace access: that's confirmed to be enough to open and use the app. Users get a simplified Databricks view with no notebooks, SQL editor or compute.
+
+   **Recommended setup:** one group (e.g. `lenss-users`) with Consumer access and **Can use** on the app. Adding a person later means only adding them to the group:
+   1. **Settings → Identity and access → Groups → Add group** → `lenss-users`.
+   2. Add the people to the group. In an organisation, use an account group synced from the company identity provider (e.g. Entra ID) and assign it to the workspace.
+   3. Give the group (or each user) the **Consumer access** entitlement only.
+   4. Set `"readers_group": "lenss-users"` in the config and run `--only app`; this grants the group **Can use** on the app. Or do it by hand: **Apps → (your app) → Permissions → add the group → Can use**.
 3. People who aren't in the workspace yet must first be added by an admin (**Settings → Identity and access → Users**). For people outside the company this goes through your identity provider (SSO/SCIM). Databricks Apps **cannot** be made public or anonymous; everyone signs in.
 
 Every user gets their own private chat history. The **Monitoring** tab shows usage across all users.
