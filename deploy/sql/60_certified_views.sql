@@ -189,19 +189,21 @@ HAVING COUNT(DISTINCT Account_ID)>=30
 ORDER BY Product, DPD_Bucket, Balance_Band, Cure_Rate DESC;
 
 CREATE OR REPLACE VIEW {{catalog}}.{{prefix}}_gold.qry_recommended_channel AS
+-- Ranked by balance recovery rate, then PTP conversion. (Cure rate is not used:
+-- cured accounts drop to DPD 0 and fall outside this population, so it is always 0.)
 WITH cp AS (
  SELECT DPD_Bucket, Preferred_Channel, COUNT(DISTINCT Account_ID) AS Account_Count,
-  1.0*SUM(Cure_Flag)/NULLIF(COUNT(DISTINCT Account_ID),0) AS Cure_Rate,
+  1.0*SUM(Recovery_MTD)/NULLIF(SUM(Outstanding_Balance),0) AS Balance_Recovery_Rate,
   1.0*SUM(PTP_Flag)/NULLIF(SUM(RPC_Flag),0) AS PTP_Conversion_Rate,
   1.0*SUM(Cost_MTD)/NULLIF(SUM(Recovery_MTD),0) AS Cost_To_Collect
  FROM {{catalog}}.{{prefix}}_silver.fact_collections_snapshot
  WHERE Snapshot_Date=DATE '2026-09-15' AND DPD>0
  GROUP BY DPD_Bucket, Preferred_Channel HAVING COUNT(DISTINCT Account_ID)>=50
 ), ranked AS (
- SELECT *, ROW_NUMBER() OVER(PARTITION BY DPD_Bucket ORDER BY Cure_Rate DESC, Cost_To_Collect) AS Channel_Rank FROM cp
+ SELECT *, ROW_NUMBER() OVER(PARTITION BY DPD_Bucket ORDER BY Balance_Recovery_Rate DESC, PTP_Conversion_Rate DESC) AS Channel_Rank FROM cp
 )
 SELECT DPD_Bucket, Preferred_Channel AS Recommended_Channel, Account_Count,
- Cure_Rate, PTP_Conversion_Rate, Cost_To_Collect
+ Balance_Recovery_Rate, PTP_Conversion_Rate, Cost_To_Collect
 FROM ranked WHERE Channel_Rank=1 ORDER BY DPD_Bucket;
 
 CREATE OR REPLACE VIEW {{catalog}}.{{prefix}}_gold.qry_recovery_opportunity_sizing AS

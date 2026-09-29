@@ -91,7 +91,7 @@ async function loadHome() {
       <td>${s.Product}</td><td>${s.DPD_Bucket}</td><td>${fmtNum(s.Account_Count)}</td>
       <td>${fmtMoney(s.Outstanding_Balance)}</td><td>${fmtMoney(s.Recovery_MTD)}</td>
       <td><span class="badge ${tone}">${fmtPct(s.Balance_Recovery_Rate)}</span></td>
-      <td>${fmtPct(s.RPC_Rate)}</td><td>${fmtPct(s.PTP_Conversion_Rate)}</td><td>${fmtPct(s.Cure_Rate)}</td>
+      <td>${fmtPct(s.RPC_Rate)}</td><td>${fmtPct(s.PTP_Conversion_Rate)}</td>
     `;
     tbody.appendChild(tr);
   });

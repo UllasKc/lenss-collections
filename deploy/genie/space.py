@@ -14,7 +14,10 @@ import uuid
 METRIC_VIEWS = ["mv_performance_targets", "mv_collections_funnel"]
 TABLES = [
     "business_rules_config",
-    "qry_mtd_vs_target", "qry_month_end_forecast", "qry_kpi_drivers",
+    # qry_month_end_forecast is deliberately NOT a source: a calendar-day run rate
+    # on this single mid-month snapshot projects ~174% of target, which contradicts
+    # MTD-vs-target and misled Agent answers. The view stays in gold for reference.
+    "qry_mtd_vs_target", "qry_kpi_drivers",
     "qry_immediate_intervention", "qry_over_contact_risk",
     "qry_product_vs_target", "qry_product_bucket_performance", "qry_shortfall_contribution",
     "qry_collections_funnel", "qry_funnel_rates", "qry_nonpayment_drivers",
@@ -42,6 +45,10 @@ CALCULATION RULES
   classify a future-dated promise as broken.
 - A promise is "kept" when Fulfilled_Amount >= 90% of Promise_Amount by the due date.
 - A cured account has Recovery_MTD >= 90% of Outstanding_Balance (demo threshold).
+- Do NOT use or report cure rate (cure_rate / Cure_Rate). Cured accounts return to
+  DPD 0 and sit outside the eligible population, so cure rate reads 0% everywhere in
+  this snapshot and is not meaningful. Use balance recovery rate, PTP conversion,
+  promise kept / broken-promise rate or RPC rate instead, and never mention cure rate.
 - A high-risk account has Nonpayment_Risk >= 0.70.
 - An immediate-intervention account has Nonpayment_Risk >= 0.70 AND Payment_Propensity
   >= 0.25 AND remaining Outstanding_Balance > 0.
@@ -54,10 +61,13 @@ WHAT YOU MUST NOT DO
   recovery"). No randomized test/control data exists. If asked for expected uplift,
   give an observational, like-for-like comparison with an explicit "not a controlled
   experiment" caveat — never a causal number.
-- Never state a calibrated confidence/probability of hitting a target. No historical
-  multi-month volatility exists to calibrate against. Give the current month's
-  deterministic run-rate projection only, and say a calibrated probability isn't
-  available.
+- Never forecast or project the month-end outcome, and never state a probability of
+  hitting a target. Only one mid-month snapshot exists, so no reliable projection
+  can be made. Report MTD collections, the monthly target, achievement % and the
+  gap (from qry_mtd_vs_target), and say that a month-end forecast needs daily
+  payment history that this dataset does not have.
+- Always use the monthly target from qry_mtd_vs_target / mv_performance_targets
+  (the eligible product x DPD segments) so figures match the Command Center.
 - Never project collections for a future month beyond the current one. Only one
   snapshot date exists — there is no time series to project from. Say so plainly.
 - Never return individual customer names, phone numbers, or other direct PII — this
@@ -74,10 +84,10 @@ WHAT YOU MUST NOT DO
 
 SAMPLE_QUESTIONS = [
     "What is my MTD collections performance versus target?",
-    "Are we on track to achieve month-end target?",
+    "Which products and delinquency buckets are furthest behind target?",
     "Why are collections lagging this month?",
     "Which portfolios are contributing most to the gap?",
-    "Which segments have weak cure or increasing roll rates?",
+    "Which segments have weak recovery or increasing roll rates?",
     "Which treatment strategies and channels perform best like-for-like?",
     "Which accounts require immediate intervention?",
     "What recovery opportunity can help close the gap?",
@@ -96,18 +106,16 @@ def examples(g: str):
          f"SELECT * FROM {g}.qry_kpi_drivers ORDER BY Balance_Recovery_Rate, Outstanding_Balance DESC;"),
         ("Which accounts require immediate intervention?",
          f"SELECT * FROM {g}.qry_immediate_intervention ORDER BY Incremental_Recovery_Opportunity DESC, Nonpayment_Risk DESC LIMIT 100;"),
-        ("What is my cure rate, RPC rate, and PTP conversion rate by product?",
-         f"SELECT Product, MEASURE(cure_rate) AS cure_rate, MEASURE(rpc_rate) AS rpc_rate, MEASURE(ptp_conversion_rate) AS ptp_conversion_rate FROM {g}.mv_collections_funnel GROUP BY Product;"),
-        ("Which treatment strategy has the best cure rate?",
-         f"SELECT Treatment_Strategy, MEASURE(cure_rate) AS cure_rate, MEASURE(cost_to_collect) AS cost_to_collect FROM {g}.mv_collections_funnel GROUP BY Treatment_Strategy ORDER BY cure_rate DESC;"),
+        ("What is my RPC rate, PTP conversion rate and broken-promise rate by product?",
+         f"SELECT Product, MEASURE(rpc_rate) AS rpc_rate, MEASURE(ptp_conversion_rate) AS ptp_conversion_rate, MEASURE(broken_promise_rate) AS broken_promise_rate FROM {g}.mv_collections_funnel GROUP BY Product;"),
+        ("Which treatment strategy has the best promise-to-pay conversion?",
+         f"SELECT Treatment_Strategy, MEASURE(ptp_conversion_rate) AS ptp_conversion_rate, MEASURE(broken_promise_rate) AS broken_promise_rate, MEASURE(cost_to_collect) AS cost_to_collect FROM {g}.mv_collections_funnel GROUP BY Treatment_Strategy ORDER BY ptp_conversion_rate DESC;"),
         ("Which channel is most effective and has the lowest cost to collect?",
-         f"SELECT Preferred_Channel, MEASURE(cure_rate) AS cure_rate, MEASURE(rpc_rate) AS rpc_rate, MEASURE(cost_to_collect) AS cost_to_collect FROM {g}.mv_collections_funnel GROUP BY Preferred_Channel ORDER BY cure_rate DESC, cost_to_collect;"),
-        ("Are we on track to achieve month-end target?",
-         f"SELECT Snapshot_Date, MTD_Collections, Monthly_Target, Average_Daily_Recovery, Forecast_Collections, Forecast_Target_Achievement_Pct FROM {g}.qry_month_end_forecast;"),
+         f"SELECT Preferred_Channel, MEASURE(rpc_rate) AS rpc_rate, MEASURE(ptp_conversion_rate) AS ptp_conversion_rate, MEASURE(cost_to_collect) AS cost_to_collect FROM {g}.mv_collections_funnel GROUP BY Preferred_Channel ORDER BY rpc_rate DESC, cost_to_collect;"),
         ("Are our current collections policies too aggressive?",
          f"SELECT * FROM {g}.qry_over_contact_risk;"),
-        ("Which collector team has the highest cure rate?",
-         f"SELECT Collector_Team, MEASURE(cure_rate) AS cure_rate, MEASURE(account_count) AS account_count FROM {g}.mv_collections_funnel GROUP BY Collector_Team ORDER BY cure_rate DESC;"),
+        ("Which collector team has the highest PTP conversion rate?",
+         f"SELECT Collector_Team, MEASURE(ptp_conversion_rate) AS ptp_conversion_rate, MEASURE(account_count) AS account_count FROM {g}.mv_collections_funnel GROUP BY Collector_Team ORDER BY ptp_conversion_rate DESC;"),
         ("How much has each collector team collected this month?",
          f"SELECT Collector_Team, MEASURE(mtd_collections) AS mtd_collections FROM {g}.mv_performance_targets GROUP BY Collector_Team ORDER BY mtd_collections DESC;"),
         ("Which language has the worst RPC rate?",
@@ -123,7 +131,7 @@ def examples(g: str):
         ("Which customer segments are underperforming?",
          f"SELECT * FROM {g}.qry_underperforming_segments WHERE Performance_Status = 'Materially Underperforming' ORDER BY Variance_To_Portfolio;"),
         ("Which strategies perform best on a like-for-like basis?",
-         f"SELECT * FROM {g}.qry_strategy_like_for_like ORDER BY Product, DPD_Bucket, Balance_Band, Cure_Rate DESC;"),
+         f"SELECT * FROM {g}.qry_strategy_like_for_like ORDER BY Product, DPD_Bucket, Balance_Band, Balance_Recovery_Rate DESC;"),
     ]
 
 
@@ -136,7 +144,7 @@ def benchmarks(g: str):
         ("Why is performance lagging this month?",
          f"SELECT * FROM {g}.qry_kpi_drivers ORDER BY Balance_Recovery_Rate, Outstanding_Balance DESC;"),
         ("Best channel by 31-60 bucket?",
-         f"SELECT Preferred_Channel, MEASURE(cure_rate) AS cure_rate, MEASURE(ptp_conversion_rate) AS ptp_conversion_rate, MEASURE(cost_to_collect) AS cost_to_collect FROM {g}.mv_collections_funnel WHERE DPD_Bucket='31-60' GROUP BY Preferred_Channel ORDER BY cure_rate DESC;"),
+         f"SELECT Preferred_Channel, MEASURE(rpc_rate) AS rpc_rate, MEASURE(ptp_conversion_rate) AS ptp_conversion_rate, MEASURE(cost_to_collect) AS cost_to_collect FROM {g}.mv_collections_funnel WHERE DPD_Bucket='31-60' GROUP BY Preferred_Channel ORDER BY ptp_conversion_rate DESC;"),
         ("Are current policies too aggressive?",
          f"SELECT * FROM {g}.qry_over_contact_risk;"),
         # Refusal cases: the API requires an answer, so the "answer" documents the

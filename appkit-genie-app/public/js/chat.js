@@ -45,10 +45,66 @@ inputEl.addEventListener('keydown', (e) => {
 inputEl.addEventListener('input', autosize);
 function autosize() { inputEl.style.height = 'auto'; inputEl.style.height = Math.min(inputEl.scrollHeight, 160) + 'px'; }
 
-document.querySelectorAll('.starter').forEach(el => el.addEventListener('click', () => {
-  setMode(el.dataset.mode);
-  sendMessage(el.dataset.q);
-}));
+// ---------------------------------------------------------------- starter questions
+// One list feeds both the empty-state tiles and the side panel shown once a
+// conversation has started. Each question is checked against the live Genie
+// space for a strong answer before being listed here.
+const STARTERS = [
+  { mode: 'chat', label: 'MTD performance vs target by product', q: 'What is my MTD collections performance versus target by product?' },
+  { mode: 'chat', label: 'Accounts needing immediate intervention', q: 'Which accounts require immediate intervention?' },
+  { mode: 'chat', label: 'Portfolios contributing most to the shortfall', q: 'Which portfolios are contributing most to the shortfall?' },
+  { mode: 'agent', label: 'Why are collections lagging, and what should we do?', q: 'Why are collections lagging this month and what should we do about it?' },
+  { mode: 'agent', label: 'Are our policies too aggressive?', q: 'Are our current collections policies too aggressive? Look at over-contact risk, complaints and vulnerable customers.' },
+  { mode: 'agent', label: 'Biggest recovery opportunity and best channel', q: 'Where is the biggest recovery opportunity and which channel should we use for each segment?' },
+];
+
+function starterButton(s, cls) {
+  const b = document.createElement('button');
+  b.className = cls;
+  b.title = s.q;
+  b.innerHTML = `<span class="tag ${s.mode}">${s.mode === 'agent' ? 'Agent' : 'Chat'}</span><span class="starter-text">${esc(s.label)}</span>`;
+  b.addEventListener('click', () => {
+    if (sending) return;
+    setMode(s.mode);
+    sendMessage(s.q);
+  });
+  return b;
+}
+// The side panel shows the six starters plus four more (five per mode), also
+// checked against the live Genie space for strong answers.
+const MORE_SUGGESTIONS = [
+  { mode: 'chat', label: 'Best channel for each DPD bucket', q: 'Which channel should we use for each DPD bucket?' },
+  { mode: 'chat', label: 'Non-payment drivers with the lowest recovery', q: 'Which non-payment drivers have the lowest recovery rate?' },
+  { mode: 'agent', label: 'Best channels and contact times, and what to change', q: 'Which channels and contact times work best for reaching customers, and how should we change our contact strategy?' },
+  { mode: 'agent', label: 'Why so many broken promises, and where to act first', q: 'Why are so many promises to pay being broken, and which segments should we prioritise to fix it?' },
+];
+
+STARTERS.forEach(s => document.getElementById('starterGrid').appendChild(starterButton(s, 'starter')));
+(function renderSuggestions() {
+  const list = document.getElementById('suggestList');
+  const all = STARTERS.concat(MORE_SUGGESTIONS);
+  [['chat', 'Chat · quick answers'], ['agent', 'Agent · deep analysis']].forEach(([mode, title]) => {
+    const h = document.createElement('div');
+    h.className = 'suggest-group';
+    h.textContent = title;
+    list.appendChild(h);
+    all.filter(s => s.mode === mode).forEach(s => list.appendChild(starterButton(s, 'suggest-item')));
+  });
+})();
+
+// The side panel can be collapsed to a slim rail; the choice is remembered.
+const chatWrapEl = document.querySelector('#tab-assistant .chatwrap');
+const suggestPanel = document.getElementById('suggestPanel');
+const suggestToggle = document.getElementById('suggestToggle');
+function setSuggestOpen(open) {
+  chatWrapEl.classList.toggle('suggest-collapsed', !open);
+  suggestToggle.setAttribute('aria-expanded', String(open));
+  suggestToggle.title = open ? 'Hide suggested questions' : 'Show suggested questions';
+  writePref('lenss.suggestOpen', open ? '1' : '0');
+}
+suggestToggle.addEventListener('click', () => setSuggestOpen(suggestToggle.getAttribute('aria-expanded') !== 'true'));
+setSuggestOpen(readPref('lenss.suggestOpen', '1') === '1');
+
 document.getElementById('newSessionBtn').addEventListener('click', newChat);
 
 function newChat() {
@@ -60,7 +116,14 @@ function newChat() {
   inputEl.focus();
 }
 
-function updateEmpty() { emptyEl.classList.toggle('hidden', msgsEl.children.length > 0); }
+// Empty conversation: starter tiles in the middle. Once it has messages: the same
+// questions move to the collapsible panel on the right.
+function updateEmpty() {
+  const started = msgsEl.children.length > 0;
+  emptyEl.classList.toggle('hidden', started);
+  suggestPanel.hidden = !started;
+  chatWrapEl.classList.toggle('has-suggest', started);
+}
 
 // ---------------------------------------------------------------- sessions
 

@@ -45,7 +45,7 @@
         <thead>
           <tr>
             <th>Product</th><th>DPD Bucket</th><th>Accounts</th><th>Outstanding Balance</th>
-            <th>MTD Collections</th><th>Recovery Rate</th><th>RPC Rate</th><th>PTP Conv.</th><th>Cure Rate</th>
+            <th>MTD Collections</th><th>Recovery Rate</th><th>RPC Rate</th><th>PTP Conv.</th>
           </tr>
         </thead>
         <tbody></tbody>
@@ -68,14 +68,7 @@
         <div class="empty" id="chatEmpty">
           <div class="empty-h">What would you like to know?</div>
           <div class="empty-sub">Use <b>Chat</b> for quick answers and <b>Agent</b> for multi-step "why / what should we do" analysis.</div>
-          <div class="starters">
-            <button class="starter" data-mode="chat" data-q="What is my MTD collections performance versus target by product?"><span class="tag chat">Chat</span>MTD performance vs target by product</button>
-            <button class="starter" data-mode="chat" data-q="Which accounts require immediate intervention?"><span class="tag chat">Chat</span>Accounts needing immediate intervention</button>
-            <button class="starter" data-mode="chat" data-q="Which treatment strategy has the best cure rate?"><span class="tag chat">Chat</span>Best cure rate by strategy</button>
-            <button class="starter" data-mode="agent" data-q="Why are collections lagging this month and what should we do about it?"><span class="tag agent">Agent</span>Why are collections lagging, and what should we do?</button>
-            <button class="starter" data-mode="agent" data-q="Are our current collections policies too aggressive? Look at over-contact risk, complaints and vulnerable customers."><span class="tag agent">Agent</span>Are our policies too aggressive?</button>
-            <button class="starter" data-mode="agent" data-q="Where is the biggest recovery opportunity and which channel should we use for each segment?"><span class="tag agent">Agent</span>Biggest recovery opportunity and best channel</button>
-          </div>
+          <div class="starters" id="starterGrid"></div>
         </div>
         <div class="composer">
           <textarea id="chatInput" rows="1" placeholder="Ask about targets, collections, strategies, or collectors…"></textarea>
@@ -89,6 +82,16 @@
           </div>
         </div>
       </div>
+      <!-- Shown once a conversation has started: the same starter questions, collapsible. -->
+      <aside class="card suggest-panel" id="suggestPanel" hidden>
+        <button class="suggest-toggle" id="suggestToggle" aria-expanded="true" aria-controls="suggestList" title="Hide suggested questions">
+          <span class="suggest-icon" aria-hidden="true">💡</span>
+          <span class="suggest-label">Suggested questions</span>
+          <span class="suggest-rail-label" aria-hidden="true">Suggested questions</span>
+          <svg class="suggest-chevron" viewBox="0 0 24 24" width="16" height="16" aria-hidden="true"><polyline points="6 9 12 15 18 9" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg>
+        </button>
+        <div class="suggest-list" id="suggestList"></div>
+      </aside>
     </div>
   </section>
 
