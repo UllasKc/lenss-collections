@@ -56,14 +56,14 @@ def new_session(base, headers):
     return s.json()["session_id"]
 
 
-def ask(base, headers, mode, question, session_id=None):
+def ask(base, headers, mode, question, session_id=None, **extra):
     """Sends one question (mode chosen per message) and returns the normalized answer."""
     session_id = session_id or new_session(base, headers)
     started = time.time()
     with requests.post(
         f"{base}/api/chat/sessions/{session_id}/messages",
         headers={**headers, "Accept": "text/event-stream"},
-        json={"content": question, "mode": mode},
+        json={"content": question, "mode": mode, **extra},
         stream=True,
         timeout=600,
     ) as r:
@@ -91,6 +91,7 @@ def ask(base, headers, mode, question, session_id=None):
         "charts": answer.get("charts") or [],
         "title": title,
         "message_id": saved.get("messageId"),
+        "cache": answer.get("cache"),
         "error": error,
         "event_types": sorted(set(events)),
     }
@@ -238,6 +239,43 @@ def main():
         check("[session] history keeps both modes and the charts", history)
     check("[session] rename + delete", rename_delete)
 
+    def suggestions():
+        d = get_ok("/api/chat/suggestions")
+        n = len(d["starters"]) + len(d["more"])
+        if len(d["starters"]) != 6 or n != 10:
+            raise RuntimeError(f"expected 6 starters + 4 more, got {len(d['starters'])} + {len(d['more'])}")
+        return f"{n} suggested questions"
+
+    def answer_cache():
+        # A suggested question asked twice: the second answer must come from the cache,
+        # carry the same charts, and a Refresh must replace it with a live one.
+        q = "Which accounts require immediate intervention?"
+        first = ask(base, headers, "chat", q, standalone=True)
+        second = ask(base, headers, "chat", q, standalone=True)
+        if not second["success"] or not second["cache"]:
+            raise RuntimeError(f"second ask was not served from the cache: {json.dumps(second)[:300]}")
+        refreshed = ask(base, headers, "chat", q, second["session_id"], refreshOf=second["message_id"])
+        if not refreshed["success"] or refreshed["cache"]:
+            raise RuntimeError(f"refresh did not return a live answer: {json.dumps(refreshed)[:300]}")
+        msgs = get_ok(f"/api/chat/sessions/{second['session_id']}/messages")
+        if [m["role"] for m in msgs] != ["user", "assistant"] or msgs[1].get("from_cache"):
+            raise RuntimeError(f"refresh should replace the cached answer in place: {[(m['role'], m.get('from_cache')) for m in msgs]}")
+        for sid in (first["session_id"], second["session_id"]):
+            requests.delete(f"{base}/api/chat/sessions/{sid}", headers=headers, timeout=30)
+        return (f"cached answer in {second['seconds']}s ({second['cache']['source']}, generated {second['cache']['generatedAt']}); "
+                f"refresh answered live in {refreshed['seconds']}s")
+
+    def dashboard_cache():
+        requests.get(f"{base}/api/dashboard/by-product", headers=headers, timeout=120).raise_for_status()
+        r = requests.get(f"{base}/api/dashboard/by-product", headers=headers, timeout=120)
+        r.raise_for_status()
+        if r.headers.get("X-Cache") != "hit":
+            raise RuntimeError(f"second request was not cached (X-Cache={r.headers.get('X-Cache')})")
+        return f"second request served from memory (X-Cache: hit, {r.elapsed.total_seconds():.2f}s)"
+
+    check("GET /api/chat/suggestions", suggestions)
+    check("[cache] suggested question is answered from the cache, Refresh asks live", answer_cache)
+    check("[cache] Command Center results are cached per data version", dashboard_cache)
     check("GET /api/admin/usage", lambda: get_ok("/api/admin/usage")["totals"])
 
     print()

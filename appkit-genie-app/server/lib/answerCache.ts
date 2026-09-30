@@ -1,0 +1,210 @@
+import { createHash } from 'node:crypto';
+import type { Answer } from './answers.js';
+import { runGenie, type GenieLike, type GenieRun, type Mode } from './genieRun.js';
+import { ALL_SUGGESTIONS } from './suggestions.js';
+
+/**
+ * Exact-match answer cache in Lakebase (chatapp.answer_cache).
+ *
+ * Only standalone questions are cached: the first question of a chat, or a
+ * suggested question. Follow-ups depend on the conversation, so they always go
+ * to Genie. The key is the normalized question + mode + the data and Genie
+ * versions that deploy.py bumps, so new data or a changed Genie space makes
+ * every older answer unreachable at once — there is no stale window to manage.
+ * The app calls Genie as its service principal, so every user would get the
+ * same answer and one shared cache is safe.
+ */
+
+export interface Lakebase {
+  query: (text: string, values?: unknown[]) => Promise<{ rows: Record<string, unknown>[] }>;
+}
+
+export interface Versions { data: string; genie: string; settled: boolean }
+
+export interface CachedAnswer {
+  key: string;
+  answer: Answer;
+  details: Record<string, unknown>;
+  source: 'live' | 'prewarm';
+  createdAt: string;
+}
+
+/** How long an answer to a live (non-suggested) question is reused. */
+const LIVE_TTL_HOURS = 24;
+/** Versions must be unchanged this long before pre-warming, so one deploy that
+ * bumps data and then Genie doesn't pre-warm twice. */
+const SETTLE_MS = 2 * 60_000;
+const PREWARM_EVERY_MS = 10 * 60_000;
+/** A running pre-warm with no heartbeat for this long belonged to an app
+ * instance that was stopped (a redeploy restarts the app), so it's taken over.
+ * One Agent question takes up to ~4 minutes. */
+const PREWARM_STALE_MINUTES = 10;
+/** A pre-warm that ended with unanswered questions is retried after this long. */
+const PREWARM_RETRY_MINUTES = 60;
+
+export const cacheEnabled = (process.env.LENSS_ANSWER_CACHE ?? 'on') !== 'off';
+const prewarmEnabled = cacheEnabled && (process.env.LENSS_PREWARM ?? 'on') !== 'off';
+
+export function normalizeQuestion(q: string): string {
+  return q
+    .toLowerCase()
+    .replace(/[‘’]/g, "'")
+    .replace(/[“”"]/g, '')
+    .replace(/\s+/g, ' ')
+    .trim()
+    .replace(/[\s?.!]+$/, '');
+}
+
+export function cacheKey(question: string, mode: Mode, v: Versions): string {
+  return createHash('sha256')
+    .update([normalizeQuestion(question), mode, v.data, v.genie].join('|'))
+    .digest('hex');
+}
+
+let versionsMemo: { at: number; value: Versions } | null = null;
+
+/** Current data/Genie versions (re-read at most every 30 s). */
+export async function currentVersions(db: Lakebase): Promise<Versions> {
+  if (versionsMemo && Date.now() - versionsMemo.at < 30_000) return versionsMemo.value;
+  const { rows } = await db.query(`SELECT name, version, updated_at FROM chatapp.cache_versions`);
+  const byName = Object.fromEntries(rows.map((r) => [r.name as string, r.version as string]));
+  const newest = Math.max(0, ...rows.map((r) => new Date(r.updated_at as string).getTime()));
+  const value: Versions = {
+    data: byName.data ?? 'initial',
+    genie: byName.genie ?? 'initial',
+    settled: Date.now() - newest > SETTLE_MS,
+  };
+  versionsMemo = { at: Date.now(), value };
+  return value;
+}
+
+export async function lookup(db: Lakebase, key: string): Promise<CachedAnswer | null> {
+  const { rows } = await db.query(
+    `UPDATE chatapp.answer_cache SET hits = hits + 1, last_hit_at = now()
+      WHERE cache_key = $1 AND (expires_at IS NULL OR expires_at > now())
+      RETURNING answer_json, details, source, created_at`,
+    [key],
+  );
+  const r = rows[0];
+  if (!r) return null;
+  return {
+    key,
+    answer: r.answer_json as Answer,
+    details: (r.details ?? {}) as Record<string, unknown>,
+    source: r.source as 'live' | 'prewarm',
+    createdAt: new Date(r.created_at as string).toISOString(),
+  };
+}
+
+/** Details worth keeping with a cached answer, so a cache hit can still show
+ * Monitoring the SQL and steps behind it. */
+function runDetails(run: GenieRun): Record<string, unknown> {
+  return {
+    timeline: run.timeline,
+    queries: run.queries,
+    latencyMs: run.latencyMs,
+    genieConversationId: run.conversationId ?? null,
+    genieMessageId: run.genieMessageId,
+  };
+}
+
+export async function store(
+  db: Lakebase, key: string, question: string, mode: Mode, v: Versions, run: GenieRun, source: 'live' | 'prewarm',
+): Promise<void> {
+  if (!run.success || !run.answer || !(run.answer.text || run.answer.charts.length)) return;
+  await db.query(
+    `INSERT INTO chatapp.answer_cache
+       (cache_key, question, normalized, mode, data_version, genie_version, answer_json, details, source, expires_at)
+     VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9,
+             CASE WHEN $9 = 'live' THEN now() + make_interval(hours => $10) END)
+     ON CONFLICT (cache_key) DO UPDATE SET
+       question = EXCLUDED.question, answer_json = EXCLUDED.answer_json, details = EXCLUDED.details,
+       source = EXCLUDED.source, created_at = now(), expires_at = EXCLUDED.expires_at, hits = 0, last_hit_at = NULL`,
+    [key, question, normalizeQuestion(question), mode, v.data, v.genie,
+      JSON.stringify(run.answer), JSON.stringify(runDetails(run)), source, LIVE_TTL_HOURS],
+  );
+}
+
+export async function evict(db: Lakebase, key: string): Promise<void> {
+  await db.query(`DELETE FROM chatapp.answer_cache WHERE cache_key = $1`, [key]);
+}
+
+// --- pre-warm ----------------------------------------------------------------
+
+/**
+ * Keeps the suggested questions answered for the current versions. Runs 30 s
+ * after start and then every 10 minutes, but only does work when the versions
+ * changed (or the cache for them is still empty). A row in prewarm_runs claims
+ * the work, so with several app instances only one of them asks Genie.
+ */
+export function startPrewarm(db: Lakebase, genie: GenieLike): void {
+  if (!prewarmEnabled) {
+    console.log('[cache] pre-warm is off (LENSS_PREWARM=off or LENSS_ANSWER_CACHE=off)');
+    return;
+  }
+  const tick = () => {
+    prewarmOnce(db, genie).catch((err: unknown) =>
+      console.warn('[cache] pre-warm failed:', err instanceof Error ? err.message : err));
+  };
+  setTimeout(tick, 30_000).unref();
+  setInterval(tick, PREWARM_EVERY_MS).unref();
+}
+
+export async function prewarmOnce(db: Lakebase, genie: GenieLike): Promise<{ answered: number } | null> {
+  versionsMemo = null;
+  const v = await currentVersions(db);
+  if (!v.settled) return null;
+  const versionsKey = `${v.data}|${v.genie}`;
+
+  // Housekeeping: answers for older versions can never be hit again.
+  await db.query(
+    `DELETE FROM chatapp.answer_cache
+      WHERE data_version <> $1 OR genie_version <> $2 OR expires_at < now()`,
+    [v.data, v.genie],
+  );
+
+  const claimed = await db.query(
+    `INSERT INTO chatapp.prewarm_runs (versions_key, status, heartbeat_at) VALUES ($1, 'running', now())
+     ON CONFLICT (versions_key) DO UPDATE
+       SET status = 'running', started_at = now(), heartbeat_at = now(), finished_at = NULL, answered = 0
+       WHERE (chatapp.prewarm_runs.status = 'running'
+              AND COALESCE(chatapp.prewarm_runs.heartbeat_at, chatapp.prewarm_runs.started_at) < now() - make_interval(mins => $2))
+          OR (chatapp.prewarm_runs.status = 'failed'
+              AND chatapp.prewarm_runs.finished_at < now() - make_interval(mins => $3))
+     RETURNING versions_key`,
+    [versionsKey, PREWARM_STALE_MINUTES, PREWARM_RETRY_MINUTES],
+  );
+  if (!claimed.rows.length) return null;
+
+  console.log(`[cache] pre-warming ${ALL_SUGGESTIONS.length} suggested questions for versions ${versionsKey}`);
+  let answered = 0;
+  for (const s of ALL_SUGGESTIONS) {
+    await db.query(
+      `UPDATE chatapp.prewarm_runs SET heartbeat_at = now(), answered = $2 WHERE versions_key = $1`,
+      [versionsKey, answered],
+    );
+    const key = cacheKey(s.q, s.mode, v);
+    // Already answered live since the versions changed: keep that answer, but
+    // like any suggested question it now lasts until the versions change.
+    const existing = await db.query(
+      `UPDATE chatapp.answer_cache SET source = 'prewarm', expires_at = NULL
+        WHERE cache_key = $1 AND (expires_at IS NULL OR expires_at > now()) RETURNING 1`,
+      [key],
+    );
+    if (existing.rows.length) { answered++; continue; }
+    const run = await runGenie(genie, s.mode, s.q);
+    if (run.success) {
+      // Suggested questions don't expire; they stay until the versions change.
+      await store(db, key, s.q, s.mode, v, run, 'prewarm');
+      answered++;
+    } else {
+      console.warn(`[cache] pre-warm: no answer for "${s.q.slice(0, 60)}": ${run.errorMessage ?? 'empty answer'}`);
+    }
+  }
+  await db.query(
+    `UPDATE chatapp.prewarm_runs SET status = $2, answered = $3, finished_at = now() WHERE versions_key = $1`,
+    [versionsKey, answered === ALL_SUGGESTIONS.length ? 'done' : 'failed', answered],
+  );
+  console.log(`[cache] pre-warm finished: ${answered}/${ALL_SUGGESTIONS.length} answered`);
+  return { answered };
+}

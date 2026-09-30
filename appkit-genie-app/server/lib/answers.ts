@@ -26,6 +26,8 @@ export interface Answer {
   charts: ChartSpec[];
   steps?: AgentStep[];
   suggestions?: string[];
+  /** Set when the answer was served from the answer cache instead of Genie. */
+  cache?: { generatedAt: string; source: 'live' | 'prewarm' };
 }
 
 /** Enough rows for any sensible chart or table; keeps Lakebase rows small. */
@@ -61,6 +63,20 @@ interface StatementResponse {
   result?: { data_array?: Array<Array<string | null>> };
 }
 
+/**
+ * Genie cites its queries with links into the Genie space in this workspace,
+ * e.g. `[[1](https://<workspace>/genie/rooms/…)]`. App users can't open them
+ * (they have no Genie access) and they expose the workspace address, so they
+ * are removed; the SQL behind each answer is shown in the app instead.
+ */
+export function stripCitations(text: string): string {
+  return text
+    .replace(/[ \t]*\\?\[\\?\[\d+\\?\]\([^)\s]*\)\\?\]/g, '') // [[1](url)], also with escaped brackets
+    .replace(/[ \t]*\\?\[\\?\[\d+\\?\]\\?\]\([^)\s]*\)/g, '') // [[1]](url)
+    .replace(/[ \t]*\\?\[\\?\[\d+\\?\]\\?\]?\([^)\s]*$/, '') // a citation cut off by truncation
+    .replace(/[ \t]+([.,;:])/g, '$1');
+}
+
 export function chatAnswer(
   attachments: ChatAttachment[],
   queryResults: Map<string, StatementResponse>,
@@ -84,7 +100,7 @@ export function chatAnswer(
       truncated,
     });
   }
-  return { version: 2, mode: 'chat', text, charts, suggestions };
+  return { version: 2, mode: 'chat', text: stripCitations(text), charts, suggestions };
 }
 
 /** One SQL statement Genie ran for an answer, for the Monitoring audit trail. */
@@ -234,5 +250,5 @@ export function agentAnswer(output: AgentOutputItem[]): Answer {
       if (chart) charts.push(chart);
     }
   }
-  return { version: 2, mode: 'agent', text: parts.join('').trim(), charts, steps };
+  return { version: 2, mode: 'agent', text: stripCitations(parts.join('')).trim(), charts, steps };
 }

@@ -1,5 +1,5 @@
 {
-  "profile": null,
+  "profile": "personal",
   "catalog": "cnx_automl_dev",
   "create_catalog": true,
   "schema_prefix": "lenss_collections",

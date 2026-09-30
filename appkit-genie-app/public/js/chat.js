@@ -48,8 +48,10 @@ function autosize() { inputEl.style.height = 'auto'; inputEl.style.height = Math
 // ---------------------------------------------------------------- starter questions
 // One list feeds both the empty-state tiles and the side panel shown once a
 // conversation has started. Each question is checked against the live Genie
-// space for a strong answer before being listed here.
-const STARTERS = [
+// space for a strong answer before being listed. The server owns the list
+// (it also pre-warms the answer cache with it); these copies are only a
+// fallback until /api/chat/suggestions answers.
+let STARTERS = [
   { mode: 'chat', label: 'MTD performance vs target by product', q: 'What is my MTD collections performance versus target by product?' },
   { mode: 'chat', label: 'Accounts needing immediate intervention', q: 'Which accounts require immediate intervention?' },
   { mode: 'chat', label: 'Portfolios contributing most to the shortfall', q: 'Which portfolios are contributing most to the shortfall?' },
@@ -66,22 +68,26 @@ function starterButton(s, cls) {
   b.addEventListener('click', () => {
     if (sending) return;
     setMode(s.mode);
-    sendMessage(s.q);
+    // A suggested question stands on its own, so it can be answered from the cache.
+    sendMessage(s.q, { standalone: true });
   });
   return b;
 }
 // The side panel shows the six starters plus four more (five per mode), also
 // checked against the live Genie space for strong answers.
-const MORE_SUGGESTIONS = [
+let MORE_SUGGESTIONS = [
   { mode: 'chat', label: 'Best channel for each DPD bucket', q: 'Which channel should we use for each DPD bucket?' },
   { mode: 'chat', label: 'Non-payment drivers with the lowest recovery', q: 'Which non-payment drivers have the lowest recovery rate?' },
   { mode: 'agent', label: 'Best channels and contact times, and what to change', q: 'Which channels and contact times work best for reaching customers, and how should we change our contact strategy?' },
   { mode: 'agent', label: 'Why so many broken promises, and where to act first', q: 'Why are so many promises to pay being broken, and which segments should we prioritise to fix it?' },
 ];
 
-STARTERS.forEach(s => document.getElementById('starterGrid').appendChild(starterButton(s, 'starter')));
-(function renderSuggestions() {
+function renderSuggestions() {
+  const grid = document.getElementById('starterGrid');
   const list = document.getElementById('suggestList');
+  grid.innerHTML = '';
+  list.innerHTML = '';
+  STARTERS.forEach(s => grid.appendChild(starterButton(s, 'starter')));
   const all = STARTERS.concat(MORE_SUGGESTIONS);
   [['chat', 'Chat · quick answers'], ['agent', 'Agent · deep analysis']].forEach(([mode, title]) => {
     const h = document.createElement('div');
@@ -90,7 +96,14 @@ STARTERS.forEach(s => document.getElementById('starterGrid').appendChild(starter
     list.appendChild(h);
     all.filter(s => s.mode === mode).forEach(s => list.appendChild(starterButton(s, 'suggest-item')));
   });
-})();
+}
+renderSuggestions();
+fetch('/api/chat/suggestions').then(r => r.ok ? r.json() : null).then(d => {
+  if (!d || !Array.isArray(d.starters) || !d.starters.length) return;
+  STARTERS = d.starters;
+  MORE_SUGGESTIONS = d.more || [];
+  renderSuggestions();
+}).catch(() => {});
 
 // The side panel can be collapsed to a slim rail; the choice is remembered.
 const chatWrapEl = document.querySelector('#tab-assistant .chatwrap');
@@ -123,6 +136,7 @@ function updateEmpty() {
   emptyEl.classList.toggle('hidden', started);
   suggestPanel.hidden = !started;
   chatWrapEl.classList.toggle('has-suggest', started);
+  document.getElementById('pdfBtn').hidden = !started;
 }
 
 // ---------------------------------------------------------------- sessions
@@ -221,9 +235,13 @@ async function openSession(id) {
   msgsEl.innerHTML = '';
   const messages = await fetch(`/api/chat/sessions/${id}/messages`).then(r => r.json());
   if (activeSessionId !== id) return;
-  messages.forEach(m => {
-    if (m.role === 'user') addUserBubble(m.content, m.mode);
-    else addAnswer(normalizeStored(m), { mode: m.mode, at: m.created_at, messageId: m.message_id, feedback: m.feedback });
+  let question = '';
+  messages.forEach((m, i) => {
+    if (m.role === 'user') { addUserBubble(m.content, m.mode); question = m.content; }
+    else addAnswer(normalizeStored(m), {
+      mode: m.mode, at: m.created_at, messageId: m.message_id, feedback: m.feedback,
+      question, canRefresh: i === messages.length - 1,
+    });
   });
   updateEmpty();
 }
@@ -304,9 +322,35 @@ function renderAnswer(msg, answer, opts) {
   }
 
   const when = opts.at ? new Date(opts.at).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }) : '';
-  const took = opts.latencyMs ? `${(opts.latencyMs / 1000).toFixed(0)}s` : '';
+  const took = opts.latencyMs && !answer.cache ? `${(opts.latencyMs / 1000).toFixed(0)}s` : '';
   msg.insertAdjacentHTML('beforeend', metaLine(mode, [took, when].filter(Boolean).join(' · ')));
+  if (answer.cache) addCacheNote(msg, msg.lastElementChild, answer, opts);
   if (opts.messageId) addFeedback(msg.lastElementChild, opts.messageId, opts.feedback);
+}
+
+/** Cached answers say so, with when they were generated, and can be re-asked live. */
+function addCacheNote(msg, metaEl, answer, opts) {
+  const g = new Date(answer.cache.generatedAt);
+  const sameDay = g.toDateString() === new Date().toDateString();
+  const at = (sameDay ? '' : g.toLocaleDateString([], { day: 'numeric', month: 'short' }) + ', ') +
+    g.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+  const note = document.createElement('span');
+  note.className = 'cache-note';
+  note.title = 'This question was answered recently on the same data, so the saved answer was reused. Refresh asks Genie again.';
+  note.innerHTML = `<span class="cache-bolt" aria-hidden="true">⚡</span>Answered from cache · generated ${esc(at)}`;
+  metaEl.appendChild(note);
+  if (opts.messageId && opts.question && opts.canRefresh !== false) {
+    const b = document.createElement('button');
+    b.className = 'cache-refresh';
+    b.textContent = '↻ Refresh';
+    b.title = 'Ask Genie again for a live answer';
+    b.addEventListener('click', () => {
+      if (sending) return;
+      setMode(answer.mode || opts.mode || 'chat');
+      sendMessage(opts.question, { refreshOf: opts.messageId, target: msg });
+    });
+    metaEl.appendChild(b);
+  }
 }
 
 /** 👍/👎 on an answer: saved in the app and sent to the Genie space's Monitor. Click again to clear. */
@@ -353,18 +397,22 @@ async function ensureSession() {
   return activeSessionId;
 }
 
-async function sendMessage(preset) {
+async function sendMessage(preset, opts = {}) {
   const text = (preset || inputEl.value).trim();
   if (!text || sending) return;
   const mode = currentMode;
   sending = true;
   sendBtn.disabled = true;
-  inputEl.value = '';
+  if (!opts.refreshOf) inputEl.value = '';
   autosize();
-  document.querySelectorAll('.followups').forEach(f => f.remove());
+  document.querySelectorAll('.followups, .cache-refresh').forEach(f => f.remove());
 
-  addUserBubble(text);
-  const thinking = addRow('bot');
+  // A refresh re-asks the same question and replaces the cached answer in place.
+  let thinking = opts.target;
+  if (!thinking) {
+    addUserBubble(text);
+    thinking = addRow('bot');
+  }
   thinking.classList.add('thinking');
   const started = Date.now();
   const steps = [];
@@ -388,7 +436,7 @@ async function sendMessage(preset) {
     const sessionId = await ensureSession();
     const res = await fetch(`/api/chat/sessions/${sessionId}/messages`, {
       method: 'POST', headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ content: text, mode }),
+      body: JSON.stringify({ content: text, mode, standalone: Boolean(opts.standalone), refreshOf: opts.refreshOf || undefined }),
     });
     if (!res.ok || !res.body) throw new Error('HTTP ' + res.status);
     const reader = res.body.getReader();
@@ -440,7 +488,7 @@ async function sendMessage(preset) {
   clearInterval(timer);
   thinking.classList.remove('thinking');
   if (answer) {
-    renderAnswer(thinking, answer, { mode, latencyMs, at: new Date(), live: true, messageId: savedId });
+    renderAnswer(thinking, answer, { mode, latencyMs, at: new Date(), live: true, messageId: savedId, question: text });
   } else {
     thinking.classList.add('failed');
     thinking.innerHTML = `Sorry — that question couldn't be answered. Please try again${mode === 'chat' ? ', or switch to Agent for a deeper analysis' : ''}.` +
@@ -470,7 +518,7 @@ function humanizeStatus(status) {
 
 /** Small, safe markdown renderer: everything is escaped first. */
 function renderMarkdown(src) {
-  const text = String(src).replace(/\\([[\]])/g, '$1').replace(/\r/g, '');
+  const text = stripCitations(String(src)).replace(/\\([[\]])/g, '$1').replace(/\r/g, '');
   const lines = text.split('\n');
   const out = [];
   let i = 0;
@@ -500,10 +548,22 @@ function renderMarkdown(src) {
     if (h) { out.push(`<h${h[1].length}>${inline(h[2])}</h${h[1].length}>`); i++; continue; }
     if (/^\s*([-*•]|\d+[.)])\s+/.test(line)) {
       const ordered = /^\s*\d+[.)]/.test(line);
+      const isItem = l => (ordered ? /^\s*\d+[.)]\s+/ : /^\s*[-*•]\s+/).test(l);
       const items = [];
-      while (i < lines.length && /^\s*([-*•]|\d+[.)])\s+/.test(lines[i])) {
-        items.push(`<li>${inline(lines[i].replace(/^\s*([-*•]|\d+[.)])\s+/, ''))}</li>`);
-        i++;
+      let n = 0;
+      for (;;) {
+        // Agent answers often put a blank line between items; that's still one list.
+        while (i < lines.length && isItem(lines[i])) {
+          const num = ordered ? parseInt(lines[i].match(/\d+/)[0], 10) : 0;
+          // Keep the author's numbering, but count on when every item is "1." (auto-numbering).
+          n = ordered && num > n ? num : n + 1;
+          items.push(`<li${ordered ? ` value="${n}"` : ''}>${inline(lines[i].replace(/^\s*([-*•]|\d+[.)])\s+/, ''))}</li>`);
+          i++;
+        }
+        let j = i;
+        while (j < lines.length && !lines[j].trim()) j++;
+        if (j > i && j < lines.length && isItem(lines[j])) { i = j; continue; }
+        break;
       }
       out.push(ordered ? `<ol>${items.join('')}</ol>` : `<ul>${items.join('')}</ul>`);
       continue;
@@ -517,10 +577,18 @@ function renderMarkdown(src) {
   return out.join('');
 }
 
+/** Genie's citation links point into the Genie space in the workspace, which app users
+ * can't open; removed here too for answers stored before the server stripped them. */
+function stripCitations(s) {
+  return s
+    .replace(/[ \t]*\\?\[\\?\[\d+\\?\]\([^)\s]*\)\\?\]/g, '') // [[1](url)]
+    .replace(/[ \t]*\\?\[\\?\[\d+\\?\]\\?\]\([^)\s]*\)/g, '') // [[1]](url)
+    .replace(/[ \t]*\\?\[\\?\[\d+\\?\]\\?\]?\([^)\s]*$/, '') // a citation cut off by truncation
+    .replace(/[ \t]+([.,;:])/g, '$1');
+}
+
 function inline(s) {
   let t = esc(s);
-  // Genie citations: [[1](url)] -> superscript link
-  t = t.replace(/\[\[(\d+)\]\((https?:[^)\s]+)\)\]/g, '<sup><a href="$2" target="_blank" rel="noopener">[$1]</a></sup>');
   t = t.replace(/\[([^\]]+)\]\((https?:[^)\s]+)\)/g, '<a href="$2" target="_blank" rel="noopener">$1</a>');
   t = t.replace(/`([^`]+)`/g, '<code>$1</code>');
   t = t.replace(/\*\*([^*]+)\*\*/g, '<strong>$1</strong>');
@@ -558,9 +626,11 @@ function fmtCell(v, col) {
 
 function compact(n) {
   const a = Math.abs(n);
-  if (a >= 1e9) return (n / 1e9).toFixed(1) + 'B';
-  if (a >= 1e6) return (n / 1e6).toFixed(1) + 'M';
-  if (a >= 1e3) return (n / 1e3).toFixed(0) + 'K';
+  // One decimal below 10 (1.5K, 2.5M) so neighbouring axis ticks don't all read "1K"; trailing ".0" dropped.
+  const unit = (v, s) => (Math.abs(v) < 10 ? v.toFixed(1).replace(/\.0$/, '') : v.toFixed(0)) + s;
+  if (a >= 1e9) return unit(n / 1e9, 'B');
+  if (a >= 1e6) return unit(n / 1e6, 'M');
+  if (a >= 1e3) return unit(n / 1e3, 'K');
   return String(Math.round(n * 100) / 100);
 }
 

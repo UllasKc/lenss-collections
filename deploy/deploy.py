@@ -21,6 +21,7 @@ through the `databricks` CLI, so it uses whatever auth the CLI profile has
 from __future__ import annotations
 
 import argparse
+import hashlib
 import json
 import os
 import re
@@ -194,6 +195,10 @@ def load_config(path: Path) -> dict:
         # Optional chat model that names chat sessions, e.g. "databricks-meta-llama-3-3-70b-instruct".
         # Off by default: sessions are named from the first question.
         "title_endpoint": None,
+        # Answer cache (DATABRICKS_IMPLEMENTATION_GUIDE.md, Step 8e): reuse answers to standalone
+        # questions until the data or Genie changes, and pre-warm the 10 suggested questions.
+        "answer_cache": True,
+        "prewarm_suggestions": True,
     }
     for k, v in defaults.items():
         cfg.setdefault(k, v)
@@ -419,6 +424,9 @@ def step_genie(db: Databricks, cfg: dict, state: dict, cfg_path: Path) -> None:
         log(f"Created Genie space {space_id} ({created.get('title')})")
     state["genie_space_id"] = space_id
     save_state(cfg_path, state)
+    # Same instructions and sources → same answers, so only a real change counts.
+    genie_version = hashlib.sha256(f"{space_id}|{serialized}".encode()).hexdigest()[:12]
+    bump_cache_version(db, cfg, state, cfg_path, "genie", genie_version)
 
 
 def pg_connect(db: Databricks, state: dict, database: str):
@@ -429,6 +437,42 @@ def pg_connect(db: Databricks, state: dict, database: str):
         host=state["lakebase_host"], port=5432, dbname=database,
         user=state["user"], password=cred["token"], sslmode="require",
     )
+
+
+def bump_cache_version(db: Databricks, cfg: dict, state: dict, cfg_path: Path, name: str, version: str) -> None:
+    """Record a new data or Genie version so the app's answer cache moves on.
+
+    The app keys cached answers by these versions, so bumping one makes every
+    older answer unreachable and triggers a fresh pre-warm. Kept in the state
+    file too, so a first deploy (Lakebase not created yet) still gets them.
+    """
+    versions = state.setdefault("cache_versions", {})
+    if versions.get(name) == version:
+        return
+    versions[name] = version
+    save_state(cfg_path, state)
+    if "lakebase_host" in state:
+        write_cache_versions(db, cfg, state)
+
+
+def write_cache_versions(db: Databricks, cfg: dict, state: dict) -> None:
+    versions = state.get("cache_versions") or {}
+    if not versions:
+        return
+    try:
+        conn = pg_connect(db, state, cfg["lakebase_database"])
+        conn.autocommit = True
+        with conn.cursor() as cur:
+            for name, version in versions.items():
+                cur.execute(
+                    "INSERT INTO chatapp.cache_versions (name, version, updated_at) VALUES (%s, %s, now()) "
+                    "ON CONFLICT (name) DO UPDATE SET version = EXCLUDED.version, updated_at = now() "
+                    "WHERE chatapp.cache_versions.version <> EXCLUDED.version",
+                    (name, version))
+        conn.close()
+        log(f"Answer cache versions: {', '.join(f'{k}={v}' for k, v in versions.items())}")
+    except Exception as e:  # the cache is an optimisation; never fail a deploy over it
+        log(f"WARNING: could not update answer-cache versions ({e}); cached answers may be stale until the next deploy")
 
 
 def step_lakebase(db: Databricks, cfg: dict, state: dict, cfg_path: Path) -> None:
@@ -468,6 +512,7 @@ def step_lakebase(db: Databricks, cfg: dict, state: dict, cfg_path: Path) -> Non
     conn.close()
     state["lakebase_branch"] = branch
     save_state(cfg_path, state)
+    write_cache_versions(db, cfg, state)
     log(f"Lakebase ready: {state['lakebase_host']} / {cfg['lakebase_database']}")
 
 
@@ -486,7 +531,9 @@ def write_app_yaml(app_dir: Path, cfg: dict, state: dict) -> None:
         "  - name: PGPORT\n    value: '5432'\n"
         "  - name: PGSSLMODE\n    value: require\n"
         f"  - name: LAKEBASE_ENDPOINT\n    value: {state['lakebase_endpoint']}\n"
-        + ("  - name: LENSS_TITLE_ENDPOINT\n    valueFrom: title-model\n" if state.get("title_endpoint") else ""),
+        + ("  - name: LENSS_TITLE_ENDPOINT\n    valueFrom: title-model\n" if state.get("title_endpoint") else "")
+        + f"  - name: LENSS_ANSWER_CACHE\n    value: '{'on' if cfg.get('answer_cache', True) else 'off'}'\n"
+        + f"  - name: LENSS_PREWARM\n    value: '{'on' if cfg.get('prewarm_suggestions', True) else 'off'}'\n",
         encoding="utf-8",
     )
 
@@ -669,6 +716,7 @@ def main() -> None:
     db = Databricks(cfg["profile"])
     state = load_state(cfg_path)
     started = time.time()
+    run_stamp = time.strftime("%Y%m%d-%H%M%S")
     try:
         step_preflight(db, cfg, state)
         sql = Sql(db, state["warehouse_id"])
@@ -699,6 +747,9 @@ def main() -> None:
                 if "app_url" not in state:
                     raise DeployError("'smoke' needs a deployed app — run the app step first.")
                 step_smoke(cfg, state, db)
+            if step in ("ingest", "transform", "summary"):
+                # New gold data or views → cached answers may be wrong. One stamp per run, so a full deploy bumps once.
+                bump_cache_version(db, cfg, state, cfg_path, "data", run_stamp)
         save_state(cfg_path, state)
     except DeployError as e:
         log(f"FAILED: {e}")

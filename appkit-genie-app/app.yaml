@@ -18,3 +18,7 @@ env:
     value: require
   - name: LAKEBASE_ENDPOINT
     value: projects/lenss-collections-app/branches/production/endpoints/primary
+  - name: LENSS_ANSWER_CACHE
+    value: 'on'
+  - name: LENSS_PREWARM
+    value: 'on'

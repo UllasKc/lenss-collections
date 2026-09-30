@@ -1,59 +1,20 @@
 import express from 'express';
 import { getExecutionContext } from '@databricks/appkit';
-import { streamAgentResponse } from '../lib/agentMode.js';
+import { agentAnswer, stripCitations, type Answer } from '../lib/answers.js';
 import {
-  agentAnswer, agentMessageId, agentQueries, chatAnswer, chatQueries, type Answer, type QueryRun,
-} from '../lib/answers.js';
+  cacheEnabled, cacheKey, currentVersions, evict, lookup, startPrewarm, store, type Lakebase,
+} from '../lib/answerCache.js';
+import { runGenie, type GenieLike, type Mode } from '../lib/genieRun.js';
+import { STARTERS, MORE_SUGGESTIONS } from '../lib/suggestions.js';
 import { generateTitle } from '../lib/titles.js';
-
-/** Genie Chat-mode statuses, as the stage names shown in Monitoring. */
-const STAGE_NAMES: Record<string, string> = {
-  SUBMITTED: 'Queued',
-  FETCHING_METADATA: 'Reading table metadata',
-  FILTERING_CONTEXT: 'Selecting relevant context',
-  ASKING_AI: 'Writing SQL',
-  PENDING_WAREHOUSE: 'Waiting for warehouse',
-  EXECUTING_QUERY: 'Running SQL',
-  COMPLETED: 'Finishing',
-};
-
-/** `GenieStreamEvent` isn't part of `@databricks/appkit`'s public export
- * surface (only its internal `shared/src/genie.js`) — mirrored here rather
- * than deep-importing a non-public path that could move between versions. */
-type GenieStreamEvent =
-  | { type: 'message_start'; conversationId: string; messageId: string; spaceId: string }
-  | { type: 'status'; status: string }
-  | {
-      type: 'message_result';
-      message: { content: string; status: string; error?: string; attachments?: unknown[] };
-    }
-  | { type: 'query_result'; attachmentId: string; statementId: string; data: unknown }
-  | { type: 'error'; error: string }
-  | { type: 'history_info'; conversationId: string; spaceId: string; nextPageToken: string | null; loadedCount: number };
 
 /** The slice of the AppKit plugin map this router actually uses (avoids
  * fighting PluginMap<T>'s plugin-array-dependent generic — TS structural
  * typing means the real `appkit` object from server.ts satisfies this). */
 interface ChatAppKit {
-  lakebase: {
-    query: (text: string, values?: unknown[]) => Promise<{ rows: Record<string, unknown>[] }>;
-  };
-  genie: {
-    // Plain (service-principal) call — `asUser(req).sendMessage(...)` throws
-    // "Cannot read properties of undefined (reading 'resolveSpaceId')" in
-    // this AppKit version (confirmed against the real running app); this
-    // Genie space grants CAN_RUN to the app's service principal already, so
-    // OBO isn't required for this build. Revisit if per-user Genie
-    // permissions ever matter here.
-    sendMessage: (
-      alias: string,
-      content: string,
-      conversationId?: string,
-    ) => AsyncGenerator<GenieStreamEvent>;
-  };
+  lakebase: Lakebase;
+  genie: GenieLike;
 }
-
-type Mode = 'chat' | 'agent';
 
 const GENIE_AGENT_ID = process.env.DATABRICKS_GENIE_SPACE_ID ?? '';
 
@@ -82,14 +43,17 @@ export function buildChatRouter(appkit: ChatAppKit): express.Router {
    * Genie keeps Chat and Agent conversations apart (each rejects the other's
    * conversation id — confirmed against the live API). When a question goes
    * to one mode after turns were answered in the other, carry the latest of
-   * those turns over as context so follow-ups still make sense.
+   * those turns over as context so follow-ups still make sense. Answers served
+   * from the cache never reached this session's Genie conversation either, so
+   * they are carried over the same way.
    */
   const crossModeContext = async (sessionId: string, mode: Mode): Promise<string> => {
     const { rows } = await appkit.lakebase.query(
       `SELECT role, content, mode FROM chatapp.chat_messages
         WHERE session_id = $1
           AND created_at > COALESCE(
-                (SELECT MAX(created_at) FROM chatapp.chat_messages WHERE session_id = $1 AND mode = $2), 'epoch')
+                (SELECT MAX(created_at) FROM chatapp.chat_messages
+                  WHERE session_id = $1 AND mode = $2 AND NOT from_cache), 'epoch')
         ORDER BY created_at DESC
         LIMIT 4`,
       [sessionId, mode],
@@ -105,6 +69,13 @@ export function buildChatRouter(appkit: ChatAppKit): express.Router {
   router.get('/api/me', (req, res) => {
     res.json({ email: currentUserEmail(req) });
   });
+
+  // One list for the tiles, the side panel and the cache pre-warm.
+  router.get('/api/chat/suggestions', (_req, res) => {
+    res.json({ starters: STARTERS, more: MORE_SUGGESTIONS });
+  });
+
+  startPrewarm(appkit.lakebase, appkit.genie);
 
   // --- sessions -------------------------------------------------------
 
@@ -167,7 +138,7 @@ export function buildChatRouter(appkit: ChatAppKit): express.Router {
       return;
     }
     const { rows } = await appkit.lakebase.query(
-      `SELECT message_id, role, content, mode, attachment_json, feedback, created_at
+      `SELECT message_id, role, content, mode, attachment_json, feedback, from_cache, created_at
          FROM chatapp.chat_messages
         WHERE session_id = $1
         ORDER BY created_at ASC`,
@@ -178,6 +149,9 @@ export function buildChatRouter(appkit: ChatAppKit): express.Router {
     for (const r of rows) {
       const a = r.attachment_json as unknown;
       if (Array.isArray(a) && r.mode === 'agent') r.attachment_json = agentAnswer(a as never);
+      const answer = r.attachment_json as Answer | null;
+      if (answer && typeof answer.text === 'string') answer.text = stripCitations(answer.text);
+      if (typeof r.content === 'string') r.content = stripCitations(r.content);
     }
     res.json(rows);
   });
@@ -197,13 +171,43 @@ export function buildChatRouter(appkit: ChatAppKit): express.Router {
       res.status(400).json({ error: 'content is required' });
       return;
     }
+    const startedAt = Date.now();
 
-    const preamble = await crossModeContext(session.session_id as string, mode);
-    await appkit.lakebase.query(
-      `INSERT INTO chatapp.chat_messages (session_id, user_email, role, content, mode)
-       VALUES ($1, $2, 'user', $3, $4)`,
-      [session.session_id, email, content, mode],
+    // Refresh: the user asked for a live answer in place of a cached one.
+    const refreshOf = typeof req.body?.refreshOf === 'string' ? req.body.refreshOf : null;
+    if (refreshOf) {
+      const removed = await appkit.lakebase.query(
+        `DELETE FROM chatapp.chat_messages
+          WHERE message_id = $1 AND session_id = $2 AND role = 'assistant' AND from_cache
+          RETURNING cache_key`,
+        [refreshOf, session.session_id],
+      );
+      if (!removed.rows.length) {
+        res.status(404).json({ error: 'cached answer not found' });
+        return;
+      }
+    }
+
+    // Only standalone questions use the cache: the first question of a chat,
+    // a suggested question, or a refresh of one of those. Follow-ups depend
+    // on the conversation, so they always go to Genie.
+    const { rows: earlier } = await appkit.lakebase.query(
+      `SELECT COUNT(*)::int AS n FROM chatapp.chat_messages WHERE session_id = $1`,
+      [session.session_id],
     );
+    const standalone = cacheEnabled && (earlier[0].n === 0 || req.body?.standalone === true || Boolean(refreshOf));
+    const versions = standalone ? await currentVersions(appkit.lakebase).catch(() => null) : null;
+    const key = versions ? cacheKey(content, mode, versions) : null;
+    const hit = key && !refreshOf ? await lookup(appkit.lakebase, key).catch(() => null) : null;
+
+    const preamble = hit ? '' : await crossModeContext(session.session_id as string, mode);
+    if (!refreshOf) {
+      await appkit.lakebase.query(
+        `INSERT INTO chatapp.chat_messages (session_id, user_email, role, content, mode, from_cache)
+         VALUES ($1, $2, 'user', $3, $4, $5)`,
+        [session.session_id, email, content, mode, Boolean(hit)],
+      );
+    }
 
     res.setHeader('Content-Type', 'text/event-stream');
     res.setHeader('Cache-Control', 'no-cache');
@@ -225,124 +229,96 @@ export function buildChatRouter(appkit: ChatAppKit): express.Router {
           return title;
         });
 
-    const startedAt = Date.now();
-    let success = false;
-    let errorMessage: string | null = null;
-    let answer: Answer | null = null;
-    let queries: QueryRun[] = [];
-    let genieMessageId: string | null = null;
     const convColumn = mode === 'agent' ? 'agent_conversation_id' : 'genie_conversation_id';
-    let conversationId: string | undefined = (session[convColumn] as string | null) ?? undefined;
-    const question = preamble + content;
+    const priorConversation = (session[convColumn] as string | null) ?? undefined;
 
-    // Where the time went, for the Monitoring audit trail: each entry is how
-    // long one stage took, in the order Genie went through them.
-    const timeline: Array<{ stage: string; ms: number }> = [];
-    let lapStart = startedAt;
-    const lap = (stage: string) => {
-      const now = Date.now();
-      timeline.push({ stage, ms: now - lapStart });
-      lapStart = now;
-    };
+    let answer: Answer | null;
+    let success: boolean;
+    let errorMessage: string | null = null;
+    let genieConversationId: string | null;
+    let genieMessageId: string | null;
+    let details: Record<string, unknown>;
+    let cacheInfo: Record<string, unknown> | null = null;
 
-    try {
-      if (mode === 'agent') {
-        if (!GENIE_AGENT_ID) throw new Error('DATABRICKS_GENIE_SPACE_ID is not configured');
-        for await (const evt of streamAgentResponse(GENIE_AGENT_ID, question, conversationId)) {
-          const d = evt.data as Record<string, unknown>;
-          if (evt.type === 'response.output_item.done') {
-            // Forward progress only; the full answer is sent once, normalized.
-            const item = (d?.item ?? {}) as Record<string, unknown>;
-            const step = agentProgress(item);
-            send('progress', step);
-            if (step.kind !== 'other') lap(agentStageName(step));
-          } else if (evt.type === 'response.completed' && d?.response) {
-            const responseObj = d.response as { conversation_id?: string; output?: unknown[] };
-            conversationId = responseObj.conversation_id ?? conversationId;
-            const output = (responseObj.output ?? []) as never;
-            answer = agentAnswer(output);
-            queries = agentQueries(output);
-            genieMessageId = agentMessageId(output);
-            success = Boolean(answer.text);
-          } else if (evt.type === 'response.failed' || evt.type === 'error') {
-            errorMessage = JSON.stringify(d?.error ?? d);
-          }
-        }
-        lap('Finishing');
-      } else {
-        let attachments: unknown[] = [];
-        const queryResults = new Map<string, never>();
-        let stage = 'Sending the question';
-        for await (const evt of appkit.genie.sendMessage('default', question, conversationId)) {
-          if (evt.type === 'message_start') {
-            conversationId = evt.conversationId;
-            genieMessageId = evt.messageId;
-          } else if (evt.type === 'status') {
-            send('progress', { kind: 'status', text: evt.status });
-            const next = STAGE_NAMES[evt.status] ?? evt.status;
-            if (next !== stage) { lap(stage); stage = next; }
-          } else if (evt.type === 'message_result') {
-            lap(stage);
-            stage = 'Fetching result rows';
-            attachments = evt.message.attachments ?? [];
-            success = evt.message.status !== 'FAILED';
-            if (evt.message.error) errorMessage = evt.message.error;
-          } else if (evt.type === 'query_result') {
-            queryResults.set(evt.attachmentId, evt.data as never);
-          } else if (evt.type === 'error') {
-            errorMessage = evt.error;
-          }
-        }
-        lap(stage);
-        answer = chatAnswer(attachments as never, queryResults);
-        queries = chatQueries(attachments as never, queryResults);
-        if (!answer.text && !answer.charts.length) success = false;
+    if (hit) {
+      // Same answer, charts, steps and SQL as when Genie produced it; nothing
+      // is sent to Genie, so the session's Genie conversation is untouched.
+      answer = {
+        ...hit.answer,
+        text: stripCitations(hit.answer.text), // entries cached before citations were stripped
+        cache: { generatedAt: hit.createdAt, source: hit.source },
+      };
+      success = true;
+      genieConversationId = (hit.details.genieConversationId as string | null) ?? null;
+      genieMessageId = (hit.details.genieMessageId as string | null) ?? null;
+      cacheInfo = {
+        hit: true, key: hit.key, source: hit.source, generatedAt: hit.createdAt,
+        originalLatencyMs: hit.details.latencyMs ?? null, originalTimeline: hit.details.timeline ?? [],
+      };
+      details = { queries: hit.details.queries ?? [] };
+    } else {
+      const run = await runGenie(appkit.genie, mode, preamble + content, priorConversation, (p) => send('progress', p));
+      answer = run.answer;
+      success = run.success;
+      errorMessage = run.errorMessage;
+      genieConversationId = run.conversationId ?? null;
+      genieMessageId = run.genieMessageId;
+      details = { timeline: run.timeline, queries: run.queries };
+      await appkit.lakebase.query(
+        `UPDATE chatapp.chat_sessions SET ${convColumn} = $1, updated_at = now() WHERE session_id = $2`,
+        [genieConversationId, session.session_id],
+      );
+      // Cache it only if Genie saw the question on its own (no earlier turns),
+      // otherwise the answer may lean on context a later asker won't have.
+      let stored = false;
+      if (key && versions && !priorConversation && !preamble && run.success) {
+        stored = await store(appkit.lakebase, key, content, mode, versions, run, 'live').then(() => true, () => false);
       }
-    } catch (err) {
-      errorMessage = err instanceof Error ? err.message : String(err);
+      if (standalone) cacheInfo = { hit: false, refreshed: Boolean(refreshOf), stored };
     }
     const latencyMs = Date.now() - startedAt;
+    if (hit) details.timeline = [{ stage: 'Answered from cache', ms: latencyMs }];
 
     let assistantMessageId: string | null = null;
     if (answer && (answer.text || answer.charts.length)) {
       send('answer', answer);
       const saved = await appkit.lakebase.query(
         `INSERT INTO chatapp.chat_messages
-           (session_id, user_email, role, content, mode, attachment_json, genie_conversation_id, genie_message_id)
-         VALUES ($1, $2, 'assistant', $3, $4, $5, $6, $7)
+           (session_id, user_email, role, content, mode, attachment_json, genie_conversation_id, genie_message_id,
+            from_cache, cache_key)
+         VALUES ($1, $2, 'assistant', $3, $4, $5, $6, $7, $8, $9)
          RETURNING message_id`,
-        [session.session_id, email, answer.text, mode, JSON.stringify(answer), conversationId ?? null, genieMessageId],
+        [session.session_id, email, answer.text, mode, JSON.stringify(answer), genieConversationId, genieMessageId,
+          Boolean(hit), key],
       );
       assistantMessageId = saved.rows[0]?.message_id as string;
-      send('saved', { messageId: assistantMessageId, feedbackEnabled: Boolean(conversationId && genieMessageId) });
+      send('saved', { messageId: assistantMessageId, feedbackEnabled: Boolean(genieConversationId && genieMessageId) });
+      if (hit) {
+        await appkit.lakebase.query(`UPDATE chatapp.chat_sessions SET updated_at = now() WHERE session_id = $1`, [session.session_id]);
+      }
     } else {
       send('error', { error: errorMessage ?? 'No answer was returned' });
     }
 
     await appkit.lakebase.query(
-      `UPDATE chatapp.chat_sessions SET ${convColumn} = $1, updated_at = now() WHERE session_id = $2`,
-      [conversationId ?? null, session.session_id],
-    );
-    const details = {
-      timeline,
-      queries,
-      charts: answer?.charts.length ?? 0,
-      agentSteps: answer?.steps?.length ?? null,
-      answerPreview: (answer?.text ?? '').slice(0, 1500),
-      contextCarriedOver: Boolean(preamble),
-      genieConversationId: conversationId ?? null,
-      genieMessageId,
-    };
-    await appkit.lakebase.query(
       `INSERT INTO chatapp.usage_log
-         (session_id, user_email, mode, question, success, latency_ms, error_message, assistant_message_id, details)
-       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)`,
-      [session.session_id, email, mode, content, success, latencyMs, errorMessage, assistantMessageId, JSON.stringify(details)],
+         (session_id, user_email, mode, question, success, latency_ms, error_message, assistant_message_id, details, from_cache)
+       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)`,
+      [session.session_id, email, mode, content, success, latencyMs, errorMessage, assistantMessageId, JSON.stringify({
+        ...details,
+        charts: answer?.charts.length ?? 0,
+        agentSteps: answer?.steps?.length ?? null,
+        answerPreview: (answer?.text ?? '').slice(0, 1500),
+        contextCarriedOver: Boolean(preamble),
+        genieConversationId,
+        genieMessageId,
+        cache: cacheInfo,
+      }), Boolean(hit)],
     );
 
     const title = await titlePromise.catch(() => null);
     if (title) send('session_title', { sessionId: session.session_id, title });
-    send('done', { success, latencyMs });
+    send('done', { success, latencyMs, fromCache: Boolean(hit) });
     res.end();
   });
 
@@ -355,13 +331,15 @@ export function buildChatRouter(appkit: ChatAppKit): express.Router {
     const { rows } = await appkit.lakebase.query(
       `UPDATE chatapp.chat_messages SET feedback = $1, feedback_at = now()
         WHERE message_id = $2 AND user_email = $3 AND role = 'assistant'
-        RETURNING genie_conversation_id, genie_message_id`,
+        RETURNING genie_conversation_id, genie_message_id, cache_key`,
       [value, req.params.id, email],
     );
     if (!rows.length) {
       res.status(404).json({ error: 'answer not found' });
       return;
     }
+    // A thumbs-down removes the answer from the cache, so the next person gets a fresh one.
+    if (value === -1 && rows[0].cache_key) await evict(appkit.lakebase, rows[0].cache_key as string).catch(() => {});
     await appkit.lakebase.query(`UPDATE chatapp.usage_log SET feedback = $1 WHERE assistant_message_id = $2`, [value, req.params.id]);
 
     // Genie's feedback API accepts both Chat and Agent answers (verified).
@@ -393,7 +371,10 @@ export function buildChatRouter(appkit: ChatAppKit): express.Router {
                 COUNT(*) FILTER (WHERE success)::int AS successful,
                 ROUND(AVG(latency_ms)) AS avg_latency_ms,
                 COUNT(*) FILTER (WHERE feedback = 1)::int AS helpful,
-                COUNT(*) FILTER (WHERE feedback = -1)::int AS not_helpful
+                COUNT(*) FILTER (WHERE feedback = -1)::int AS not_helpful,
+                COUNT(*) FILTER (WHERE from_cache)::int AS cache_hits,
+                ROUND(AVG(latency_ms) FILTER (WHERE from_cache)) AS avg_cache_latency_ms,
+                ROUND(AVG(latency_ms) FILTER (WHERE NOT from_cache)) AS avg_live_latency_ms
            FROM chatapp.usage_log`,
       ),
       appkit.lakebase.query(
@@ -410,55 +391,53 @@ export function buildChatRouter(appkit: ChatAppKit): express.Router {
       appkit.lakebase.query(
         `SELECT mode, COUNT(*)::int AS questions,
                 COUNT(*) FILTER (WHERE success)::int AS successful,
-                ROUND(AVG(latency_ms)) AS avg_latency_ms
+                COUNT(*) FILTER (WHERE from_cache)::int AS cache_hits,
+                ROUND(AVG(latency_ms) FILTER (WHERE NOT from_cache)) AS avg_latency_ms
            FROM chatapp.usage_log
           GROUP BY mode`,
       ),
       appkit.lakebase.query(
         `SELECT u.event_id, u.session_id, s.title AS session_title, u.user_email, u.mode, u.question, u.success,
-                u.latency_ms, u.error_message, u.feedback, u.details, u.created_at
+                u.latency_ms, u.error_message, u.feedback, u.details, u.from_cache, u.created_at
            FROM chatapp.usage_log u
            LEFT JOIN chatapp.chat_sessions s ON s.session_id = u.session_id
           ORDER BY u.created_at DESC
           LIMIT 100`,
       ),
     ]);
+    // The cache view is optional: an older schema without the cache tables still gets the rest.
+    const cache = await Promise.all([
+      appkit.lakebase.query(
+        `SELECT question, mode, source, hits, created_at, expires_at, last_hit_at
+           FROM chatapp.answer_cache c
+          WHERE (c.data_version, c.genie_version) = (
+                  (SELECT version FROM chatapp.cache_versions WHERE name = 'data'),
+                  (SELECT version FROM chatapp.cache_versions WHERE name = 'genie'))
+            AND (expires_at IS NULL OR expires_at > now())
+          ORDER BY hits DESC, created_at DESC
+          LIMIT 50`,
+      ),
+      appkit.lakebase.query(`SELECT name, version, updated_at FROM chatapp.cache_versions ORDER BY name`),
+      appkit.lakebase.query(
+        `SELECT versions_key, status, answered, started_at, finished_at FROM chatapp.prewarm_runs
+          ORDER BY started_at DESC LIMIT 1`,
+      ),
+    ]).then(([entries, versions, prewarm]) => ({
+      enabled: cacheEnabled, entries: entries.rows, versions: versions.rows, lastPrewarm: prewarm.rows[0] ?? null,
+    })).catch(() => null);
     res.json({
       totals: totals.rows[0],
       byUser: byUser.rows,
       byMode: byMode.rows,
-      recent: recent.rows,
+      // Older answers still carry Genie's citation links to the workspace.
+      recent: recent.rows.map((r) => {
+        const d = r.details as { answerPreview?: unknown } | null;
+        if (d && typeof d.answerPreview === 'string') d.answerPreview = stripCitations(d.answerPreview);
+        return r;
+      }),
+      cache,
     });
   });
 
   return router;
-}
-
-/** Stage name for the Monitoring timeline; the time is what led up to this step finishing. */
-function agentStageName(step: { kind: string; text: string }): string {
-  const t = step.text.length > 70 ? step.text.slice(0, 70) + '…' : step.text;
-  switch (step.kind) {
-    case 'reasoning': return 'Reasoning';
-    case 'sql': return `Running SQL: ${t}`;
-    case 'viz': return `Building chart: ${t}`;
-    case 'writing': return 'Writing the answer';
-    default: return t || 'Working';
-  }
-}
-
-/** A short, human-readable line for each finished Agent Mode step. */
-function agentProgress(item: Record<string, unknown>): { kind: string; text: string } {
-  if (item.type === 'reasoning') {
-    const content = (item.content ?? []) as Array<{ text?: string }>;
-    return { kind: 'reasoning', text: content.map((c) => c.text ?? '').join(' ').trim() || 'Thinking…' };
-  }
-  if (item.type === 'function_call') {
-    let args: { title?: string } = {};
-    try { args = JSON.parse(String(item.arguments ?? '{}')); } catch { /* keep empty */ }
-    if (item.name === 'execute_sql') return { kind: 'sql', text: args.title ?? 'Running a query' };
-    if (item.name === 'generate_visualization') return { kind: 'viz', text: args.title ?? 'Building a chart' };
-    return { kind: 'tool', text: String(item.name ?? 'Working') };
-  }
-  if (item.type === 'message') return { kind: 'writing', text: 'Writing the answer' };
-  return { kind: 'other', text: '' };
 }

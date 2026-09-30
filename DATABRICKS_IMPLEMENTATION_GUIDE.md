@@ -1156,6 +1156,102 @@ User feedback after the first production round: answers showed raw `**markdown**
 
 ---
 
+## Step 8e — Answer caching (Phase 1 built, Phase 2 designed)
+
+### Why
+
+A Chat answer takes about 20 s and an Agent answer 1–3 min, and most of that is Genie writing and running SQL. The data only changes when `deploy.py` reloads it, and the same questions come up again and again: the 10 suggested questions, and the opening question of most demos. Answering those again every time costs warehouse time and makes people wait for an answer that can't have changed.
+
+### Phase 1 (built): three caches
+
+| Cache | What it holds | Where | Invalidated by |
+|---|---|---|---|
+| **Command Center** | The results of the four `/api/dashboard/*` endpoints | App memory, per instance | A new data version (checked every 30 s); if Lakebase can't be read, a 10-minute expiry |
+| **Pre-warmed suggested questions** | Answers to the 10 suggested questions (5 Chat, 5 Agent) | Lakebase `chatapp.answer_cache`, `source = 'prewarm'` | A new data or Genie version, or a 👎 on the answer |
+| **Exact-match answers** | Answers to any other *standalone* question | Lakebase `chatapp.answer_cache`, `source = 'live'` | A new data or Genie version, a 👎, or 24 hours |
+
+**The key.** `sha256(normalized question | mode | data version | Genie version)`. Normalizing lowercases, collapses spaces, and drops quotes and trailing `?.!`, so "Which accounts require immediate intervention?" and "which accounts require  immediate intervention" share an answer. Chat and Agent answers are cached separately.
+
+**Versions: how stale answers are ruled out.** `chatapp.cache_versions` holds two rows that `deploy.py` maintains:
+
+- `data` is set to the run's timestamp whenever `ingest`, `transform` or `summary` runs (once per run, so a full deploy bumps it once).
+- `genie` is a hash of the Genie space ID and its `serialized_space`, set by the `genie` step. Re-running `genie` with no changes keeps the same version, so the cache survives.
+
+Because both versions are part of the key, a reload makes every older answer unreachable at once. Nothing has to be found and deleted, and no stale answer can be served in between. The versions are also kept in `deploy/.state/`, so a first deploy (where Lakebase is created after `transform` and `genie`) writes them during the `lakebase` step.
+
+**Only standalone questions are cached.** A question is standalone when it's the first in a chat, a click on a suggested question, or a Refresh of one of those. Follow-ups depend on the conversation, so they always go to Genie. An answer is only *stored* when Genie saw the question with no earlier turns (no Genie conversation yet and no carried-over context), so a cached answer never relies on context a later asker won't have.
+
+**Follow-ups after a cached answer.** A cached answer never reaches the session's Genie conversation. The same mechanism that carries turns across Chat and Agent (`crossModeContext`) now also carries cached turns: it looks for turns after the last *live* answer in the target mode, so the cached question and answer are prepended as context to the next question.
+
+**Why one cache for everyone is safe.** The app calls Genie and SQL as its service principal, so every user gets the same answer to the same question. With on-behalf-of-user auth, row-level security could differ per user, and the key would need to include the user or their groups.
+
+### Pre-warming
+
+`startPrewarm()` in `server/lib/answerCache.ts` runs 30 s after the app starts and then every 10 minutes. It does nothing unless:
+
+1. **The versions have settled.** Neither version changed in the last 2 minutes, so one deploy that bumps data and then Genie pre-warms once.
+2. **No run exists yet for these versions.** It claims a `chatapp.prewarm_runs` row for `data|genie` with `INSERT … ON CONFLICT`, so with several app instances only one asks Genie. The running instance updates a heartbeat after each question. A `running` claim with no heartbeat for 10 minutes belongs to an instance that was stopped, and another instance takes it over. This matters because a redeploy briefly starts the old deployment and then stops it: found in testing, where the first claim was orphaned 5 s after it was made. A run that ended `failed` (some questions unanswered) is retried after 60 minutes.
+
+It asks the 10 questions one after another, as the service principal, through the same `runGenie()` function that live questions use. The cached answer therefore has exactly the same shape: text, charts, Agent steps, SQL and Genie IDs. If a suggested question was already answered live since the versions changed, that answer is kept and promoted: it no longer expires after 24 hours. A full pre-warm takes about 10 minutes, mostly for the Agent questions. It also deletes cache rows for older versions or with an expired TTL.
+
+**It does not run on every start.** The cache is in Lakebase, so restarts and redeploys keep it. A restart finds a `done` run for the current versions and skips. Only new data, a Genie change, or an empty cache triggers work. The suggested questions come from `server/lib/suggestions.ts`, which the UI loads from `GET /api/chat/suggestions`, so the tiles and the pre-warm can't drift apart.
+
+### What the user sees
+
+- A cached answer appears at once, without the live "Understanding the question…" steps.
+- It renders exactly like a live one: text, charts with Chart / Table / SQL tabs, the Agent's "How the agent worked it out" with its SQL, and follow-up chips.
+- Under it: **⚡ Answered from cache · generated &lt;time&gt;** and a **↻ Refresh** button on the latest answer. Refresh sends `refreshOf: <messageId>`. The server deletes the cached answer, asks Genie live and bypasses the lookup, and the new answer replaces the old one in place and in the cache.
+- 👍/👎 still go to Genie against the original Genie message. **👎 also evicts the entry**, so the next person gets a fresh answer.
+
+### Monitoring
+
+- **KPIs.** *Cache Hits* (% of questions answered from the cache, with the average hit time). *Avg Latency* now shows Genie answers only, so hits don't hide how slow Genie is.
+- **Audit trail.** A hit shows ⚡ in the Time column. Its details say whether it was pre-warmed or an earlier answer, when it was generated and how long the original took. They also show "How Genie originally answered it" (the original stage timings) and the original SQL. A miss says whether it was stored, and a Refresh says so.
+- **Answer cache panel.** Cache on/off, the current data and Genie versions, the last pre-warm (status, count, time), and the cached questions with source, hits, generation time and expiry.
+
+### Settings
+
+| Deploy config key | App env var (written to `app.yaml`) | Default | Effect |
+|---|---|---|---|
+| `answer_cache` | `LENSS_ANSWER_CACHE` | `true` / `on` | `false` turns off answer caching and pre-warming; the Command Center cache stays |
+| `prewarm_suggestions` | `LENSS_PREWARM` | `true` / `on` | `false` keeps the answer cache but skips pre-warming |
+
+To force fresh answers without new data, re-run `python deploy/deploy.py --config <config> --only summary`, which bumps the data version.
+
+### Files
+
+- `deploy/lakebase/schema.sql`, v4: `cache_versions`, `answer_cache` and `prewarm_runs`, plus `from_cache`/`cache_key` columns on `chat_messages` and `from_cache` on `usage_log`.
+- `deploy/deploy.py`: `bump_cache_version()` and `write_cache_versions()`.
+- `server/lib/genieRun.ts`: one Genie call (Chat or Agent), shared by live questions and the pre-warm.
+- `server/lib/answerCache.ts`: key, lookup, store, evict and pre-warm.
+- `server/lib/suggestions.ts`: the 10 questions.
+- `server/routes/chat.ts`: standalone detection, hit/miss/refresh, 👎 eviction, cache stats.
+- `server/routes/dashboard.ts`: Command Center cache (`X-Cache: hit|miss` header).
+- `public/js/chat.js`, `public/js/monitoring.js`: the label, Refresh and the Monitoring panel.
+- `deploy/smoke_test.py`: checks that a suggested question asked twice is served from the cache, that Refresh returns a live answer in place, and that the Command Center returns `X-Cache: hit`.
+
+### Phase 2 (designed, not built): semantic cache
+
+Exact matching misses paraphrases: "Which accounts need urgent action?" and "Which accounts require immediate intervention?" are the same question to a person. Phase 2 would reuse an answer when a new standalone question *means* the same as a cached one.
+
+**How it would work**
+
+1. **Embed.** When an answer is stored, embed the normalized question with the Foundation Model API endpoint **`databricks-gte-large-en`** (1024 dimensions, pay-per-token) and store the vector with the entry.
+2. **Store.** Use a `vector(1024)` column on `chatapp.answer_cache` with the **pgvector** extension in Lakebase, with an HNSW index, filtered by mode and both versions. At a few hundred entries a sequential scan would also do. Keeping it in the same database means the vector and the answer are invalidated together by the version key. Databricks Vector Search is the alternative once there are tens of thousands of entries, but it adds a sync path and a second place to invalidate.
+3. **Look up.** An exact match is tried first (free and instant). On a miss, embed the question (~50–100 ms) and find the nearest entry with the same mode and versions.
+4. **Decide, strictly.** Reuse only if **cosine similarity ≥ 0.95** *and* the questions name the same things. Numbers, dates and periods, products, DPD buckets, channels and segments are extracted from both, and any difference means a miss. "Recovery rate for 31-60" and "Recovery rate for 61-90" embed almost identically but need different answers, and this check is what stops that. The threshold would be tuned on a labelled set of paraphrase and near-miss pairs built from the audit trail.
+5. **Say so.** The label would read **"⚡ Answer to a similar question: '&lt;original question&gt;' · generated &lt;time&gt;"**, with Refresh as today. People can see which question was answered and ask live if it isn't what they meant.
+
+**Safeguards and rollout**
+
+- **Shadow mode first.** For a week or two, compute the best match and its score on every miss and log it to `usage_log.details`, but still answer live. Then compare the live answers with the would-be cached ones to set the threshold before serving anything.
+- A 👎 on a semantic hit evicts that entry and records the pair as a negative example for tuning.
+- Follow-ups are never matched semantically, same as Phase 1.
+- Cost is one embedding call per standalone cache miss (fractions of a cent), against a 20 s–3 min Genie answer saved on each hit.
+- **What to build:** `LENSS_SEMANTIC_CACHE=off|shadow|on`; a `question_embedding vector(1024)` column and index in `schema.sql` (`CREATE EXTENSION vector`); an app resource for the embedding endpoint (`CAN_QUERY`); `semanticLookup()` in `answerCache.ts`; the similarity score and matched question in the audit trail; and a smoke check that a paraphrase hits and a near-miss (different DPD bucket) doesn't.
+
+---
+
 ## Step 9 — Version control and deployment
 
 Mirror the CNX reference's repo layout: a git repo with `src/jobs` (the notebooks/SQL above as ordered install tasks), `metrics/` (the metric-view YAML from Step 3), `genie/serialized_space.json` (export your Genie space config as code once it's stable), and a `docs/DATA_CONTRACT.md` — you already have the equivalent in this repo's two markdown files. Deploy via a Databricks Asset Bundle (`databricks.yml`) rather than hand-editing workspace objects going forward.

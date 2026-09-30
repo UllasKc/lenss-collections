@@ -63,7 +63,13 @@
         <div class="whoami" id="assistantUserGreeting"></div>
       </aside>
       <div class="card chat">
-        <div class="chat-head"><div class="chat-title" id="chatTitle">New chat</div></div>
+        <div class="chat-head">
+          <div class="chat-title" id="chatTitle">New chat</div>
+          <button class="head-btn" id="pdfBtn" hidden title="Download this conversation as a PDF, with its charts">
+            <svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 3v12"/><path d="m7 10 5 5 5-5"/><path d="M5 21h14"/></svg>
+            <span id="pdfBtnLabel">Download PDF</span>
+          </button>
+        </div>
         <div class="msgs" id="chatMsgs"></div>
         <div class="empty" id="chatEmpty">
           <div class="empty-h">What would you like to know?</div>
@@ -104,7 +110,16 @@
 
     <div class="grid charts" style="margin-top:14px">
       <div class="card chart-card"><h3>Questions by mode</h3><div class="cv"><canvas id="obsModeChart"></canvas></div></div>
-      <div class="card chart-card"><h3>Avg latency by mode (ms)</h3><div class="cv"><canvas id="obsLatencyChart"></canvas></div></div>
+      <div class="card chart-card"><h3>Avg Genie latency by mode (ms, excluding cache hits)</h3><div class="cv"><canvas id="obsLatencyChart"></canvas></div></div>
+    </div>
+
+    <h2 class="sect">Answer cache</h2>
+    <div class="card" id="obsCacheStatus" style="margin-bottom:10px"></div>
+    <div class="card table-scroll">
+      <table id="cacheTable">
+        <thead><tr><th>Question</th><th>Mode</th><th>Source</th><th>Hits</th><th>Generated</th><th>Expires</th></tr></thead>
+        <tbody></tbody>
+      </table>
     </div>
 
     <h2 class="sect">By user</h2>
@@ -134,5 +149,6 @@
 <script src="/js/app.js"></script>
 <script src="/js/chat.js"></script>
 <script src="/js/monitoring.js"></script>
+<script src="/js/export.js"></script>
 </body>
 </html>

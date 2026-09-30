@@ -61,6 +61,52 @@ ALTER TABLE chatapp.usage_log ADD COLUMN IF NOT EXISTS assistant_message_id UUID
 ALTER TABLE chatapp.usage_log ADD COLUMN IF NOT EXISTS feedback SMALLINT;
 ALTER TABLE chatapp.usage_log ADD COLUMN IF NOT EXISTS details JSONB;           -- SQL run, timings, Genie ids
 
+-- v4: answer cache. A standalone question (the first in a chat, or a
+-- suggested question) is answered once and served from here after that. The
+-- key includes the data and Genie versions, so reloading data or changing the
+-- Genie space makes old answers unreachable; deploy.py bumps the versions.
+CREATE TABLE IF NOT EXISTS chatapp.cache_versions (
+  name TEXT PRIMARY KEY,                      -- 'data' | 'genie'
+  version TEXT NOT NULL,
+  updated_at TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+INSERT INTO chatapp.cache_versions (name, version) VALUES ('data', 'initial'), ('genie', 'initial')
+ON CONFLICT (name) DO NOTHING;
+
+CREATE TABLE IF NOT EXISTS chatapp.answer_cache (
+  cache_key TEXT PRIMARY KEY,                 -- sha256(normalized question | mode | data version | genie version)
+  question TEXT NOT NULL,
+  normalized TEXT NOT NULL,
+  mode TEXT NOT NULL,
+  data_version TEXT NOT NULL,
+  genie_version TEXT NOT NULL,
+  answer_json JSONB NOT NULL,                 -- the same answer shape a live answer has
+  details JSONB,                              -- SQL, timeline and Genie ids of the original run
+  source TEXT NOT NULL CHECK (source IN ('live','prewarm')),
+  created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+  expires_at TIMESTAMPTZ,                     -- NULL = valid for as long as the versions are
+  hits INTEGER NOT NULL DEFAULT 0,
+  last_hit_at TIMESTAMPTZ
+);
+CREATE INDEX IF NOT EXISTS idx_answer_cache_versions ON chatapp.answer_cache (data_version, genie_version);
+
+-- One row per versions pair: which app instance pre-warmed it, and when.
+CREATE TABLE IF NOT EXISTS chatapp.prewarm_runs (
+  versions_key TEXT PRIMARY KEY,
+  status TEXT NOT NULL,                       -- running | done | failed
+  answered INTEGER NOT NULL DEFAULT 0,
+  started_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+  finished_at TIMESTAMPTZ
+);
+
+-- Updated after each question; a 'running' claim with no heartbeat for 10
+-- minutes belongs to an app instance that was stopped (e.g. by a redeploy).
+ALTER TABLE chatapp.prewarm_runs ADD COLUMN IF NOT EXISTS heartbeat_at TIMESTAMPTZ;
+
+ALTER TABLE chatapp.chat_messages ADD COLUMN IF NOT EXISTS from_cache BOOLEAN NOT NULL DEFAULT false;
+ALTER TABLE chatapp.chat_messages ADD COLUMN IF NOT EXISTS cache_key TEXT;
+ALTER TABLE chatapp.usage_log ADD COLUMN IF NOT EXISTS from_cache BOOLEAN NOT NULL DEFAULT false;
+
 CREATE INDEX IF NOT EXISTS idx_chat_sessions_user ON chatapp.chat_sessions (user_email, updated_at DESC);
 CREATE INDEX IF NOT EXISTS idx_chat_messages_session ON chatapp.chat_messages (session_id, created_at);
 CREATE INDEX IF NOT EXISTS idx_usage_log_created ON chatapp.usage_log (created_at);

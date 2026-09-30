@@ -292,15 +292,28 @@ The `smoke` step asks real questions through the deployed URL as a separate, non
 python deploy/deploy.py --config deploy/config/org.json --only smoke
 ```
 
-It ends with `20/20 checks passed`. It covers the UI, the dashboard and executive summary, Chat and Agent questions, the personal-data refusal, charts, session naming, history, 👍/👎 feedback (including delivery to Genie), the Monitoring audit trail, rename/delete and monitoring. The Agent questions take 1–2 minutes each.
+It ends with `23/23 checks passed`. It covers the UI, the dashboard and executive summary, the suggested questions, the answer cache (a repeated suggested question is served from the cache, and Refresh replaces it with a live answer) and the Command Center cache, Chat and Agent questions, the personal-data refusal, charts, session naming, history, 👍/👎 feedback (including delivery to Genie), the Monitoring audit trail, rename/delete and monitoring. The Agent questions take 1–2 minutes each.
 
 **Never commit the secret** or paste it into a file in this folder.
 
 ### 9.3 Things to try in the app
 
 - **Command Center:** portfolio KPIs, achievement by product, segment table.
-- **Chat + Agent:** choose **Chat** under the question box for quick answers (~20 s), or **Agent** for "why / what should we do" analysis (1–3 min). You can switch modes within one conversation. Answers include charts with **Chart / Table / SQL** tabs.
-- **Monitoring:** questions, success rate, latency by mode, per-user activity.
+- **Chat + Agent:** choose **Chat** under the question box for quick answers (~20 s), or **Agent** for "why / what should we do" analysis (1–3 min). You can switch modes within one conversation. Answers include charts with **Chart / Table / SQL** tabs. **Download PDF** (top right of the conversation) saves the whole conversation as it looks on screen, charts included, with page numbers.
+- **Monitoring:** questions, success rate, latency by mode, cache hits, per-user activity, the answer cache, and a per-question audit trail.
+- **Answer cache:** within about 10 minutes of a deploy, the app answers the 10 suggested questions in the background. From then on, clicking one shows the answer at once, marked **⚡ Answered from cache · generated &lt;time&gt;**, with a **↻ Refresh** button that asks Genie live. The first question of any chat is cached for 24 hours the same way. Loading new data (`ingest`, `transform` or `summary`) or changing Genie (`genie`) invalidates every cached answer automatically. See section 9.4.
+
+### 9.4 The answer cache
+
+The app keeps answers in Lakebase so repeated questions don't wait for Genie again. It needs no setup; the `lakebase` step creates the tables.
+
+- **What's cached:** the Command Center numbers (in memory, until the data changes), the 10 suggested questions (pre-warmed after each data or Genie change), and the first question of each chat (24 hours). Follow-up questions always go to Genie.
+- **When it refreshes:** every step that changes the data or Genie records a new version, and older answers are never served again. You don't need to clear anything by hand. To force fresh answers without new data, run `python deploy/deploy.py --config <config> --only summary`.
+- **When pre-warming runs:** it doesn't run on every restart. It runs once per data/Genie version, about 2–12 minutes after a deploy that changed them, and takes about 10 minutes (the Agent questions are the slow part). Progress shows under **Monitoring → Answer cache → Last pre-warm**.
+- **A wrong cached answer:** 👎 removes it from the cache, and **↻ Refresh** asks Genie again.
+- **Turning it off:** in your config file (step 7), set `"answer_cache": false` (no answer caching or pre-warm) or `"prewarm_suggestions": false` (caching, but no pre-warm), then run `--only app`. Both default to `true`. The Command Center cache is always on.
+
+The design, including the planned Phase 2 semantic cache, is in `DATABRICKS_IMPLEMENTATION_GUIDE.md`, Step 8e.
 
 ---
 
@@ -322,6 +335,8 @@ It ends with `20/20 checks passed`. It covers the UI, the dashboard and executiv
 | Smoke test: `401` for the service principal | Missing **Workspace access** entitlement | Section 9.2, step 3 |
 | Sessions are named after the question instead of a short title | Expected: `title_endpoint` is off by default | To use a model for titles, set `title_endpoint` to a chat model that exists (sidebar → **Serving**) and re-run `--only app` |
 | Command Center says "No executive summary yet" | The `summary` step hasn't run in this workspace | `python deploy/deploy.py --config <config> --only summary`. Re-run it whenever the data changes |
+| An answer looks out of date | It came from the answer cache (it shows **⚡ Answered from cache**) and the data changed without a deploy step | Click **↻ Refresh** under it, or re-run `--only summary` to invalidate every cached answer |
+| Suggested questions aren't instant after a deploy | Pre-warming hasn't finished: it starts ~2 min after the versions settle and takes ~10 min | Check **Monitoring → Answer cache → Last pre-warm**; if it says `failed`, the app logs show which question Genie didn't answer, and it retries within the hour |
 | Warehouse takes minutes on the first command | Warehouse was stopped; the script starts it | Wait. Serverless starts in seconds, Pro in a few minutes |
 
 ---
@@ -333,7 +348,7 @@ It ends with `20/20 checks passed`. It covers the UI, the dashboard and executiv
 | Pulled new code from GitHub (`git pull`) | `python deploy/deploy.py --config deploy/config/org.json` (or `--only app` if only the app changed) |
 | The app (`appkit-genie-app/`) | `--only app` |
 | Genie instructions / examples / benchmarks (`deploy/genie/space.py`) | `--only genie` |
-| The workbook (new data, same sheets) | `--only ingest,transform` |
+| The workbook (new data, same sheets) | `--only ingest,transform,summary` (this also invalidates the answer cache) |
 | Any SQL in `deploy/sql/` | `--only context,transform` |
 
 Deploying to **another workspace** is the same procedure: a new CLI profile (step 6), a new config file (step 7), and run it. Each config keeps its own IDs in `deploy/.state/<config-name>.json`, which stays on your laptop and is not committed.
@@ -413,7 +428,7 @@ See [README.md](README.md) for the repository layout, and [DATABRICKS_IMPLEMENTA
 | **App service principal** | The identity the app uses to call Genie, SQL and Lakebase | Users only need **Can use** on the app, not their own data permissions |
 | **User identity header** | `x-forwarded-email` identifies the signed-in user | Keeps each person's chat history private to them |
 | **AppKit** (`@databricks/appkit`) | Databricks' Node framework: Genie, Lakebase and server plugins | Handles authentication and connections; custom routes are added on top |
-| **Lakebase Postgres** | The `chatapp` database: chat sessions, messages, usage log | Chat history needs fast small reads and writes, which suits Postgres better than Delta. Logins use Databricks OAuth, so there are no passwords |
+| **Lakebase Postgres** | The `chatapp` database: chat sessions, messages, usage log, and the answer cache | Chat history needs fast small reads and writes, which suits Postgres better than Delta. Logins use Databricks OAuth, so there are no passwords |
 
 ### Identity, access and deployment
 

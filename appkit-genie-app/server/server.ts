@@ -11,7 +11,7 @@ createApp({
   onPluginsReady(appkit) {
     appkit.server.extend((app) => {
       app.use(buildChatRouter(appkit));
-      app.use(buildDashboardRouter());
+      app.use(buildDashboardRouter(appkit.lakebase));
     });
   },
 }).catch(console.error);
