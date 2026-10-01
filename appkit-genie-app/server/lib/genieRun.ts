@@ -1,6 +1,7 @@
 import { streamAgentResponse } from './agentMode.js';
 import {
-  agentAnswer, agentMessageId, agentQueries, chatAnswer, chatQueries, type Answer, type QueryRun,
+  agentAnswer, agentEvidence, agentMessageId, agentQueries, chatAnswer, chatEvidence, chatQueries,
+  type Answer, type Evidence, type QueryRun,
 } from './answers.js';
 
 /** `GenieStreamEvent` isn't part of `@databricks/appkit`'s public export
@@ -29,6 +30,8 @@ export type Mode = 'chat' | 'agent';
 export interface GenieRun {
   answer: Answer | null;
   queries: QueryRun[];
+  /** All query results behind the answer, for the faithfulness judge (not stored). */
+  evidence: Evidence[];
   conversationId: string | undefined;
   genieMessageId: string | null;
   /** Where the time went: how long each stage took, in order. */
@@ -65,7 +68,7 @@ export async function runGenie(
 ): Promise<GenieRun> {
   const startedAt = Date.now();
   const run: GenieRun = {
-    answer: null, queries: [], conversationId, genieMessageId: null, timeline: [], success: false, errorMessage: null, latencyMs: 0,
+    answer: null, queries: [], evidence: [], conversationId, genieMessageId: null, timeline: [], success: false, errorMessage: null, latencyMs: 0,
   };
   let lapStart = startedAt;
   const lap = (stage: string) => {
@@ -89,6 +92,7 @@ export async function runGenie(
           const output = (responseObj.output ?? []) as never;
           run.answer = agentAnswer(output);
           run.queries = agentQueries(output);
+          run.evidence = agentEvidence(output);
           run.genieMessageId = agentMessageId(output);
           run.success = Boolean(run.answer.text);
         } else if (evt.type === 'response.failed' || evt.type === 'error') {
@@ -123,6 +127,7 @@ export async function runGenie(
       lap(stage);
       run.answer = chatAnswer(attachments as never, queryResults);
       run.queries = chatQueries(attachments as never, queryResults);
+      run.evidence = chatEvidence(attachments as never, queryResults);
       if (!run.answer.text && !run.answer.charts.length) run.success = false;
     }
   } catch (err) {

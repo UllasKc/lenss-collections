@@ -21,4 +21,6 @@ env:
   - name: LENSS_ANSWER_CACHE
     value: 'on'
   - name: LENSS_PREWARM
-    value: 'on'
+    value: 'off'
+  - name: LENSS_AI_CONFIG
+    value: '{"semantic_cache":{"threshold":0.98,"embedding_model":"databricks-gte-large-en"},"guardrails":{"model":"databricks-meta-llama-3-1-8b-instruct","input":{"pii":"redact","profanity":"block","prompt_injection":"block","off_topic":"warn"},"output":{"pii":"redact","profanity":"redact","policy_checks":"flag"}},"faithfulness_judge":{"model":"databricks-gpt-oss-20b","sample_percent":100}}'

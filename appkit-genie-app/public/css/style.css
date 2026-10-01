@@ -246,7 +246,7 @@ details.steps code{font:11px var(--mono)}
 .chip.warn{background:var(--amber-soft);color:var(--amber)}
 .chip.neutral{background:var(--soft);color:var(--muted)}
 .chip.cache{background:#FFFBEB;color:#92400E}
-#obsKpis.kpis{grid-template-columns:repeat(5,1fr)}
+#obsKpis.kpis{grid-template-columns:repeat(auto-fit,minmax(150px,1fr))}
 @media(max-width:1020px){#obsKpis.kpis{grid-template-columns:repeat(2,1fr)}}
 @media(max-width:700px){#obsKpis.kpis{grid-template-columns:1fr}}
 .score-reason{font-size:11.5px;color:var(--muted);line-height:1.5;overflow-wrap:anywhere}
@@ -300,3 +300,29 @@ details.steps code{font:11px var(--mono)}
 .suggest-collapsed .suggest-rail-label{display:block;writing-mode:vertical-rl;font:700 12.5px var(--body);color:var(--text);letter-spacing:.02em;white-space:nowrap}
 .suggest-collapsed .suggest-toggle:hover .suggest-rail-label{color:var(--accent)}
 @media(max-width:1020px){.suggest-collapsed .suggest-rail-label{display:none}}
+
+/* Answer-ready toasts (about a fifth of the screen, bottom right) and the one-time notification offer */
+.toast-region{position:fixed;right:24px;bottom:24px;z-index:1000;display:flex;flex-direction:column;gap:12px;width:clamp(380px,28vw,600px);max-width:calc(100vw - 32px)}
+.toast{display:flex;align-items:flex-start;gap:14px;background:#fff;border:1px solid var(--line);border-left:6px solid var(--green);border-radius:16px;padding:22px 20px 22px 18px;min-height:max(170px,20vh);box-shadow:0 14px 40px rgba(15,23,42,.22);animation:toast-in .2s ease-out}
+.toast.warn{border-left-color:var(--red)}
+.toast.out{opacity:0;transform:translateY(8px);transition:all .2s}
+@keyframes toast-in{from{opacity:0;transform:translateY(12px)}to{opacity:1;transform:none}}
+.toast-icon{flex:none;width:48px;height:48px;border-radius:50%;display:grid;place-items:center;font:700 24px var(--body);color:#fff;background:var(--green)}
+.toast.warn .toast-icon{background:var(--red)}
+.toast-body{flex:1;min-width:0;display:flex;flex-direction:column;gap:8px}
+.toast-title{font:700 19px var(--display)}
+.toast-text{font-size:15.5px;line-height:1.5;color:var(--text);display:-webkit-box;-webkit-line-clamp:3;-webkit-box-orient:vertical;overflow:hidden}
+.toast-view{align-self:flex-start;margin-top:auto;font:600 15px var(--body);color:#fff;background:var(--accent);border:none;border-radius:9px;padding:10px 22px;cursor:pointer}
+.toast-view:hover{filter:brightness(1.08)}
+.toast-close{flex:none;border:none;background:none;color:var(--muted);font-size:26px;line-height:1;cursor:pointer;padding:0 2px}
+@media(max-width:700px){.toast-region{right:16px;left:16px;bottom:16px;width:auto}}
+.notify-banner{display:flex;align-items:center;gap:8px;flex-wrap:wrap;margin:10px 20px 0;padding:8px 12px;background:var(--accent-soft);border:1px solid #C7D7FE;border-radius:8px;font-size:12.5px}
+.notify-banner span{flex:1;min-width:180px}
+.notify-banner button{font:600 12px var(--body);border-radius:6px;padding:4px 10px;cursor:pointer;border:1px solid var(--accent)}
+.notify-yes{background:var(--accent);color:#fff}
+.notify-no{background:#fff;color:var(--accent)}
+
+/* Guardrails in the chat */
+.guard-note{margin-top:8px;font-size:12px;color:#92400E;background:#FFFBEB;border:1px solid #FDE68A;border-radius:6px;padding:5px 9px}
+.turnrow.bot .msg.guard-blocked{background:#FFFBEB;border-color:#FDE68A;color:#78350F}
+.guard-tables{display:flex;flex-direction:column;gap:10px}

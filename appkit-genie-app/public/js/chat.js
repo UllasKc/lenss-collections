@@ -321,6 +321,12 @@ function renderAnswer(msg, answer, opts) {
     msg.appendChild(f);
   }
 
+  // Guardrails: a blocked question shows its reason as the answer; notes (e.g. removed PII) sit above the footer.
+  if (answer.guard && answer.guard.blocked) msg.classList.add('guard-blocked');
+  ((answer.guard && answer.guard.notices) || []).forEach(n => {
+    msg.insertAdjacentHTML('beforeend', `<div class="guard-note"><span aria-hidden="true">🛡</span> ${esc(n)}</div>`);
+  });
+
   const when = opts.at ? new Date(opts.at).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }) : '';
   const took = opts.latencyMs && !answer.cache ? `${(opts.latencyMs / 1000).toFixed(0)}s` : '';
   msg.insertAdjacentHTML('beforeend', metaLine(mode, [took, when].filter(Boolean).join(' · ')));
@@ -336,8 +342,13 @@ function addCacheNote(msg, metaEl, answer, opts) {
     g.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
   const note = document.createElement('span');
   note.className = 'cache-note';
-  note.title = 'This question was answered recently on the same data, so the saved answer was reused. Refresh asks Genie again.';
-  note.innerHTML = `<span class="cache-bolt" aria-hidden="true">⚡</span>Answered from cache · generated ${esc(at)}`;
+  const similar = answer.cache.similarTo;
+  note.title = similar
+    ? `Your question matched an earlier one closely (${(similar.similarity * 100).toFixed(1)}% similar, same products, buckets and figures), so its answer was reused. Refresh asks Genie again.`
+    : 'This question was answered recently on the same data, so the saved answer was reused. Refresh asks Genie again.';
+  note.innerHTML = `<span class="cache-bolt" aria-hidden="true">⚡</span>Answered from cache` +
+    (similar ? ` · similar to “${esc(similar.question.length > 70 ? similar.question.slice(0, 70) + '…' : similar.question)}”` : '') +
+    ` · generated ${esc(at)}`;
   metaEl.appendChild(note);
   if (opts.messageId && opts.question && opts.canRefresh !== false) {
     const b = document.createElement('button');
@@ -400,6 +411,7 @@ async function ensureSession() {
 async function sendMessage(preset, opts = {}) {
   const text = (preset || inputEl.value).trim();
   if (!text || sending) return;
+  if (window.offerNotifications) window.offerNotifications();
   const mode = currentMode;
   sending = true;
   sendBtn.disabled = true;
@@ -432,8 +444,10 @@ async function sendMessage(preset, opts = {}) {
   let errorText = null;
   let latencyMs = null;
   let savedId = null;
+  let sentSessionId = null;
   try {
     const sessionId = await ensureSession();
+    sentSessionId = sessionId;
     const res = await fetch(`/api/chat/sessions/${sessionId}/messages`, {
       method: 'POST', headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ content: text, mode, standalone: Boolean(opts.standalone), refreshOf: opts.refreshOf || undefined }),
@@ -499,6 +513,9 @@ async function sendMessage(preset, opts = {}) {
   sending = false;
   sendBtn.disabled = false;
   loadSessions().catch(console.error);
+  if (window.notifyAnswerReady) {
+    window.notifyAnswerReady({ sessionId: sentSessionId, question: text, ok: Boolean(answer && !(answer.guard && answer.guard.blocked)) });
+  }
 }
 
 function humanizeStatus(status) {

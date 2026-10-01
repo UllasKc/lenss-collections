@@ -77,3 +77,5 @@ It checks the UI, the dashboard APIs, four Chat-mode questions (including the PI
 | `appkit-genie-app/` | The app: Node/Express server (`server/`) and static UI (`public/`) |
 | `all_details_and _data/` | Source workbook and specification documents |
 | `DATABRICKS_IMPLEMENTATION_GUIDE.md` | Full build notes, design decisions and gotchas |
+| `CHANGELOG.md` | Every change by version: what, why, what was verified, and open items |
+| `SETUP_GUIDE.md` | Deploying to a new workspace, configuration (incl. semantic cache, guardrails, judge), troubleshooting |

@@ -208,6 +208,20 @@ Open it in any editor (Notepad works):
 | `app_name` | The app's name, which becomes part of its URL | lowercase letters, digits, hyphens; must be unique in the workspace |
 | `readers_group` | *(optional)* A workspace group, e.g. `"lenss-users"` | Gets **only** `CAN_USE` on the app: no access to the Genie space, warehouse, tables or Lakebase (see 9.1) |
 | `title_endpoint` | *(optional, not in the file by default)* Chat model endpoint used to name sessions | Off by default: sessions are named from their first question. To turn it on, set it to a chat model endpoint that exists, e.g. `"databricks-meta-llama-3-3-70b-instruct"` |
+| `answer_cache`, `prewarm_suggestions` | *(optional)* `true` / `false` | Both default to `true`. See 9.4 |
+| `semantic_cache` | *(optional)* `{ "threshold": 98, "embedding_model": "databricks-gte-large-en" }` | Reuses a cached answer when a question means the same as a cached one. Threshold as `98` or `0.98`. **Left out = off.** See 9.5 |
+| `guardrails` | *(optional)* model plus an action per input and output check | Screens questions and answers. **Left out = off.** See 9.5 |
+| `faithfulness_judge` | *(optional)* `{ "model": "databricks-gpt-oss-120b", "sample_percent": 100 }` | Scores how well each answer matches the data. **Left out = off.** See 9.5 |
+
+**Models.** The three optional AI features call Databricks model serving endpoints (Foundation Model APIs). Enable the models you want in the workspace yourself (sidebar → **Serving**). The `app` step checks that each configured endpoint exists, binds it to the app with **Can query** (no keys), and prints whether each feature is on. If an endpoint is missing, it warns and leaves that feature (or that model) off instead of failing.
+
+| Feature | Recommended for the org workspace | Lightweight choice (used in `personal.json`) |
+|---|---|---|
+| Semantic cache embeddings | `databricks-gte-large-en` | the same: embeddings are cheap |
+| Guardrail classifier | `databricks-meta-llama-3-3-70b-instruct` (more accurate) | `databricks-meta-llama-3-1-8b-instruct` |
+| Faithfulness judge | `databricks-gpt-oss-120b`, or a Claude Sonnet endpoint if your workspace has one | `databricks-gpt-oss-20b` |
+
+Use a non-reasoning chat model for the guardrail classifier (Llama, not gpt-oss). It only has a few dozen tokens to reply in, and reasoning models spend those on thinking.
 
 ---
 
@@ -313,7 +327,52 @@ The app keeps answers in Lakebase so repeated questions don't wait for Genie aga
 - **A wrong cached answer:** 👎 removes it from the cache, and **↻ Refresh** asks Genie again.
 - **Turning it off:** in your config file (step 7), set `"answer_cache": false` (no answer caching or pre-warm) or `"prewarm_suggestions": false` (caching, but no pre-warm), then run `--only app`. Both default to `true`. The Command Center cache is always on.
 
-The design, including the planned Phase 2 semantic cache, is in `DATABRICKS_IMPLEMENTATION_GUIDE.md`, Step 8e.
+The design is in `DATABRICKS_IMPLEMENTATION_GUIDE.md`, Step 8e.
+
+### 9.5 Semantic cache, guardrails, faithfulness judge and notifications
+
+The first three are switched on per workspace in the config (step 7); leaving a section out turns it off. Check what's on under **Monitoring → Guardrails and answer quality**.
+
+**Semantic cache** (`semantic_cache`)
+- **When it applies:** a standalone question that isn't an exact repeat can reuse the answer to a cached question that means the same. Two conditions:
+  - the similarity is at least the threshold;
+  - the key details match exactly: numbers and DPD buckets, products, channels, strategies, what it's broken down by, and best vs worst.
+- **Example:** "Which accounts need immediate intervention?" reuses "Which accounts require immediate intervention?" (98.9% similar). "Recovery for 31-60" never reuses "recovery for 61-90".
+- **What users see:** **⚡ Answered from cache · similar to "…"**, with **↻ Refresh** as usual.
+- **Choosing a threshold:** 98–99 only catches close rewordings, which is the safe end. Every cache miss records the closest cached question and its similarity in the audit trail, so you can see what a lower threshold would have matched before changing it.
+
+**Guardrails** (`guardrails`)
+- **Questions**, checked before the cache and Genie. A blocked question never reaches Genie.
+
+  | Check | How it's detected | Actions |
+  |---|---|---|
+  | `pii` | Patterns: emails, phone numbers, card numbers, Aadhaar, PAN, SSN, IBAN. Account IDs are fine | `redact` (mask it and answer) or `block` |
+  | `profanity` | A word list plus the model | `block`, `warn` or `off` |
+  | `prompt_injection` | Patterns plus the model | `block`, `warn` or `off` |
+  | `off_topic` | The model | `warn` (answer and log it), `block` or `off` |
+
+- **Answers**, checked before they're sent:
+  - `pii` and `profanity`: `redact`.
+  - `policy_checks` flags "would deliver X uplift" wording, month-end forecasts, cure rate and probabilities of hitting target. Use `flag` to log only, `warn` to also show the user a caution, or `off`.
+- **No model?** Without `model`, only the pattern checks run. If the model call fails, the question goes ahead; a classifier failure never blocks anyone.
+- **In Monitoring:** counts by check and action, recent events, and the checks that fired on each question in the audit trail.
+
+**Faithfulness judge** (`faithfulness_judge`)
+- **When it runs:** after each live answer, in the background, so it adds no wait.
+- **Numbers check** (no model): every figure in the answer is looked up in the query results.
+- **Judge model:** scores how well the factual claims are supported and lists any unsupported ones. It doesn't judge recommendations.
+- **Final score** is the average of the two.
+- **Cached answers** show the score from when they were generated, so they aren't judged again.
+- **Cost control:** `sample_percent` judges only some answers.
+- **In Monitoring:** a **Faithfulness** KPI with the judge model's name, a **Faithful** column in the audit trail, and the details (figures not found, unsupported claims, tokens used) in each row.
+
+**Notifications** (no config)
+- **When:** an answer finishes while the person is on another tab or another chat.
+- **What:**
+  - an in-app **Answer ready** toast with **View**;
+  - if the browser tab is in the background, also a browser notification and a "(1)" in the tab title.
+- **Permission:** the app offers to turn browser notifications on once, on the first question.
+- **Limit:** notifications work while the page is open.
 
 ---
 
@@ -337,6 +396,8 @@ The design, including the planned Phase 2 semantic cache, is in `DATABRICKS_IMPL
 | Command Center says "No executive summary yet" | The `summary` step hasn't run in this workspace | `python deploy/deploy.py --config <config> --only summary`. Re-run it whenever the data changes |
 | An answer looks out of date | It came from the answer cache (it shows **⚡ Answered from cache**) and the data changed without a deploy step | Click **↻ Refresh** under it, or re-run `--only summary` to invalidate every cached answer |
 | Suggested questions aren't instant after a deploy | Pre-warming hasn't finished: it starts ~2 min after the versions settle and takes ~10 min | Check **Monitoring → Answer cache → Last pre-warm**; if it says `failed`, the app logs show which question Genie didn't answer, and it retries within the hour |
+| `WARNING: serving endpoint '…' not found` during `--only app` | The model in `semantic_cache`, `guardrails` or `faithfulness_judge` isn't enabled in this workspace | Enable it under **Serving** (or change the name in the config to one that exists), then re-run `--only app`. Until then that feature runs without the model, or stays off |
+| Faithfulness shows "Judge model error" in Monitoring | The judge model timed out or replied without valid JSON | The numbers check still scores the answer. A larger judge model is more reliable, as is lowering `sample_percent` if it's being rate-limited |
 | Warehouse takes minutes on the first command | Warehouse was stopped; the script starts it | Wait. Serverless starts in seconds, Pro in a few minutes |
 
 ---

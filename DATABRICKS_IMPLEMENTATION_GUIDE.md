@@ -1156,7 +1156,7 @@ User feedback after the first production round: answers showed raw `**markdown**
 
 ---
 
-## Step 8e — Answer caching (Phase 1 built, Phase 2 designed)
+## Step 8e — Answer caching (Phase 1; Phase 2 is built in Step 8f)
 
 ### Why
 
@@ -1230,25 +1230,76 @@ To force fresh answers without new data, re-run `python deploy/deploy.py --confi
 - `public/js/chat.js`, `public/js/monitoring.js`: the label, Refresh and the Monitoring panel.
 - `deploy/smoke_test.py`: checks that a suggested question asked twice is served from the cache, that Refresh returns a live answer in place, and that the Command Center returns `X-Cache: hit`.
 
-### Phase 2 (designed, not built): semantic cache
+### Phase 2 (built in Step 8f): semantic cache
 
-Exact matching misses paraphrases: "Which accounts need urgent action?" and "Which accounts require immediate intervention?" are the same question to a person. Phase 2 would reuse an answer when a new standalone question *means* the same as a cached one.
+Exact matching misses rewordings: "Which accounts need immediate intervention?" and "Which accounts require immediate intervention?" are the same question to a person. Phase 2 reuses an answer when a new standalone question means the same as a cached one: a strict similarity threshold on embeddings, plus a check that the questions name the same things. The planned design changed in three ways while building it:
+- **Storage.** Embeddings live in a `REAL[]` column, and the nearest match is computed in the app instead of with pgvector. There are only a few hundred entries per data/Genie version, so a scan takes milliseconds, and nothing depends on a Postgres extension.
+- **Detail matching.** The "same things named" check also covers what the question is broken down by and its direction (best vs worst). Embeddings rate "which channel works best" and "…worst" as near-identical.
+- **Shadow mode.** It became the audit trail instead: every miss records its closest cached question and similarity, so the threshold can be tuned from real data at any time.
 
-**How it would work**
+---
 
-1. **Embed.** When an answer is stored, embed the normalized question with the Foundation Model API endpoint **`databricks-gte-large-en`** (1024 dimensions, pay-per-token) and store the vector with the entry.
-2. **Store.** Use a `vector(1024)` column on `chatapp.answer_cache` with the **pgvector** extension in Lakebase, with an HNSW index, filtered by mode and both versions. At a few hundred entries a sequential scan would also do. Keeping it in the same database means the vector and the answer are invalidated together by the version key. Databricks Vector Search is the alternative once there are tens of thousands of entries, but it adds a sync path and a second place to invalidate.
-3. **Look up.** An exact match is tried first (free and instant). On a miss, embed the question (~50–100 ms) and find the nearest entry with the same mode and versions.
-4. **Decide, strictly.** Reuse only if **cosine similarity ≥ 0.95** *and* the questions name the same things. Numbers, dates and periods, products, DPD buckets, channels and segments are extracted from both, and any difference means a miss. "Recovery rate for 31-60" and "Recovery rate for 61-90" embed almost identically but need different answers, and this check is what stops that. The threshold would be tuned on a labelled set of paraphrase and near-miss pairs built from the audit trail.
-5. **Say so.** The label would read **"⚡ Answer to a similar question: '&lt;original question&gt;' · generated &lt;time&gt;"**, with Refresh as today. People can see which question was answered and ask live if it isn't what they meant.
+## Step 8f — Semantic cache, guardrails, faithfulness judge, notifications
 
-**Safeguards and rollout**
+All three AI features are optional per workspace. A missing section in the deploy config means off.
+- **Wiring.** `deploy.py` (`resolve_ai_config`) checks that each configured serving endpoint exists, the same way it re-finds the Genie space and Lakebase. If one is missing, it warns and leaves that feature or model off.
+- **Permissions.** It binds each model endpoint to the app as a `serving_endpoint` resource with `CAN_QUERY`, so the service principal can call it without keys.
+- **App settings.** It passes the settings as one JSON env var, `LENSS_AI_CONFIG`.
 
-- **Shadow mode first.** For a week or two, compute the best match and its score on every miss and log it to `usage_log.details`, but still answer live. Then compare the live answers with the would-be cached ones to set the threshold before serving anything.
-- A 👎 on a semantic hit evicts that entry and records the pair as a negative example for tuning.
-- Follow-ups are never matched semantically, same as Phase 1.
-- Cost is one embedding call per standalone cache miss (fractions of a cent), against a 20 s–3 min Genie answer saved on each hit.
-- **What to build:** `LENSS_SEMANTIC_CACHE=off|shadow|on`; a `question_embedding vector(1024)` column and index in `schema.sql` (`CREATE EXTENSION vector`); an app resource for the embedding endpoint (`CAN_QUERY`); `semanticLookup()` in `answerCache.ts`; the similarity score and matched question in the audit trail; and a smoke check that a paraphrase hits and a near-miss (different DPD bucket) doesn't.
+### Models
+
+Enabled in the workspace by hand:
+
+| Feature | Org recommendation | Personal workspace (lightweight) | Why |
+|---|---|---|---|
+| Embeddings | `databricks-gte-large-en` | the same | 1024-dim English embeddings, ~100 ms, very cheap |
+| Guardrail classifier | `databricks-meta-llama-3-3-70b-instruct` | `databricks-meta-llama-3-1-8b-instruct` | Non-reasoning, so the JSON verdict fits in 80 output tokens |
+| Faithfulness judge | `databricks-gpt-oss-120b` (or Claude Sonnet if available) | `databricks-gpt-oss-20b` | A reasoning model; runs after the answer, so speed doesn't matter |
+
+### Request flow (`server/routes/chat.ts`)
+
+1. **Input patterns** (`inputPatterns`, synchronous): PII is masked or blocked, plus profanity and prompt-injection phrasing.
+   - The masked text is what goes to Genie, the cache, `chat_messages` and `usage_log`, so raw PII is never stored.
+   - A pattern block returns at once. The live test blocked a prompt injection without a model or Genie call.
+2. **Input classifier** (`inputClassifier`): one small-model call returning `{abusive, prompt_injection, off_topic, reason}`.
+   - It runs *while* the session, versions, exact cache and embedding are looked up, so it doesn't add to latency.
+   - A classifier failure never blocks a question.
+3. **Exact cache, then semantic cache.** On an exact miss, the question is embedded and compared with entries of the same mode and versions.
+   - It's a hit only when similarity ≥ threshold **and** `keyDetails()` are identical: numbers and buckets, products, channels, strategies, dimensions, direction.
+   - Entries cached before semantic matching was enabled get embeddings filled in on first use (one batched call).
+4. **Genie**, as before.
+5. **Output guard** (`checkOutput`), before the answer is sent or cached:
+   - PII and profanity are redacted;
+   - policy wording is flagged, sentence by sentence, skipping negated sentences, so the required caveat "…not a forecast of uplift" doesn't trigger it.
+6. **Faithfulness judge** (`judgeAnswer`), after `res.end()`:
+   - **Numbers check:** every figure in the answer, with K/M/B and % handling, is looked up in the query results and their column totals. Digits inside IDs like `ACC011174` are ignored.
+   - **Judge model:** reads the question, the answer and the results (capped at 60 rows per query, about 9,000 characters), and returns a score, a reason and up to 5 unsupported claims.
+   - **Final score** is the mean of the two.
+   - **Where it's stored:** `usage_log.faithfulness` plus `details.judge`, and the cache entry. Cache hits reuse it; pre-warmed answers are judged too.
+   - **Evidence:** Agent mode keeps every `execute_sql` result for the judge (`agentEvidence`), not only the visualised ones.
+
+### Monitoring
+
+- **KPIs:** **Faithfulness** (with the judge model's name and how many answers scored below 70%) and **Blocked**. Cache hits show how many were similar-question hits.
+- **"Guardrails and answer quality" section:** which features are on with their models and actions, counts by stage/check/action, and recent events.
+- **Audit trail:** a **Faithful** column. Each row's details add the judge result, the guardrail checks that fired, and, for a cache miss, the closest cached question and its similarity.
+- **Schema:** v5 in `deploy/lakebase/schema.sql` (`answer_cache.embedding`, `usage_log.guard_action`, `usage_log.faithfulness`).
+
+### Notifications (`public/js/notify.js`)
+
+- **On another app tab or chat:** an "Answer ready" toast with **View**, which opens the chat.
+- **Browser tab hidden:** also a browser notification (once permission is given) and a "(n)" title badge.
+- **Permission:** asked through a one-time banner on the first question, because browsers only allow the request after a user action.
+- **Limit:** no service worker, so notifications need the page to be open.
+
+### Verified (personal workspace, kept to a handful of model calls)
+
+- **Offline tests:** PII patterns (7 kinds, no false positives on IDs, money, percentages or buckets); policy checks, including negated sentences; the numbers check (it caught a fabricated $25.0M and confirmed a total built from column sums); `keyDetails` (31-60 vs 61-90, Personal Loan vs Credit Card, best vs worst, product vs bucket all kept apart).
+- **Live:**
+  - prompt injection blocked;
+  - one Chat answer judged: the gpt-oss-20b judge gave 100% with no unsupported claims, using 4,012 tokens in 1.4 s;
+  - "Which accounts need immediate intervention?" served from the semantic cache, matching "…require immediate intervention?" at 98.9%;
+  - toast, Monitoring KPIs and the guardrail panel checked in headless Chrome.
 
 ---
 

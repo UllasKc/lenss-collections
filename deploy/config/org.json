@@ -9,5 +9,12 @@
   "lakebase_project": "lenss-collections-app",
   "lakebase_database": "chatapp",
   "app_name": "lenss-collections",
-  "readers_group": null
+  "readers_group": null,
+  "semantic_cache": { "threshold": 98, "embedding_model": "databricks-gte-large-en" },
+  "guardrails": {
+    "model": "databricks-meta-llama-3-3-70b-instruct",
+    "input": { "pii": "redact", "profanity": "block", "prompt_injection": "block", "off_topic": "warn" },
+    "output": { "pii": "redact", "profanity": "redact", "policy_checks": "flag" }
+  },
+  "faithfulness_judge": { "model": "databricks-gpt-oss-120b", "sample_percent": 100 }
 }

@@ -10,5 +10,13 @@
   "lakebase_database": "chatapp",
   "app_name": "appkit-genie",
   "app_workspace_path": "/Workspace/Users/ullaskc98@gmail.com/databricks_apps/appkit-genie_2026_09_25-09_49/appkit-genie",
-  "readers_group": "lenss-users"
+  "readers_group": "lenss-users",
+  "prewarm_suggestions": false,
+  "semantic_cache": { "threshold": 98, "embedding_model": "databricks-gte-large-en" },
+  "guardrails": {
+    "model": "databricks-meta-llama-3-1-8b-instruct",
+    "input": { "pii": "redact", "profanity": "block", "prompt_injection": "block", "off_topic": "warn" },
+    "output": { "pii": "redact", "profanity": "redact", "policy_checks": "flag" }
+  },
+  "faithfulness_judge": { "model": "databricks-gpt-oss-20b", "sample_percent": 100 }
 }

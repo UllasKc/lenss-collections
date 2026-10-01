@@ -107,6 +107,16 @@ ALTER TABLE chatapp.chat_messages ADD COLUMN IF NOT EXISTS from_cache BOOLEAN NO
 ALTER TABLE chatapp.chat_messages ADD COLUMN IF NOT EXISTS cache_key TEXT;
 ALTER TABLE chatapp.usage_log ADD COLUMN IF NOT EXISTS from_cache BOOLEAN NOT NULL DEFAULT false;
 
+-- v5: optional AI features (each off unless set in the deploy config).
+-- Semantic cache: the question's embedding, compared in the app (a few hundred
+-- rows per version pair, so no vector index is needed).
+ALTER TABLE chatapp.answer_cache ADD COLUMN IF NOT EXISTS embedding REAL[];
+-- Guardrails: the strongest action taken on the question or answer
+-- (blocked > redacted > warned > flagged), with every check in details.guardrails.
+ALTER TABLE chatapp.usage_log ADD COLUMN IF NOT EXISTS guard_action TEXT;
+-- Faithfulness judge: 0-1 score, written shortly after the answer (details.judge has the rest).
+ALTER TABLE chatapp.usage_log ADD COLUMN IF NOT EXISTS faithfulness REAL;
+
 CREATE INDEX IF NOT EXISTS idx_chat_sessions_user ON chatapp.chat_sessions (user_email, updated_at DESC);
 CREATE INDEX IF NOT EXISTS idx_chat_messages_session ON chatapp.chat_messages (session_id, created_at);
 CREATE INDEX IF NOT EXISTS idx_usage_log_created ON chatapp.usage_log (created_at);

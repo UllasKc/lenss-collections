@@ -533,7 +533,10 @@ def write_app_yaml(app_dir: Path, cfg: dict, state: dict) -> None:
         f"  - name: LAKEBASE_ENDPOINT\n    value: {state['lakebase_endpoint']}\n"
         + ("  - name: LENSS_TITLE_ENDPOINT\n    valueFrom: title-model\n" if state.get("title_endpoint") else "")
         + f"  - name: LENSS_ANSWER_CACHE\n    value: '{'on' if cfg.get('answer_cache', True) else 'off'}'\n"
-        + f"  - name: LENSS_PREWARM\n    value: '{'on' if cfg.get('prewarm_suggestions', True) else 'off'}'\n",
+        + f"  - name: LENSS_PREWARM\n    value: '{'on' if cfg.get('prewarm_suggestions', True) else 'off'}'\n"
+        # Semantic cache, guardrails and judge settings (only the parts that are on).
+        + (f"  - name: LENSS_AI_CONFIG\n    value: '{json.dumps(state['ai_config'], separators=(',', ':'))}'\n"
+           if state.get("ai_config") else ""),
         encoding="utf-8",
     )
 
@@ -568,6 +571,69 @@ def grant_use_catalog(sql: Sql, catalog: str, sp: str) -> bool:
         f"  It only lets the app enter the catalog; data access still comes only from your schema grants. "
         f"Until then the app loads, but its dashboard and Genie answers fail.")
     return False
+
+
+def resolve_ai_config(db: Databricks, cfg: dict) -> dict:
+    """The optional AI features for the app (semantic cache, guardrails, judge).
+
+    A section missing from the config means that feature is off. Each model is
+    checked like the Genie space and Lakebase are: if its serving endpoint
+    doesn't exist in this workspace (models are enabled there by hand), the
+    deploy warns and carries on without it instead of failing.
+    """
+    seen: dict = {}
+
+    def exists(endpoint: str) -> bool:
+        if endpoint not in seen:
+            seen[endpoint] = db.run("serving-endpoints", "get", endpoint, check=False) is not None
+            if not seen[endpoint]:
+                log(f"WARNING: serving endpoint '{endpoint}' not found in this workspace (enable it under Serving, "
+                    f"then re-run --only app)")
+        return seen[endpoint]
+
+    ai: dict = {}
+    sc = cfg.get("semantic_cache")
+    if sc and sc.get("threshold") not in (None, "", 0, "off"):
+        threshold = float(sc["threshold"])
+        threshold = threshold / 100 if threshold > 1 else threshold
+        if not 0.5 <= threshold <= 1:
+            raise DeployError(f"semantic_cache.threshold must be between 50 and 100 (or 0.5 and 1), got {sc['threshold']}")
+        model = sc.get("embedding_model") or "databricks-gte-large-en"
+        if exists(model):
+            ai["semantic_cache"] = {"threshold": threshold, "embedding_model": model}
+            log(f"Semantic cache: on, similarity >= {threshold:.2f}, embeddings from {model}")
+        else:
+            log("Semantic cache: off (embedding model missing)")
+    else:
+        log("Semantic cache: off")
+
+    g = cfg.get("guardrails")
+    if g:
+        model = g.get("model") or None
+        if model and not exists(model):
+            model = None
+        ai["guardrails"] = {"model": model, "input": g.get("input") or {}, "output": g.get("output") or {}}
+        log(f"Guardrails: on ({'pattern checks + ' + model if model else 'pattern checks only, no classifier model'})")
+    else:
+        log("Guardrails: off")
+
+    j = cfg.get("faithfulness_judge")
+    if j:
+        model = j.get("model") or None
+        if model and not exists(model):
+            model = None
+        ai["faithfulness_judge"] = {"model": model, "sample_percent": j.get("sample_percent", 100)}
+        log(f"Faithfulness judge: on ({'numbers check + ' + model if model else 'numbers check only, no judge model'})")
+    else:
+        log("Faithfulness judge: off")
+    return ai
+
+
+def ai_endpoints(ai: dict) -> list[str]:
+    eps = [(ai.get("semantic_cache") or {}).get("embedding_model"),
+           (ai.get("guardrails") or {}).get("model"),
+           (ai.get("faithfulness_judge") or {}).get("model")]
+    return sorted({e for e in eps if e})
 
 
 def step_app(db: Databricks, sql: Sql, cfg: dict, state: dict, cfg_path: Path) -> None:
@@ -605,6 +671,14 @@ def step_app(db: Databricks, sql: Sql, cfg: dict, state: dict, cfg_path: Path) -
                  "serving_endpoint": {"name": cfg["title_endpoint"], "permission": "CAN_QUERY"}})
         else:
             log(f"Serving endpoint {cfg['title_endpoint']} not found — sessions will be named from the question text")
+    # Optional AI features: each model the app calls is bound with CAN_QUERY (no keys).
+    state["ai_config"] = resolve_ai_config(db, cfg)
+    for i, endpoint in enumerate(ai_endpoints(state["ai_config"]), start=1):
+        if endpoint == state.get("title_endpoint"):
+            continue  # already bound as title-model
+        spec["resources"].append(
+            {"name": f"ai-model-{i}", "description": "Model for the semantic cache, guardrails or faithfulness judge",
+             "serving_endpoint": {"name": endpoint, "permission": "CAN_QUERY"}})
     # `apps update` replaces the fields it is sent, so always send the full spec.
     if db.run("apps", "get", name, check=False) is None:
         log(f"Creating app {name} (starts compute; a few minutes)…")

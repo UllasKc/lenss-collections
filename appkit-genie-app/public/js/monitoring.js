@@ -33,6 +33,41 @@ function renderQueries(queries) {
     </div>`).join('');
 }
 
+function faithChip(score) {
+  if (score === null || score === undefined) return '<span class="chip neutral" title="Not judged">—</span>';
+  const pct = Math.round(Number(score) * 100);
+  const tone = pct >= 85 ? 'ok' : pct >= 70 ? 'cache' : 'bad';
+  return `<span class="chip ${tone}">${pct}%</span>`;
+}
+
+const GUARD_LABELS = {
+  pii: 'Personal data', profanity: 'Profanity / abuse', prompt_injection: 'Prompt injection', off_topic: 'Off-topic',
+  causal_claim: 'Causal uplift claim', forecast: 'Month-end forecast', cure_rate: 'Cure rate', probability: 'Probability of target',
+};
+const guardLabel = c => GUARD_LABELS[c] || c;
+
+function renderJudge(j) {
+  if (!j) return '<div class="score-reason">Not judged (the faithfulness judge is off, sampled out, or the answer came before it was enabled).</div>';
+  const n = j.numeric || {};
+  const parts = [
+    `<span class="retry-pill">Score ${j.score === null || j.score === undefined ? '—' : Math.round(j.score * 100) + '%'}${j.reused ? ' (from when the cached answer was generated)' : ''}</span>`,
+    `<span class="retry-pill">Numbers found in the data: ${n.checked ? `${n.found}/${n.checked}` : 'no figures to check'}</span>`,
+    j.llm ? `<span class="retry-pill">Judge ${esc(j.llm.model)}: ${Math.round(j.llm.score * 100)}%${j.llm.tokens ? ` · ${fmtNum(j.llm.tokens)} tokens` : ''}</span>` : '',
+    j.llmError ? `<span class="retry-pill">Judge model error: ${esc(j.llmError)}</span>` : '',
+  ].filter(Boolean).join('');
+  const missing = (n.missing || []).length ? `<div class="score-reason">Figures not found in the results: ${esc(n.missing.join(', '))}</div>` : '';
+  const reason = j.llm && j.llm.reason ? `<div class="score-reason">${esc(j.llm.reason)}</div>` : '';
+  const claims = j.llm && j.llm.unsupported && j.llm.unsupported.length
+    ? `<div class="score-reason">Unsupported claims:<ul>${j.llm.unsupported.map(c => `<li>${esc(c)}</li>`).join('')}</ul></div>` : '';
+  return `<div class="retry-pills">${parts}</div>${reason}${missing}${claims}`;
+}
+
+function renderGuardEvents(events) {
+  if (!events || !events.length) return '<div class="score-reason">No guardrail checks fired.</div>';
+  return `<div class="retry-pills">${events.map(e =>
+    `<span class="retry-pill" title="${esc(e.detail || '')}">${e.stage}: ${esc(guardLabel(e.check))} → ${e.action} (${e.by})</span>`).join('')}</div>`;
+}
+
 function ratingChip(v) {
   if (v === 1) return '<span class="chip ok">👍 helpful</span>';
   if (v === -1) return '<span class="chip bad">👎 not helpful</span>';
@@ -48,23 +83,25 @@ function renderAuditTrail() {
     const d = e.details || {};
     const tr = document.createElement('tr');
     tr.className = 'turn-row';
-    const resultChip = e.success ? '<span class="chip ok">answered</span>'
+    const resultChip = e.guard_action === 'blocked' ? '<span class="chip cache" title="Stopped by a guardrail before reaching Genie">blocked</span>'
+      : e.success ? '<span class="chip ok">answered</span>'
       : `<span class="chip bad" title="${esc(e.error_message || '')}">failed</span>`;
     tr.innerHTML = `<td>${new Date(e.created_at).toLocaleString()}</td>
       <td style="max-width:180px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${esc(e.user_email)}</td>
       <td><span class="badge ${e.mode === 'agent' ? 'amber' : 'green'}">${esc(e.mode)}</span></td>
       <td style="max-width:320px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap" title="${esc(e.question)}">${esc(e.question)}</td>
-      <td>${resultChip}</td><td>${ratingChip(e.feedback)}</td>
+      <td>${resultChip}</td><td>${ratingChip(e.feedback)}</td><td>${faithChip(e.faithfulness)}</td>
       <td>${e.from_cache ? `<span class="chip cache" title="Answered from the answer cache">⚡ ${fmtMs(e.latency_ms)}</span>` : fmtMs(e.latency_ms)}</td><td>▸</td>`;
 
     const detailTr = document.createElement('tr');
     detailTr.className = 'turn-detail-row';
     const td = document.createElement('td');
-    td.colSpan = 8;
+    td.colSpan = 9;
     const c = d.cache || null;
     const cacheFact = !c ? null
-      : c.hit ? `Answered from cache (${c.source === 'prewarm' ? 'pre-warmed suggested question' : 'earlier answer'}, generated ${new Date(c.generatedAt).toLocaleString()}${c.originalLatencyMs ? `, originally took ${fmtMs(c.originalLatencyMs)}` : ''})`
+      : c.hit ? `Answered from cache (${c.match === 'semantic' && c.similarTo ? `similar question "${esc(c.similarTo.question.slice(0, 80))}", ${(c.similarTo.similarity * 100).toFixed(1)}% similar, ` : ''}${c.source === 'prewarm' ? 'pre-warmed suggested question' : 'earlier answer'}, generated ${new Date(c.generatedAt).toLocaleString()}${c.originalLatencyMs ? `, originally took ${fmtMs(c.originalLatencyMs)}` : ''})`
       : c.refreshed ? 'Refreshed: cache bypassed, asked Genie live'
+      : c.closest ? `Cache miss: closest cached question "${esc(c.closest.question.slice(0, 80))}" was ${(c.closest.similarity * 100).toFixed(1)}% similar${c.closest.sameDetails ? '' : ', with different key details'}${c.stored ? '; answered by Genie and saved to the cache' : ''}`
       : c.stored ? 'Cache miss: answered by Genie and saved to the cache'
       : 'Cache miss: answered by Genie';
     const facts = [
@@ -93,6 +130,10 @@ function renderAuditTrail() {
             <div class="score-reason">Not available: Genie doesn't report token counts for Chat or Agent answers.</div>
           </div>
         </div>
+        <div class="turn-detail-grid">
+          <div class="turn-detail-block"><div class="lab">Faithfulness</div>${renderJudge(d.judge)}</div>
+          <div class="turn-detail-block"><div class="lab">Guardrails</div>${renderGuardEvents(d.guardrails && d.guardrails.events)}</div>
+        </div>
         <div class="turn-detail-block"><div class="lab">Where the time went</div>${renderTimeline(d.timeline, e.latency_ms)}</div>
         ${c && c.hit && c.originalTimeline && c.originalTimeline.length ? `<div class="turn-detail-block"><div class="lab">How Genie originally answered it</div>${renderTimeline(c.originalTimeline, c.originalLatencyMs)}</div>` : ''}
         <div class="turn-detail-block"><div class="lab">SQL generated by Genie${c && c.hit ? ' (when the cached answer was generated)' : ''}</div>${renderQueries(d.queries)}</div>
@@ -105,7 +146,7 @@ function renderAuditTrail() {
     tbody.appendChild(tr);
     tbody.appendChild(detailTr);
   });
-  if (!rows.length) tbody.innerHTML = '<tr><td colspan="8">No questions yet.</td></tr>';
+  if (!rows.length) tbody.innerHTML = '<tr><td colspan="9">No questions yet.</td></tr>';
 }
 document.getElementById('obsUserFilter').addEventListener('change', renderAuditTrail);
 
@@ -124,7 +165,14 @@ window.loadMonitoring = async function loadMonitoring() {
     'Genie answers, excluding cache hits'));
   const hits = data.totals.cache_hits || 0;
   kpis.appendChild(kpiCard('Cache Hits', data.totals.total_questions ? Math.round((100 * hits) / data.totals.total_questions) + '%' : '—',
-    `${fmtNum(hits)} answered instantly${hits ? ` · avg ${fmtMs(Number(data.totals.avg_cache_latency_ms))}` : ''}`));
+    `${fmtNum(hits)} answered instantly${data.totals.semantic_hits ? ` (${fmtNum(data.totals.semantic_hits)} similar-question)` : ''}${hits ? ` · avg ${fmtMs(Number(data.totals.avg_cache_latency_ms))}` : ''}`));
+  const judgeCfg = data.ai && data.ai.config && data.ai.config.judge;
+  const judged = data.totals.judged || 0;
+  kpis.appendChild(kpiCard('Faithfulness', judged ? Math.round(Number(data.totals.avg_faithfulness) * 100) + '%' : '—',
+    judgeCfg ? `${fmtNum(judged)} judged · ${judgeCfg.model ? esc(judgeCfg.model) : 'numbers check only'}${data.totals.low_faithfulness ? ` · ${fmtNum(data.totals.low_faithfulness)} below 70%` : ''}` : 'Judge off',
+    data.totals.low_faithfulness ? 'warn' : null));
+  kpis.appendChild(kpiCard('Blocked', fmtNum(data.totals.blocked || 0),
+    data.ai && data.ai.config && data.ai.config.guardrails ? 'Questions stopped by guardrails' : 'Guardrails off'));
   kpis.appendChild(kpiCard('Helpful Ratings', rated ? Math.round((100 * data.totals.helpful) / rated) + '%' : '—',
     `👍 ${fmtNum(data.totals.helpful)}  ·  👎 ${fmtNum(data.totals.not_helpful)}`,
     rated && data.totals.not_helpful > data.totals.helpful ? 'warn' : null));
@@ -159,6 +207,7 @@ window.loadMonitoring = async function loadMonitoring() {
   });
 
   renderCache(data.cache);
+  renderAi(data.ai);
 
   obsRecent = data.recent;
   const sel = document.getElementById('obsUserFilter');
@@ -201,4 +250,31 @@ function renderCache(cache) {
     tbody.appendChild(tr);
   });
   if (!cache.entries.length) tbody.innerHTML = '<tr><td colspan="6">Nothing cached for the current versions yet.</td></tr>';
+}
+
+/** Which AI features are on, with their models, and what the guardrails have done. */
+function renderAi(ai) {
+  const status = document.getElementById('obsAiStatus');
+  const c = (ai && ai.config) || {};
+  const pill = s => `<span class="retry-pill">${s}</span>`;
+  const g = c.guardrails;
+  status.innerHTML = `<div class="retry-pills">
+    ${pill(c.semanticCache ? `Semantic cache: on, ≥ ${(c.semanticCache.threshold * 100).toFixed(0)}% similar · ${esc(c.semanticCache.model)}` : 'Semantic cache: off')}
+    ${pill(g ? `Guardrails: on · ${g.model ? 'classifier ' + esc(g.model) : 'pattern checks only'}` : 'Guardrails: off')}
+    ${g ? pill(`Input: PII ${g.input.pii}, profanity ${g.input.profanity}, injection ${g.input.prompt_injection}, off-topic ${g.input.off_topic}`) : ''}
+    ${g ? pill(`Output: PII ${g.output.pii}, profanity ${g.output.profanity}, policy checks ${g.output.policy_checks}`) : ''}
+    ${pill(c.judge ? `Faithfulness judge: on · ${c.judge.model ? esc(c.judge.model) : 'numbers check only'} · ${c.judge.samplePercent}% of answers` : 'Faithfulness judge: off')}
+  </div>`;
+  const counts = document.querySelector('#guardTable tbody');
+  counts.innerHTML = ((ai && ai.guardCounts) || []).map(r =>
+    `<tr><td>${esc(r.stage)}</td><td>${esc(guardLabel(r.check_name))}</td><td>${esc(r.action)}</td><td>${fmtNum(r.n)}</td></tr>`).join('')
+    || '<tr><td colspan="4">No guardrail checks have fired.</td></tr>';
+  const events = document.querySelector('#guardEventsTable tbody');
+  events.innerHTML = ((ai && ai.guardEvents) || []).map(e => {
+    const checks = (e.events || []).map(x => `${guardLabel(x.check)} (${x.action})`).join(', ');
+    return `<tr><td>${new Date(e.created_at).toLocaleString()}</td>
+      <td style="max-width:160px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${esc(e.user_email)}</td>
+      <td style="max-width:300px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap" title="${esc(e.question)}">${esc(e.question)}</td>
+      <td>${esc(e.guard_action)}: ${esc(checks)}</td></tr>`;
+  }).join('') || '<tr><td colspan="4">No guardrail events yet.</td></tr>';
 }

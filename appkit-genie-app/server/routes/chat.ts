@@ -1,12 +1,24 @@
 import express from 'express';
 import { getExecutionContext } from '@databricks/appkit';
 import { agentAnswer, stripCitations, type Answer } from '../lib/answers.js';
+import { aiConfig, aiConfigSummary } from '../lib/aiConfig.js';
 import {
-  cacheEnabled, cacheKey, currentVersions, evict, lookup, startPrewarm, store, type Lakebase,
+  attachJudge, cacheEnabled, cacheKey, currentVersions, embedQuestions, evict, lookup, semanticLookup, startPrewarm, store,
+  type Lakebase, type SemanticMatch,
 } from '../lib/answerCache.js';
-import { runGenie, type GenieLike, type Mode } from '../lib/genieRun.js';
+import { runGenie, type GenieLike, type GenieRun, type Mode } from '../lib/genieRun.js';
+import { checkOutput, inputClassifier, inputPatterns, type GuardEvent } from '../lib/guardrails.js';
+import { judgeAnswer } from '../lib/judge.js';
 import { STARTERS, MORE_SUGGESTIONS } from '../lib/suggestions.js';
 import { generateTitle } from '../lib/titles.js';
+
+/** The strongest guardrail action on a question, for Monitoring's counts. */
+function strongestAction(events: GuardEvent[]): string | null {
+  for (const [action, label] of [['block', 'blocked'], ['redact', 'redacted'], ['warn', 'warned'], ['flag', 'flagged']] as const) {
+    if (events.some((e) => e.action === action)) return label;
+  }
+  return null;
+}
 
 /** The slice of the AppKit plugin map this router actually uses (avoids
  * fighting PluginMap<T>'s plugin-array-dependent generic — TS structural
@@ -75,7 +87,13 @@ export function buildChatRouter(appkit: ChatAppKit): express.Router {
     res.json({ starters: STARTERS, more: MORE_SUGGESTIONS });
   });
 
-  startPrewarm(appkit.lakebase, appkit.genie);
+  // Pre-warmed answers are judged too, so cache hits can show their score.
+  startPrewarm(appkit.lakebase, appkit.genie, (key, q, run) => {
+    if (!aiConfig.judge || !run.answer?.text) return;
+    void judgeAnswer(q, run.answer.text, run.evidence)
+      .then((verdict) => (verdict ? attachJudge(appkit.lakebase, key, verdict) : undefined))
+      .catch(() => {});
+  });
 
   // --- sessions -------------------------------------------------------
 
@@ -172,6 +190,10 @@ export function buildChatRouter(appkit: ChatAppKit): express.Router {
       return;
     }
     const startedAt = Date.now();
+    // Input guardrails: the pattern checks decide the text at once (PII masked); the
+    // classifier model runs while the session and cache are looked up.
+    const patterns = inputPatterns(content);
+    const guardInPromise = inputClassifier({ ...patterns, events: [...patterns.events] });
 
     // Refresh: the user asked for a live answer in place of a cached one.
     const refreshOf = typeof req.body?.refreshOf === 'string' ? req.body.refreshOf : null;
@@ -197,15 +219,32 @@ export function buildChatRouter(appkit: ChatAppKit): express.Router {
     );
     const standalone = cacheEnabled && (earlier[0].n === 0 || req.body?.standalone === true || Boolean(refreshOf));
     const versions = standalone ? await currentVersions(appkit.lakebase).catch(() => null) : null;
-    const key = versions ? cacheKey(content, mode, versions) : null;
-    const hit = key && !refreshOf ? await lookup(appkit.lakebase, key).catch(() => null) : null;
 
-    const preamble = hit ? '' : await crossModeContext(session.session_id as string, mode);
+    // What's stored and sent on is the guarded question: PII never reaches Genie, the cache or the logs.
+    const question = patterns.text;
+    const key = versions && !patterns.blocked ? cacheKey(question, mode, versions) : null;
+    let hit = key && !refreshOf ? await lookup(appkit.lakebase, key).catch(() => null) : null;
+
+    // Semantic cache: on an exact miss, the nearest cached question if it's similar enough.
+    let questionVector: number[] | null = null;
+    let semantic: SemanticMatch | null = null;
+    if (key && versions && !hit && aiConfig.semanticCache) {
+      [questionVector] = await embedQuestions([question]);
+      if (questionVector && !refreshOf) {
+        semantic = await semanticLookup(appkit.lakebase, question, mode, versions, questionVector).catch(() => null);
+        hit = semantic?.hit ?? null;
+      }
+    }
+    const guardIn = await guardInPromise;
+    const guardEvents: GuardEvent[] = [...guardIn.events];
+    if (guardIn.blocked) hit = null;
+
+    const preamble = hit || guardIn.blocked ? '' : await crossModeContext(session.session_id as string, mode);
     if (!refreshOf) {
       await appkit.lakebase.query(
         `INSERT INTO chatapp.chat_messages (session_id, user_email, role, content, mode, from_cache)
          VALUES ($1, $2, 'user', $3, $4, $5)`,
-        [session.session_id, email, content, mode, Boolean(hit)],
+        [session.session_id, email, question, mode, Boolean(hit)],
       );
     }
 
@@ -221,7 +260,7 @@ export function buildChatRouter(appkit: ChatAppKit): express.Router {
     // Name the session from its first question while Genie works.
     const titlePromise: Promise<string | null> = session.title
       ? Promise.resolve(null)
-      : generateTitle(content).then(async (title) => {
+      : generateTitle(question).then(async (title) => {
           await appkit.lakebase.query(
             `UPDATE chatapp.chat_sessions SET title = $1 WHERE session_id = $2 AND title IS NULL`,
             [title, session.session_id],
@@ -235,29 +274,40 @@ export function buildChatRouter(appkit: ChatAppKit): express.Router {
     let answer: Answer | null;
     let success: boolean;
     let errorMessage: string | null = null;
-    let genieConversationId: string | null;
-    let genieMessageId: string | null;
+    let genieConversationId: string | null = null;
+    let genieMessageId: string | null = null;
     let details: Record<string, unknown>;
     let cacheInfo: Record<string, unknown> | null = null;
+    let liveRun: GenieRun | null = null;
+    let storedKey: string | null = null;
+    const notices: string[] = guardIn.message && !guardIn.blocked ? [guardIn.message] : [];
 
-    if (hit) {
+    if (guardIn.blocked) {
+      // Never sent to Genie; the reason is shown as the answer.
+      answer = { version: 2, mode, text: guardIn.message ?? 'This question was blocked.', charts: [], guard: { blocked: true } };
+      success = false;
+      errorMessage = `Blocked by guardrail: ${guardEvents.filter((e) => e.action === 'block').map((e) => e.check).join(', ')}`;
+      details = { queries: [] };
+    } else if (hit) {
       // Same answer, charts, steps and SQL as when Genie produced it; nothing
       // is sent to Genie, so the session's Genie conversation is untouched.
       answer = {
         ...hit.answer,
         text: stripCitations(hit.answer.text), // entries cached before citations were stripped
-        cache: { generatedAt: hit.createdAt, source: hit.source },
+        cache: { generatedAt: hit.createdAt, source: hit.source, similarTo: hit.similarTo },
       };
       success = true;
       genieConversationId = (hit.details.genieConversationId as string | null) ?? null;
       genieMessageId = (hit.details.genieMessageId as string | null) ?? null;
       cacheInfo = {
         hit: true, key: hit.key, source: hit.source, generatedAt: hit.createdAt,
+        match: hit.similarTo ? 'semantic' : 'exact', similarTo: hit.similarTo ?? null,
         originalLatencyMs: hit.details.latencyMs ?? null, originalTimeline: hit.details.timeline ?? [],
       };
-      details = { queries: hit.details.queries ?? [] };
+      details = { queries: hit.details.queries ?? [], judge: hit.details.judge ? { ...(hit.details.judge as object), reused: true } : undefined };
     } else {
-      const run = await runGenie(appkit.genie, mode, preamble + content, priorConversation, (p) => send('progress', p));
+      const run = await runGenie(appkit.genie, mode, preamble + question, priorConversation, (p) => send('progress', p));
+      liveRun = run;
       answer = run.answer;
       success = run.success;
       errorMessage = run.errorMessage;
@@ -268,14 +318,25 @@ export function buildChatRouter(appkit: ChatAppKit): express.Router {
         `UPDATE chatapp.chat_sessions SET ${convColumn} = $1, updated_at = now() WHERE session_id = $2`,
         [genieConversationId, session.session_id],
       );
+      // Output guardrails before the answer is sent or cached.
+      if (answer?.text) {
+        const g = checkOutput(answer.text);
+        answer.text = g.text;
+        guardEvents.push(...g.events);
+        if (g.notice) notices.push(g.notice);
+      }
       // Cache it only if Genie saw the question on its own (no earlier turns),
       // otherwise the answer may lean on context a later asker won't have.
       let stored = false;
       if (key && versions && !priorConversation && !preamble && run.success) {
-        stored = await store(appkit.lakebase, key, content, mode, versions, run, 'live').then(() => true, () => false);
+        stored = await store(appkit.lakebase, key, question, mode, versions, run, 'live', questionVector).then(() => true, () => false);
+        if (stored) storedKey = key;
       }
-      if (standalone) cacheInfo = { hit: false, refreshed: Boolean(refreshOf), stored };
+      if (standalone) {
+        cacheInfo = { hit: false, refreshed: Boolean(refreshOf), stored, closest: semantic?.best ?? null };
+      }
     }
+    if (answer && notices.length) answer.guard = { ...(answer.guard ?? {}), notices };
     const latencyMs = Date.now() - startedAt;
     if (hit) details.timeline = [{ stage: 'Answered from cache', ms: latencyMs }];
 
@@ -289,22 +350,25 @@ export function buildChatRouter(appkit: ChatAppKit): express.Router {
          VALUES ($1, $2, 'assistant', $3, $4, $5, $6, $7, $8, $9)
          RETURNING message_id`,
         [session.session_id, email, answer.text, mode, JSON.stringify(answer), genieConversationId, genieMessageId,
-          Boolean(hit), key],
+          Boolean(hit), hit?.key ?? key],
       );
       assistantMessageId = saved.rows[0]?.message_id as string;
       send('saved', { messageId: assistantMessageId, feedbackEnabled: Boolean(genieConversationId && genieMessageId) });
-      if (hit) {
+      if (hit || guardIn.blocked) {
         await appkit.lakebase.query(`UPDATE chatapp.chat_sessions SET updated_at = now() WHERE session_id = $1`, [session.session_id]);
       }
     } else {
       send('error', { error: errorMessage ?? 'No answer was returned' });
     }
 
-    await appkit.lakebase.query(
+    const reusedJudge = details.judge as { score?: number } | undefined;
+    const logged = await appkit.lakebase.query(
       `INSERT INTO chatapp.usage_log
-         (session_id, user_email, mode, question, success, latency_ms, error_message, assistant_message_id, details, from_cache)
-       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)`,
-      [session.session_id, email, mode, content, success, latencyMs, errorMessage, assistantMessageId, JSON.stringify({
+         (session_id, user_email, mode, question, success, latency_ms, error_message, assistant_message_id, details,
+          from_cache, guard_action, faithfulness)
+       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12)
+       RETURNING event_id`,
+      [session.session_id, email, mode, question, success, latencyMs, errorMessage, assistantMessageId, JSON.stringify({
         ...details,
         charts: answer?.charts.length ?? 0,
         agentSteps: answer?.steps?.length ?? null,
@@ -313,13 +377,31 @@ export function buildChatRouter(appkit: ChatAppKit): express.Router {
         genieConversationId,
         genieMessageId,
         cache: cacheInfo,
-      }), Boolean(hit)],
+        guardrails: guardEvents.length ? { events: guardEvents, classifierMs: guardIn.modelMs } : undefined,
+      }), Boolean(hit), strongestAction(guardEvents), reusedJudge?.score ?? null],
     );
 
     const title = await titlePromise.catch(() => null);
     if (title) send('session_title', { sessionId: session.session_id, title });
-    send('done', { success, latencyMs, fromCache: Boolean(hit) });
+    send('done', { success, latencyMs, fromCache: Boolean(hit), blocked: guardIn.blocked });
     res.end();
+
+    // Faithfulness judge: after the user has the answer, so it never adds to their wait.
+    if (liveRun?.success && answer?.text) {
+      const eventId = logged.rows[0]?.event_id as string | undefined;
+      void judgeAnswer(question, answer.text, liveRun.evidence).then(async (verdict) => {
+        if (!verdict) return;
+        if (eventId) {
+          await appkit.lakebase.query(
+            `UPDATE chatapp.usage_log SET faithfulness = $2,
+                    details = jsonb_set(COALESCE(details, '{}'::jsonb), '{judge}', $3::jsonb)
+              WHERE event_id = $1`,
+            [eventId, verdict.score, JSON.stringify(verdict)],
+          );
+        }
+        if (storedKey) await attachJudge(appkit.lakebase, storedKey, verdict);
+      }).catch((err: unknown) => console.warn('[judge] failed:', err instanceof Error ? err.message : err));
+    }
   });
 
   // --- answer feedback: stored here and sent to Genie's Monitor ----------
@@ -369,6 +451,11 @@ export function buildChatRouter(appkit: ChatAppKit): express.Router {
       appkit.lakebase.query(
         `SELECT COUNT(*)::int AS total_questions,
                 COUNT(*) FILTER (WHERE success)::int AS successful,
+                COUNT(*) FILTER (WHERE guard_action = 'blocked')::int AS blocked,
+                COUNT(*) FILTER (WHERE faithfulness IS NOT NULL)::int AS judged,
+                ROUND(AVG(faithfulness)::numeric, 3) AS avg_faithfulness,
+                COUNT(*) FILTER (WHERE faithfulness < 0.7)::int AS low_faithfulness,
+                COUNT(*) FILTER (WHERE details->'cache'->>'match' = 'semantic')::int AS semantic_hits,
                 ROUND(AVG(latency_ms)) AS avg_latency_ms,
                 COUNT(*) FILTER (WHERE feedback = 1)::int AS helpful,
                 COUNT(*) FILTER (WHERE feedback = -1)::int AS not_helpful,
@@ -398,7 +485,7 @@ export function buildChatRouter(appkit: ChatAppKit): express.Router {
       ),
       appkit.lakebase.query(
         `SELECT u.event_id, u.session_id, s.title AS session_title, u.user_email, u.mode, u.question, u.success,
-                u.latency_ms, u.error_message, u.feedback, u.details, u.from_cache, u.created_at
+                u.latency_ms, u.error_message, u.feedback, u.details, u.from_cache, u.guard_action, u.faithfulness, u.created_at
            FROM chatapp.usage_log u
            LEFT JOIN chatapp.chat_sessions s ON s.session_id = u.session_id
           ORDER BY u.created_at DESC
@@ -425,6 +512,22 @@ export function buildChatRouter(appkit: ChatAppKit): express.Router {
     ]).then(([entries, versions, prewarm]) => ({
       enabled: cacheEnabled, entries: entries.rows, versions: versions.rows, lastPrewarm: prewarm.rows[0] ?? null,
     })).catch(() => null);
+    // Guardrails and judge: what's configured, and what has fired.
+    const ai = await Promise.all([
+      appkit.lakebase.query(
+        `SELECT e->>'stage' AS stage, e->>'check' AS check_name, e->>'action' AS action, COUNT(*)::int AS n
+           FROM chatapp.usage_log, jsonb_array_elements(details->'guardrails'->'events') e
+          GROUP BY 1, 2, 3 ORDER BY n DESC`,
+      ),
+      appkit.lakebase.query(
+        `SELECT u.created_at, u.user_email, u.mode, u.question, u.guard_action, details->'guardrails'->'events' AS events
+           FROM chatapp.usage_log u WHERE u.guard_action IS NOT NULL ORDER BY u.created_at DESC LIMIT 50`,
+      ),
+    ]).then(([counts, events]) => ({
+      config: aiConfigSummary(),
+      guardCounts: counts.rows,
+      guardEvents: events.rows,
+    })).catch(() => ({ config: aiConfigSummary(), guardCounts: [], guardEvents: [] }));
     res.json({
       totals: totals.rows[0],
       byUser: byUser.rows,
@@ -436,6 +539,7 @@ export function buildChatRouter(appkit: ChatAppKit): express.Router {
         return r;
       }),
       cache,
+      ai,
     });
   });
 

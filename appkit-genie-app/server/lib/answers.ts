@@ -27,7 +27,9 @@ export interface Answer {
   steps?: AgentStep[];
   suggestions?: string[];
   /** Set when the answer was served from the answer cache instead of Genie. */
-  cache?: { generatedAt: string; source: 'live' | 'prewarm' };
+  cache?: { generatedAt: string; source: 'live' | 'prewarm'; similarTo?: { question: string; similarity: number } };
+  /** Guardrail outcome shown with the answer: blocked questions, and notes such as removed PII. */
+  guard?: { blocked?: boolean; notices?: string[] };
 }
 
 /** Enough rows for any sensible chart or table; keeps Lakebase rows small. */
@@ -101,6 +103,44 @@ export function chatAnswer(
     });
   }
   return { version: 2, mode: 'chat', text: stripCitations(text), charts, suggestions };
+}
+
+/** Every result Genie's SQL returned for an answer (capped), for the faithfulness judge. Not stored. */
+export interface Evidence {
+  title: string;
+  columns: string[];
+  rows: Array<Array<string | null>>;
+}
+
+const EVIDENCE_ROWS = 60;
+
+export function chatEvidence(attachments: ChatAttachment[], queryResults: Map<string, StatementResponse>): Evidence[] {
+  return attachments
+    .filter((a) => a.query && a.attachmentId && queryResults.has(a.attachmentId))
+    .map((a) => {
+      const data = queryResults.get(a.attachmentId!)!;
+      return {
+        title: a.query?.title || a.query?.description || 'Query',
+        columns: (data.manifest?.schema?.columns ?? []).map((c) => c.name),
+        rows: (data.result?.data_array ?? []).slice(0, EVIDENCE_ROWS),
+      };
+    });
+}
+
+export function agentEvidence(output: AgentOutputItem[]): Evidence[] {
+  const titles = new Map<string, string>();
+  const out: Evidence[] = [];
+  for (const item of output) {
+    if (item.type === 'function_call' && item.name === 'execute_sql' && item.call_id) {
+      let args: { title?: string } = {};
+      try { args = JSON.parse(item.arguments ?? '{}'); } catch { /* keep empty */ }
+      titles.set(item.call_id, args.title ?? 'Query');
+    } else if (item.type === 'function_call_output' && item.call_id && titles.has(item.call_id)) {
+      const t = parseMarkdownTable(item.output ?? '');
+      if (t) out.push({ title: titles.get(item.call_id)!, columns: t.columns, rows: t.rows.slice(0, EVIDENCE_ROWS) });
+    }
+  }
+  return out;
 }
 
 /** One SQL statement Genie ran for an answer, for the Monitoring audit trail. */
