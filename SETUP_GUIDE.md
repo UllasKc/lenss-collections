@@ -482,7 +482,7 @@ To give people a new version without replacing the one they use, deploy it as a 
 |---|---|---|---|
 | `app_name` | `lenss-collections` | `lenss-collections-v2` | A second app with its own URL and service principal |
 | `genie_space_title` | `LensS Collections Analytics` | `LensS Collections Analytics v2` | The deploy finds the space by title; the same title would overwrite v1's instructions and examples |
-| `lakebase_database` | `chatapp` | `chatapp_v2` | A separate database in the same Lakebase project, so the two versions don't share chat history, cache or logs |
+| `lakebase_database` | `chatapp` | `chatappv2` | A separate database in the same Lakebase project, so the two versions don't share chat history, cache or logs. Lowercase letters, digits and hyphens only (no underscores) |
 
 Everything else, including the catalog, gold schema, warehouse and models, is shared and read-only, so both versions answer from the same data. The deploy keeps a separate state file per config (`deploy/.state/org-v2.json`), so nothing in v1's state is touched.
 

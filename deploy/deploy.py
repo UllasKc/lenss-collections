@@ -204,6 +204,12 @@ def load_config(path: Path) -> dict:
         cfg.setdefault(k, v)
     for key in ("catalog", "schema_prefix"):
         ident(cfg[key])
+    # Checked up front so a bad name fails before anything is created (Lakebase and Apps reject
+    # underscores and capitals in these IDs).
+    for key in ("lakebase_project", "lakebase_database", "app_name"):
+        if not re.fullmatch(r"[a-z]([a-z0-9-]{0,61}[a-z0-9])?", str(cfg[key])):
+            raise DeployError(f"{key} must be lowercase letters, digits and hyphens, starting with a letter "
+                              f"(no underscores), got {cfg[key]!r}")
     return cfg
 
 

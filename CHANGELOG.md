@@ -11,7 +11,21 @@ Versions match git tags where one exists. Dates are when the change was committe
 
 ---
 
-## v1.5.0 — Demo showcase: answer trust, evals, Responsible AI, Concentrix branding (2026-10-01)
+## v1.5.1 — Agent citation markers, deploy name checks (2026-10-01)
+
+### Fixed
+- **`org-v2.json` used an invalid Lakebase database name.** `chatapp_v2` was rejected by Lakebase, whose database IDs allow only lowercase letters, digits and hyphens. It's now `chatappv2`.
+  - **Where it failed:** the first org v2 deploy created its Genie space, then failed at the `lakebase` step. Re-running after the rename reuses that space.
+- **The deploy now checks `lakebase_project`, `lakebase_database` and `app_name` before doing anything,** with a clear message, instead of failing halfway.
+- **Verified offline:** `org.json`, `org-v2.json` and `personal.json` pass the check, and `chatapp_v2` is rejected.
+- **Agent answers showed `*[unrendered:citation[<id>]]*` markers.** The query engine's Agent mode started returning citations in this new format, which the existing filter didn't catch.
+  - **Fix:** `stripCitations` (server `answers.ts` and browser `chat.js`) now also removes them: italic or plain, escaped, several in a row, or cut off at the end of a preview.
+  - **Coverage:** every place answer text is shown goes through this filter, so it applies to new answers, cached answers, chat history, Monitoring previews and the PDF.
+  - **Verified offline:** 7 sample strings, including the exact text reported. Normal links and bold text are unchanged.
+
+---
+
+## v1.5.0 — Demo showcase: answer trust, evals, Responsible AI, Concentrix branding (2026-10-01, `f575708`)
 
 Deployed to the personal workspace. For the org it can run next to the existing version: `deploy/config/org-v2.json` with `--only genie,lakebase,app` (see `SETUP_GUIDE.md` 11.1). The `lakebase` step adds schema v6 and seeds the eval cases.
 

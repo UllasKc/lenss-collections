@@ -76,6 +76,9 @@ export function stripCitations(text: string): string {
     .replace(/[ \t]*\\?\[\\?\[\d+\\?\]\([^)\s]*\)\\?\]/g, '') // [[1](url)], also with escaped brackets
     .replace(/[ \t]*\\?\[\\?\[\d+\\?\]\\?\]\([^)\s]*\)/g, '') // [[1]](url)
     .replace(/[ \t]*\\?\[\\?\[\d+\\?\]\\?\]?\([^)\s]*$/, '') // a citation cut off by truncation
+    // Agent mode's newer marker, e.g. *[unrendered:citation[01f1…]]*, sometimes several in a row
+    .replace(/[ \t]*[*_]?\\?\[unrendered:citation\\?\[[^\]\s]*\\?\]\\?\][*_]?/g, '')
+    .replace(/[ \t]*[*_]?\\?\[unrendered:citation[^\n]*$/, '') // cut off by truncation
     .replace(/[ \t]+([.,;:])/g, '$1');
 }
 

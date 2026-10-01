@@ -7,7 +7,7 @@
   "warehouse_name": "Starter Warehouse",
   "genie_space_title": "LensS Collections Analytics v2",
   "lakebase_project": "lenss-collections-app",
-  "lakebase_database": "chatapp_v2",
+  "lakebase_database": "chatappv2",
   "app_name": "lenss-collections-v2",
   "readers_group": null,
   "semantic_cache": { "threshold": 98, "embedding_model": "databricks-gte-large-en" },
