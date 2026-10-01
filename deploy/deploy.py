@@ -475,6 +475,35 @@ def write_cache_versions(db: Databricks, cfg: dict, state: dict) -> None:
         log(f"WARNING: could not update answer-cache versions ({e}); cached answers may be stale until the next deploy")
 
 
+def write_eval_cases(db: Databricks, cfg: dict, state: dict) -> None:
+    """Seed the evaluation suite (ground-truth, red-team and policy cases) into Lakebase.
+
+    Upserts by (category, question), so re-running updates expectations and SQL
+    without touching cases added from the app's feedback queue or switched off there.
+    """
+    sys.path.insert(0, str(DEPLOY_DIR / "evals"))
+    from cases import eval_cases  # noqa: E402
+
+    gold = f"{cfg['catalog']}.{cfg['schema_prefix']}_gold"
+    cases = eval_cases(gold)
+    try:
+        conn = pg_connect(db, state, cfg["lakebase_database"])
+        conn.autocommit = True
+        with conn.cursor() as cur:
+            for category, question, mode, expected, expected_sql, source, notes in cases:
+                cur.execute(
+                    "INSERT INTO chatapp.eval_cases (category, question, mode, expected, expected_sql, source, notes) "
+                    "VALUES (%s, %s, %s, %s, %s, %s, %s) "
+                    "ON CONFLICT (category, question) DO UPDATE SET mode = EXCLUDED.mode, expected = EXCLUDED.expected, "
+                    "expected_sql = EXCLUDED.expected_sql, source = EXCLUDED.source, notes = EXCLUDED.notes",
+                    (category, question, mode, expected, expected_sql, source, notes))
+        conn.close()
+        counts = {c: sum(1 for x in cases if x[0] == c) for c in ("accuracy", "guardrail", "policy")}
+        log(f"Evaluation cases: {counts['accuracy']} accuracy, {counts['guardrail']} guardrail, {counts['policy']} policy")
+    except Exception as e:  # evals are optional; never fail a deploy over them
+        log(f"WARNING: could not seed evaluation cases ({e})")
+
+
 def step_lakebase(db: Databricks, cfg: dict, state: dict, cfg_path: Path) -> None:
     project = f"projects/{cfg['lakebase_project']}"
     proj = db.run("postgres", "get-project", project, check=False)
@@ -513,6 +542,7 @@ def step_lakebase(db: Databricks, cfg: dict, state: dict, cfg_path: Path) -> Non
     state["lakebase_branch"] = branch
     save_state(cfg_path, state)
     write_cache_versions(db, cfg, state)
+    write_eval_cases(db, cfg, state)
     log(f"Lakebase ready: {state['lakebase_host']} / {cfg['lakebase_database']}")
 
 
@@ -622,17 +652,38 @@ def resolve_ai_config(db: Databricks, cfg: dict) -> dict:
         model = j.get("model") or None
         if model and not exists(model):
             model = None
-        ai["faithfulness_judge"] = {"model": model, "sample_percent": j.get("sample_percent", 100)}
-        log(f"Faithfulness judge: on ({'numbers check + ' + model if model else 'numbers check only, no judge model'})")
+        ai["faithfulness_judge"] = {"model": model, "sample_percent": j.get("sample_percent", 100),
+                                    "warn_below": j.get("warn_below", 70)}
+        log(f"Answer-quality judge: on ({'numbers check + ' + model if model else 'numbers check only, no judge model'}), "
+            f"low-confidence warning below {j.get('warn_below', 70)}%")
     else:
-        log("Faithfulness judge: off")
+        log("Answer-quality judge: off")
+
+    f = cfg.get("follow_ups")
+    if f and f.get("model") and exists(f["model"]):
+        ai["follow_ups"] = {"model": f["model"]}
+        log(f"Suggested follow-up questions: on ({f['model']})")
+    else:
+        log("Suggested follow-up questions: engine's own only")
+
+    e = cfg.get("evals")
+    if e:
+        ai["evals"] = {"max_accuracy_cases": int(e.get("max_accuracy_cases", 5))}
+        log(f"Evaluations: on (up to {ai['evals']['max_accuracy_cases']} ground-truth questions per run)")
+    else:
+        log("Evaluations: off")
+
+    # Optional USD per million tokens, per endpoint, for Monitoring's cost estimate.
+    if cfg.get("pricing"):
+        ai["pricing"] = cfg["pricing"]
     return ai
 
 
 def ai_endpoints(ai: dict) -> list[str]:
     eps = [(ai.get("semantic_cache") or {}).get("embedding_model"),
            (ai.get("guardrails") or {}).get("model"),
-           (ai.get("faithfulness_judge") or {}).get("model")]
+           (ai.get("faithfulness_judge") or {}).get("model"),
+           (ai.get("follow_ups") or {}).get("model")]
     return sorted({e for e in eps if e})
 
 
@@ -677,7 +728,7 @@ def step_app(db: Databricks, sql: Sql, cfg: dict, state: dict, cfg_path: Path) -
         if endpoint == state.get("title_endpoint"):
             continue  # already bound as title-model
         spec["resources"].append(
-            {"name": f"ai-model-{i}", "description": "Model for the semantic cache, guardrails or faithfulness judge",
+            {"name": f"ai-model-{i}", "description": "Model for the semantic cache, guardrails, answer-quality judge or follow-up suggestions",
              "serving_endpoint": {"name": endpoint, "permission": "CAN_QUERY"}})
     # `apps update` replaces the fields it is sent, so always send the full spec.
     if db.run("apps", "get", name, check=False) is None:

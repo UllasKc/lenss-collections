@@ -1,6 +1,6 @@
 # LensS Collections Intelligence
 
-Natural-language analytics for collections, built on Databricks: governed bronze → silver → gold data, a Genie space with curated instructions/examples/benchmarks, and a web app with Chat mode, Agent (deep-analysis) mode, per-user chat history and a monitoring page.
+Natural-language analytics for collections, built on Databricks and presented as **Concentrix LensS**. It has governed bronze → silver → gold data, and a Genie space with curated instructions, examples and benchmarks. The web app has Chat and Agent (deep-analysis) modes and per-user chat history. Every answer carries a quality score, its sources and its trace. The app also has an **Evals** tab, a **Responsible AI** page and Monitoring, which covers cost, feedback review and the audit trail.
 
 > **Deploying to a new workspace or a new laptop? Follow [SETUP_GUIDE.md](SETUP_GUIDE.md)**. It covers every step from installing the tools to giving users access, plus troubleshooting.
 
@@ -69,10 +69,11 @@ It checks the UI, the dashboard APIs, four Chat-mode questions (including the PI
 | Path | Contents |
 |---|---|
 | `deploy/deploy.py` | The one-command deploy |
-| `deploy/config/` | `personal.json` (Free Edition mirror), `org.json` (organisation workspace) |
+| `deploy/config/` | `personal.json` (Free Edition mirror), `org.json` (organisation workspace), `org-v2.json` (a second version next to `org.json`; see SETUP_GUIDE 11.1) |
 | `deploy/sql/` | All table/view DDL, templated by catalog and schema prefix |
 | `deploy/genie/space.py` | Genie space as code: sources, instructions, examples, benchmarks |
-| `deploy/lakebase/schema.sql` | Chat-history and usage-log tables |
+| `deploy/lakebase/schema.sql` | Chat-history, usage-log, answer-cache and evaluation tables |
+| `deploy/evals/cases.py` | Evaluation cases: ground-truth, red-team guardrail and policy cases (seeded into Lakebase) |
 | `deploy/smoke_test.py` | End-to-end test of a deployed app |
 | `appkit-genie-app/` | The app: Node/Express server (`server/`) and static UI (`public/`) |
 | `all_details_and _data/` | Source workbook and specification documents |

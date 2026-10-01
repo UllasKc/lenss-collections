@@ -211,7 +211,10 @@ Open it in any editor (Notepad works):
 | `answer_cache`, `prewarm_suggestions` | *(optional)* `true` / `false` | Both default to `true`. See 9.4 |
 | `semantic_cache` | *(optional)* `{ "threshold": 98, "embedding_model": "databricks-gte-large-en" }` | Reuses a cached answer when a question means the same as a cached one. Threshold as `98` or `0.98`. **Left out = off.** See 9.5 |
 | `guardrails` | *(optional)* model plus an action per input and output check | Screens questions and answers. **Left out = off.** See 9.5 |
-| `faithfulness_judge` | *(optional)* `{ "model": "databricks-gpt-oss-120b", "sample_percent": 100 }` | Scores how well each answer matches the data. **Left out = off.** See 9.5 |
+| `faithfulness_judge` | *(optional)* `{ "model": "databricks-gpt-oss-120b", "sample_percent": 100, "warn_below": 70 }` | Scores each answer's faithfulness, relevance, completeness and safety; answers below `warn_below` (%) show a warning. **Left out = off.** See 9.5 |
+| `follow_ups` | *(optional)* `{ "model": "databricks-meta-llama-3-3-70b-instruct" }` | Tops up suggested follow-up questions to three after each answer. **Left out = only the engine's own suggestions.** See 9.6 |
+| `evals` | *(optional)* `{ "max_accuracy_cases": 10 }` | Turns on the **Evals** tab; caps how many ground-truth questions one run asks. **Left out = off.** See 9.6 |
+| `pricing` | *(optional)* `{ "databricks-gpt-oss-120b": { "input": 0.15, "output": 0.6 } }` | USD per million tokens per endpoint, from your price sheet, so Monitoring can estimate cost. **Left out = tokens only** |
 
 **Models.** The three optional AI features call Databricks model serving endpoints (Foundation Model APIs). Enable the models you want in the workspace yourself (sidebar → **Serving**). The `app` step checks that each configured endpoint exists, binds it to the app with **Can query** (no keys), and prints whether each feature is on. If an endpoint is missing, it warns and leaves that feature (or that model) off instead of failing.
 
@@ -220,6 +223,7 @@ Open it in any editor (Notepad works):
 | Semantic cache embeddings | `databricks-gte-large-en` | the same: embeddings are cheap |
 | Guardrail classifier | `databricks-meta-llama-3-3-70b-instruct` (more accurate) | `databricks-meta-llama-3-1-8b-instruct` |
 | Faithfulness judge | `databricks-gpt-oss-120b`, or a Claude Sonnet endpoint if your workspace has one | `databricks-gpt-oss-20b` |
+| Follow-up suggestions | `databricks-meta-llama-3-3-70b-instruct` | `databricks-meta-llama-3-1-8b-instruct` |
 
 Use a non-reasoning chat model for the guardrail classifier (Llama, not gpt-oss). It only has a few dozen tokens to reply in, and reasoning models spend those on thinking.
 
@@ -314,7 +318,9 @@ It ends with `23/23 checks passed`. It covers the UI, the dashboard and executiv
 
 - **Command Center:** portfolio KPIs, achievement by product, segment table.
 - **Chat + Agent:** choose **Chat** under the question box for quick answers (~20 s), or **Agent** for "why / what should we do" analysis (1–3 min). You can switch modes within one conversation. Answers include charts with **Chart / Table / SQL** tabs. **Download PDF** (top right of the conversation) saves the whole conversation as it looks on screen, charts included, with page numbers.
-- **Monitoring:** questions, success rate, latency by mode, cache hits, per-user activity, the answer cache, and a per-question audit trail.
+- **Monitoring:** questions, success rate, latency by mode, cache hits, quality scores, AI usage and cost, the feedback review queue, per-user activity, the answer cache, and a per-question audit trail with the request trace.
+- **Under each answer:** the quality badge, data sources and safety checks; click **How this answer was made** for the full breakdown. See 9.6.
+- **Evals:** run the evaluation suite and compare runs. **Responsible AI:** what the AI does, with which models, and its limits. See 9.6.
 - **Answer cache:** within about 10 minutes of a deploy, the app answers the 10 suggested questions in the background. From then on, clicking one shows the answer at once, marked **⚡ Answered from cache · generated &lt;time&gt;**, with a **↻ Refresh** button that asks Genie live. The first question of any chat is cached for 24 hours the same way. Loading new data (`ingest`, `transform` or `summary`) or changing Genie (`genie`) invalidates every cached answer automatically. See section 9.4.
 
 ### 9.4 The answer cache
@@ -374,6 +380,58 @@ The first three are switched on per workspace in the config (step 7); leaving a 
 - **Permission:** the app offers to turn browser notifications on once, on the first question.
 - **Limit:** notifications work while the page is open.
 
+### 9.6 Answer trust, Evals, Responsible AI, feedback review, voice and branding
+
+**Under every answer** (needs `faithfulness_judge` for the score)
+- **Trust bar:**
+  - **Quality chip:** **✓ Verified · 96%** (green 85% and up, amber above `warn_below`, red below). It reads **Checking accuracy…** for the few seconds the judge takes after the answer arrives.
+  - **Other chips:** how many certified data sources were used, and whether personal details were masked or another safety check acted.
+- **How this answer was made:**
+  - the four quality scores with the judge's reason and any unsupported claims;
+  - the data sources and each SQL query;
+  - the safety checks;
+  - a request trace showing where the time went;
+  - the AI models and tokens used.
+- **Low confidence:** below `warn_below`, a red box lists what couldn't be verified. It's in the PDF too.
+- **Follow-up questions:** up to three buttons after the answer. They come from the engine and, with `follow_ups` set, a small model.
+
+**Evals tab** (`evals`)
+- **Running it:** choose the categories and press **Run evals**. Results appear as each case finishes. Run history shows the scores of each run and the change from the previous one.
+- **The cases** (seeded by the `lakebase` step from `deploy/evals/cases.py`; switch any off in the tab):
+  - **Accuracy:** the Genie benchmark questions, asked live. The figures returned are compared with the ground-truth SQL's, then the answer is scored by the judge. Each one costs a query-engine answer plus a judge call, so `max_accuracy_cases` caps them per run.
+  - **Guardrails:** red-team prompts that must be blocked or cleaned, and normal questions (including Hindi and Spanish) that must get through. These use only the classifier model.
+  - **Policy:** answer sentences the output checks must flag, clean or leave alone. No model is used.
+- **Adding cases:** add them in `deploy/evals/cases.py` and re-run `--only lakebase`, or from the feedback queue (below).
+
+**Feedback review** (Monitoring)
+- **What users see:** 👎 asks what was wrong (wrong numbers; wrong products, buckets or filters; didn't answer; hard to understand; something else) with an optional note.
+- **What reviewers do:** each one waits under **Monitoring → Feedback review**, where a reviewer marks it **Fixed** or **Dismiss**, or **Add to evals**, which turns the question into an accuracy case.
+
+**AI usage and cost** (Monitoring)
+- **Tokens:** by feature and model, for questions and eval runs. The query engine's own usage is billed with the SQL warehouse and isn't counted here.
+- **Cost:** add `pricing` to the config to see estimated cost.
+
+**Responsible AI tab** (no config)
+- **What it covers:**
+  - purpose and intended use;
+  - each AI model, when it runs and whether it's on;
+  - the certified data sources;
+  - the protections in force, with counts;
+  - how quality is measured (including the latest eval run);
+  - data handling, known limitations, and an alignment table for NIST AI RMF and the EU AI Act.
+- **Live:** it reads the live configuration, so it always matches what's deployed.
+
+**Voice input**
+- **Using it:** the 🎤 button in the question box dictates the question in the browser's language.
+- **Browsers:** Chrome and Edge; the button is hidden elsewhere. The browser asks for microphone permission once.
+
+**Branding**
+- **Logos:** they're in `appkit-genie-app/public/img/`. To replace one, overwrite the file with the same name and redeploy with `--only app`.
+  - `concentrix-logo.png` is the full wordmark, used in the header and on the PDF's first page.
+  - `cnx-mark.png` is the small mark, used as the assistant's avatar in chats.
+  - `favicon.png` is the browser-tab icon.
+- **No vendor names:** the app doesn't name the underlying platform anywhere users look.
+
 ---
 
 ## 10. Troubleshooting
@@ -415,6 +473,30 @@ The first three are switched on per workspace in the config (step 7); leaving a 
 Deploying to **another workspace** is the same procedure: a new CLI profile (step 6), a new config file (step 7), and run it. Each config keeps its own IDs in `deploy/.state/<config-name>.json`, which stays on your laptop and is not committed.
 
 ---
+
+### 11.1 Running a new version next to the existing one
+
+To give people a new version without replacing the one they use, deploy it as a second app with its own config. `deploy/config/org-v2.json` is ready for this. It is `org.json` with three names changed:
+
+| Field | v1 (`org.json`) | v2 (`org-v2.json`) | Why it must differ |
+|---|---|---|---|
+| `app_name` | `lenss-collections` | `lenss-collections-v2` | A second app with its own URL and service principal |
+| `genie_space_title` | `LensS Collections Analytics` | `LensS Collections Analytics v2` | The deploy finds the space by title; the same title would overwrite v1's instructions and examples |
+| `lakebase_database` | `chatapp` | `chatapp_v2` | A separate database in the same Lakebase project, so the two versions don't share chat history, cache or logs |
+
+Everything else, including the catalog, gold schema, warehouse and models, is shared and read-only, so both versions answer from the same data. The deploy keeps a separate state file per config (`deploy/.state/org-v2.json`), so nothing in v1's state is touched.
+
+1. `git pull` on the laptop that deploys to the org.
+2. Enable the models `org-v2.json` names, under **Serving** in the workspace.
+3. Deploy only what v2 needs:
+   ```bash
+   python deploy/deploy.py --config deploy/config/org-v2.json --only genie,lakebase,app
+   ```
+   Don't run `schemas`, `ingest`, `transform` or `summary`. They rebuild the shared data that v1 also reads.
+4. If the deploy prints a `GRANT USE CATALOG …` warning, an admin runs that one statement for the new app's service principal.
+5. Open the URL printed at the end and give people access (`readers_group`, or **Permissions** on the app).
+
+Both apps then run side by side. To retire v1 later, delete the `lenss-collections` app, and optionally its Genie space and the `chatapp` database.
 
 ## 12. (Optional) Run the app on your laptop for development
 
@@ -478,6 +560,7 @@ See [README.md](README.md) for the repository layout, and [DATABRICKS_IMPLEMENTA
 | **Genie Chat mode** (Conversation API) | The app's **Chat** answers: text, the SQL used, and result rows, which become the charts | Fast answers of about 20 seconds |
 | **Genie Agent mode** | The app's **Agent** answers: several SQL steps, generated charts, a written report | "Why is this happening / what should we do" questions, in 1–3 minutes |
 | **Model Serving** (foundation model, e.g. Llama 3.3 70B) | Can give each chat session a short title | **Off by default** (`title_endpoint`); sessions are named from their first question |
+| **Model Serving** (Foundation Model APIs) | Guardrail classifier, embeddings for the semantic cache, the answer-quality judge, follow-up suggestions | Each is optional and set per workspace; the deploy binds each endpoint to the app with Can query |
 | **Genie feedback API** | 👍/👎 on each answer, stored in the app and sent to the Genie space's Monitor | Space owners see which answers to fix, with the real user recorded in the app |
 
 ### App and storage

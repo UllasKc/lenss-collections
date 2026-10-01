@@ -1,7 +1,7 @@
 import { createHash } from 'node:crypto';
 import { aiConfig } from './aiConfig.js';
 import type { Answer } from './answers.js';
-import { cosine, embed } from './models.js';
+import { cosine, embed, forFeature } from './models.js';
 import { runGenie, type GenieLike, type GenieRun, type Mode } from './genieRun.js';
 import { ALL_SUGGESTIONS } from './suggestions.js';
 
@@ -146,7 +146,7 @@ export async function embedQuestions(questions: string[]): Promise<Array<number[
   const sc = aiConfig.semanticCache;
   if (!sc || !questions.length) return questions.map(() => null);
   try {
-    const vecs = await embed(sc.embeddingModel, questions.map(normalizeQuestion));
+    const vecs = await forFeature('embeddings', () => embed(sc.embeddingModel, questions.map(normalizeQuestion)));
     return questions.map((_, i) => (vecs[i]?.length ? vecs[i] : null));
   } catch (err) {
     console.warn('[cache] embedding failed; semantic matching skipped:', err instanceof Error ? err.message : err);

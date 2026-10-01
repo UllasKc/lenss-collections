@@ -9,8 +9,11 @@ import {
 import { runGenie, type GenieLike, type GenieRun, type Mode } from '../lib/genieRun.js';
 import { checkOutput, inputClassifier, inputPatterns, type GuardEvent } from '../lib/guardrails.js';
 import { judgeAnswer } from '../lib/judge.js';
+import { suggestFollowUps } from '../lib/followups.js';
+import { modelLabel, withTokenLedger, type TokenLedger } from '../lib/models.js';
 import { STARTERS, MORE_SUGGESTIONS } from '../lib/suggestions.js';
-import { generateTitle } from '../lib/titles.js';
+import { GUARDED_TITLES, generateTitle, isGuardedTitle } from '../lib/titles.js';
+import { Trace, sourcesFromSql } from '../lib/trace.js';
 
 /** The strongest guardrail action on a question, for Monitoring's counts. */
 function strongestAction(events: GuardEvent[]): string | null {
@@ -18,6 +21,54 @@ function strongestAction(events: GuardEvent[]): string | null {
     if (events.some((e) => e.action === action)) return label;
   }
   return null;
+}
+
+type Row = Record<string, unknown>;
+
+/** Estimated USD for a token ledger, when prices are configured for its models. */
+function costOf(ledger: TokenLedger | null | undefined): number | null {
+  let total = 0;
+  let priced = false;
+  for (const e of Object.values(ledger ?? {})) {
+    const p = aiConfig.pricing[e.model];
+    if (!p) continue;
+    priced = true;
+    total += (e.input * p.input + e.output * p.output) / 1e6;
+  }
+  return priced ? total : null;
+}
+
+/**
+ * The trust summary shown under an answer: the judge's verdict (or whether it
+ * is still running), the data sources behind it and the guardrail checks.
+ */
+function qualitySummary(row: { details?: unknown; faithfulness?: unknown; success?: unknown; created_at?: unknown; from_cache?: unknown }) {
+  const d = (row.details ?? {}) as Row;
+  const judge = d.judge as { score?: number | null; reused?: boolean; numeric?: { checked: number; found: number; missing: string[] };
+    llm?: { metrics?: Record<string, number | null>; unsupported?: string[]; reason?: string; model?: string } | null } | undefined;
+  const events = (((d.guardrails as Row | undefined)?.events ?? []) as GuardEvent[]).map((e) => ({ stage: e.stage, check: e.check, action: e.action }));
+  const blocked = events.some((e) => e.action === 'block');
+  const age = Date.now() - new Date(String(row.created_at ?? 0)).getTime();
+  const status = !aiConfig.judge ? 'off'
+    : judge ? 'done'
+    : blocked || row.success === false ? 'n/a'
+    : !row.from_cache && age < 180_000 ? 'pending' : 'not_judged'; // a cache hit reuses the judge's verdict or has none
+  return {
+    status,
+    score: typeof judge?.score === 'number' ? judge.score : null,
+    metrics: judge?.llm?.metrics ?? null,
+    reason: judge?.llm?.reason ?? null,
+    unsupported: judge?.llm?.unsupported ?? [],
+    missing: judge?.numeric?.missing ?? [],
+    numbers: judge?.numeric ? { checked: judge.numeric.checked, found: judge.numeric.found } : null,
+    judgeModel: modelLabel(judge?.llm?.model ?? aiConfig.judge?.model) || null,
+    reused: Boolean(judge?.reused),
+    warnBelow: aiConfig.judge?.warnBelow ?? 0.7,
+    sources: (d.sources as string[] | undefined) ?? sourcesFromSql(((d.queries ?? []) as Array<{ sql?: string }>).map((q) => q.sql)),
+    queries: ((d.queries ?? []) as unknown[]).length,
+    guard: events,
+    fromCache: Boolean(row.from_cache),
+  };
 }
 
 /** The slice of the AppKit plugin map this router actually uses (avoids
@@ -156,10 +207,12 @@ export function buildChatRouter(appkit: ChatAppKit): express.Router {
       return;
     }
     const { rows } = await appkit.lakebase.query(
-      `SELECT message_id, role, content, mode, attachment_json, feedback, from_cache, created_at
-         FROM chatapp.chat_messages
-        WHERE session_id = $1
-        ORDER BY created_at ASC`,
+      `SELECT m.message_id, m.role, m.content, m.mode, m.attachment_json, m.feedback, m.feedback_reason, m.from_cache, m.created_at,
+              u.details AS log_details, u.faithfulness, u.success AS log_success, u.created_at AS logged_at
+         FROM chatapp.chat_messages m
+         LEFT JOIN chatapp.usage_log u ON u.assistant_message_id = m.message_id
+        WHERE m.session_id = $1
+        ORDER BY m.created_at ASC`,
       [req.params.id],
     );
     // Messages stored before answers were normalized hold Agent Mode's raw
@@ -170,17 +223,31 @@ export function buildChatRouter(appkit: ChatAppKit): express.Router {
       const answer = r.attachment_json as Answer | null;
       if (answer && typeof answer.text === 'string') answer.text = stripCitations(answer.text);
       if (typeof r.content === 'string') r.content = stripCitations(r.content);
+      if (r.role === 'assistant' && r.log_details) {
+        r.quality = qualitySummary({ details: r.log_details, success: r.log_success, created_at: r.logged_at, from_cache: r.from_cache });
+      }
+      delete r.log_details; delete r.log_success; delete r.logged_at; delete r.faithfulness;
     }
     res.json(rows);
   });
 
   // --- send a message (SSE response; the mode is chosen per message) ---
 
-  router.post('/api/chat/sessions/:id/messages', async (req, res) => {
+  router.post('/api/chat/sessions/:id/messages', (req, res) => {
+    // Every model call made for this question lands in its token ledger (Monitoring's cost view).
+    const tokens: TokenLedger = {};
+    void withTokenLedger(tokens, () => handleSend(req, res, tokens)).catch((err: unknown) => {
+      console.error('[chat] send failed:', err);
+      if (!res.headersSent) res.status(500).json({ error: 'Could not answer that question' });
+      else res.end();
+    });
+  });
+
+  const handleSend = async (req: express.Request, res: express.Response, tokens: TokenLedger) => {
     const email = currentUserEmail(req);
     const content = String(req.body?.content ?? '').trim();
     const mode: Mode = req.body?.mode === 'agent' ? 'agent' : 'chat';
-    const session = await ownedSession(req.params.id, email);
+    const session = await ownedSession(req.params.id as string, email);
     if (!session) {
       res.status(404).json({ error: 'session not found' });
       return;
@@ -189,11 +256,17 @@ export function buildChatRouter(appkit: ChatAppKit): express.Router {
       res.status(400).json({ error: 'content is required' });
       return;
     }
-    const startedAt = Date.now();
+    const trace = new Trace();
+    const startedAt = trace.t0;
     // Input guardrails: the pattern checks decide the text at once (PII masked); the
     // classifier model runs while the session and cache are looked up.
     const patterns = inputPatterns(content);
-    const guardInPromise = inputClassifier({ ...patterns, events: [...patterns.events] });
+    trace.add('Input checks: personal data, profanity, injection', 'guardrail', 0, trace.now());
+    const classifierStart = trace.now();
+    const guardInPromise = inputClassifier({ ...patterns, events: [...patterns.events] }).then((r) => {
+      if (r.modelMs) trace.add(`Input classifier (${modelLabel(aiConfig.guardrails?.model)})`, 'model', classifierStart, r.modelMs);
+      return r;
+    });
 
     // Refresh: the user asked for a live answer in place of a cached one.
     const refreshOf = typeof req.body?.refreshOf === 'string' ? req.body.refreshOf : null;
@@ -212,7 +285,7 @@ export function buildChatRouter(appkit: ChatAppKit): express.Router {
 
     // Only standalone questions use the cache: the first question of a chat,
     // a suggested question, or a refresh of one of those. Follow-ups depend
-    // on the conversation, so they always go to Genie.
+    // on the conversation, so they always go to the query engine.
     const { rows: earlier } = await appkit.lakebase.query(
       `SELECT COUNT(*)::int AS n FROM chatapp.chat_messages WHERE session_id = $1`,
       [session.session_id],
@@ -220,24 +293,33 @@ export function buildChatRouter(appkit: ChatAppKit): express.Router {
     const standalone = cacheEnabled && (earlier[0].n === 0 || req.body?.standalone === true || Boolean(refreshOf));
     const versions = standalone ? await currentVersions(appkit.lakebase).catch(() => null) : null;
 
-    // What's stored and sent on is the guarded question: PII never reaches Genie, the cache or the logs.
+    // What's stored and sent on is the guarded question: PII never reaches the engine, the cache or the logs.
     const question = patterns.text;
     const key = versions && !patterns.blocked ? cacheKey(question, mode, versions) : null;
-    let hit = key && !refreshOf ? await lookup(appkit.lakebase, key).catch(() => null) : null;
+    let hit = key && !refreshOf
+      ? await trace.time('Answer cache: exact match', 'cache', () => lookup(appkit.lakebase, key).catch(() => null))
+      : null;
 
     // Semantic cache: on an exact miss, the nearest cached question if it's similar enough.
     let questionVector: number[] | null = null;
     let semantic: SemanticMatch | null = null;
     if (key && versions && !hit && aiConfig.semanticCache) {
-      [questionVector] = await embedQuestions([question]);
-      if (questionVector && !refreshOf) {
-        semantic = await semanticLookup(appkit.lakebase, question, mode, versions, questionVector).catch(() => null);
+      [questionVector] = await trace.time(`Question embedding (${modelLabel(aiConfig.semanticCache.embeddingModel)})`, 'model',
+        () => embedQuestions([question]));
+      const vec = questionVector;
+      if (vec && !refreshOf) {
+        semantic = await trace.time('Answer cache: similar questions', 'cache',
+          () => semanticLookup(appkit.lakebase, question, mode, versions, vec).catch(() => null));
         hit = semantic?.hit ?? null;
       }
     }
-    const guardIn = await guardInPromise;
+    // An exact repeat was already screened when it was first answered, so it doesn't
+    // wait for the classifier (the pattern checks above still apply); everything else does.
+    const exactHit = Boolean(hit) && !semantic;
+    const guardIn = exactHit ? { ...patterns, events: [...patterns.events] } : await guardInPromise;
     const guardEvents: GuardEvent[] = [...guardIn.events];
     if (guardIn.blocked) hit = null;
+    const piiRemoved = guardEvents.some((e) => e.stage === 'input' && e.check === 'pii' && e.action === 'redact');
 
     const preamble = hit || guardIn.blocked ? '' : await crossModeContext(session.session_id as string, mode);
     if (!refreshOf) {
@@ -248,7 +330,7 @@ export function buildChatRouter(appkit: ChatAppKit): express.Router {
       );
     }
 
-    res.setHeader('Content-Type', 'text/event-stream');
+    res.setHeader('Content-Type', 'text/event-stream; charset=utf-8');
     res.setHeader('Cache-Control', 'no-cache');
     res.setHeader('Connection', 'keep-alive');
     res.flushHeaders();
@@ -257,15 +339,21 @@ export function buildChatRouter(appkit: ChatAppKit): express.Router {
       res.write(`event: ${event}\ndata: ${JSON.stringify(data)}\n\n`);
     };
 
-    // Name the session from its first question while Genie works.
-    const titlePromise: Promise<string | null> = session.title
+    // Name the session from its first question while the engine works. A blocked
+    // question, or one personal details were removed from, never names a session:
+    // it gets a neutral warning title, which the next clean question replaces.
+    const currentTitle = (session.title as string | null) ?? null;
+    const guardedTitle = guardIn.blocked ? GUARDED_TITLES.blocked : piiRemoved ? GUARDED_TITLES.redacted : null;
+    const needsTitle = !currentTitle || (isGuardedTitle(currentTitle) && !guardedTitle);
+    const titlePromise: Promise<string | null> = !needsTitle
       ? Promise.resolve(null)
-      : generateTitle(question).then(async (title) => {
-          await appkit.lakebase.query(
-            `UPDATE chatapp.chat_sessions SET title = $1 WHERE session_id = $2 AND title IS NULL`,
-            [title, session.session_id],
+      : (guardedTitle ? Promise.resolve(guardedTitle) : generateTitle(question)).then(async (title) => {
+          const { rows } = await appkit.lakebase.query(
+            `UPDATE chatapp.chat_sessions SET title = $1
+              WHERE session_id = $2 AND (title IS NULL OR title = $3) RETURNING title`,
+            [title, session.session_id, currentTitle],
           );
-          return title;
+          return rows.length ? title : null;
         });
 
     const convColumn = mode === 'agent' ? 'agent_conversation_id' : 'genie_conversation_id';
@@ -283,14 +371,14 @@ export function buildChatRouter(appkit: ChatAppKit): express.Router {
     const notices: string[] = guardIn.message && !guardIn.blocked ? [guardIn.message] : [];
 
     if (guardIn.blocked) {
-      // Never sent to Genie; the reason is shown as the answer.
+      // Never sent to the engine; the reason is shown as the answer.
       answer = { version: 2, mode, text: guardIn.message ?? 'This question was blocked.', charts: [], guard: { blocked: true } };
       success = false;
       errorMessage = `Blocked by guardrail: ${guardEvents.filter((e) => e.action === 'block').map((e) => e.check).join(', ')}`;
       details = { queries: [] };
     } else if (hit) {
-      // Same answer, charts, steps and SQL as when Genie produced it; nothing
-      // is sent to Genie, so the session's Genie conversation is untouched.
+      // Same answer, charts, steps and SQL as when it was first produced; nothing
+      // is sent to the engine, so the session's engine conversation is untouched.
       answer = {
         ...hit.answer,
         text: stripCitations(hit.answer.text), // entries cached before citations were stripped
@@ -306,7 +394,11 @@ export function buildChatRouter(appkit: ChatAppKit): express.Router {
       };
       details = { queries: hit.details.queries ?? [], judge: hit.details.judge ? { ...(hit.details.judge as object), reused: true } : undefined };
     } else {
+      const engineName = mode === 'agent' ? 'LensS query engine (Agent)' : 'LensS query engine';
+      const engineStart = trace.now();
       const run = await runGenie(appkit.genie, mode, preamble + question, priorConversation, (p) => send('progress', p));
+      trace.add(engineName, 'engine', engineStart, run.latencyMs);
+      trace.addStages(engineName, engineStart, run.timeline);
       liveRun = run;
       answer = run.answer;
       success = run.success;
@@ -320,12 +412,14 @@ export function buildChatRouter(appkit: ChatAppKit): express.Router {
       );
       // Output guardrails before the answer is sent or cached.
       if (answer?.text) {
+        const outStart = trace.now();
         const g = checkOutput(answer.text);
         answer.text = g.text;
         guardEvents.push(...g.events);
         if (g.notice) notices.push(g.notice);
+        trace.add('Output checks: personal data, profanity, policy wording', 'guardrail', outStart, trace.now() - outStart);
       }
-      // Cache it only if Genie saw the question on its own (no earlier turns),
+      // Cache it only if the engine saw the question on its own (no earlier turns),
       // otherwise the answer may lean on context a later asker won't have.
       let stored = false;
       if (key && versions && !priorConversation && !preamble && run.success) {
@@ -339,6 +433,18 @@ export function buildChatRouter(appkit: ChatAppKit): express.Router {
     if (answer && notices.length) answer.guard = { ...(answer.guard ?? {}), notices };
     const latencyMs = Date.now() - startedAt;
     if (hit) details.timeline = [{ stage: 'Answered from cache', ms: latencyMs }];
+    const sources = sourcesFromSql(((details.queries ?? []) as Array<{ sql?: string }>).map((q) => q.sql));
+
+    // Suggested next questions: the engine's own, topped up to three by a small model
+    // (Agent mode never suggests any; Chat mode often gives one).
+    const followStart = trace.now();
+    const engineSuggestions = answer?.suggestions ?? [];
+    const followPromise: Promise<string[]> = answer && !guardIn.blocked && answer.text && engineSuggestions.length < 3
+      ? suggestFollowUps(question, answer.text).then((q) => {
+          if (aiConfig.followUps) trace.add(`Follow-up suggestions (${modelLabel(aiConfig.followUps.model)})`, 'model', followStart, trace.now() - followStart);
+          return q;
+        })
+      : Promise.resolve([]);
 
     let assistantMessageId: string | null = null;
     if (answer && (answer.text || answer.charts.length)) {
@@ -357,64 +463,121 @@ export function buildChatRouter(appkit: ChatAppKit): express.Router {
       if (hit || guardIn.blocked) {
         await appkit.lakebase.query(`UPDATE chatapp.chat_sessions SET updated_at = now() WHERE session_id = $1`, [session.session_id]);
       }
+      const extra = await followPromise.catch(() => [] as string[]);
+      const seen = new Set(engineSuggestions.map((q) => q.toLowerCase()));
+      const followUps = [...engineSuggestions, ...extra.filter((q) => !seen.has(q.toLowerCase()))].slice(0, 3);
+      if (extra.length && followUps.length) {
+        answer.suggestions = followUps;
+        send('followups', { messageId: assistantMessageId, questions: followUps });
+        await appkit.lakebase.query(
+          `UPDATE chatapp.chat_messages SET attachment_json = jsonb_set(attachment_json, '{suggestions}', $2::jsonb) WHERE message_id = $1`,
+          [assistantMessageId, JSON.stringify(followUps)],
+        );
+      }
     } else {
       send('error', { error: errorMessage ?? 'No answer was returned' });
     }
 
     const reusedJudge = details.judge as { score?: number } | undefined;
+    const logDetails = () => ({
+      ...details,
+      charts: answer?.charts.length ?? 0,
+      agentSteps: answer?.steps?.length ?? null,
+      answerPreview: (answer?.text ?? '').slice(0, 1500),
+      contextCarriedOver: Boolean(preamble),
+      genieConversationId,
+      genieMessageId,
+      cache: cacheInfo,
+      guardrails: guardEvents.length ? { events: guardEvents, classifierMs: guardIn.modelMs } : undefined,
+      trace: trace.toJSON(),
+      tokens,
+      sources,
+      followUps: answer?.suggestions?.length ?? 0,
+    });
     const logged = await appkit.lakebase.query(
       `INSERT INTO chatapp.usage_log
          (session_id, user_email, mode, question, success, latency_ms, error_message, assistant_message_id, details,
           from_cache, guard_action, faithfulness)
        VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12)
        RETURNING event_id`,
-      [session.session_id, email, mode, question, success, latencyMs, errorMessage, assistantMessageId, JSON.stringify({
-        ...details,
-        charts: answer?.charts.length ?? 0,
-        agentSteps: answer?.steps?.length ?? null,
-        answerPreview: (answer?.text ?? '').slice(0, 1500),
-        contextCarriedOver: Boolean(preamble),
-        genieConversationId,
-        genieMessageId,
-        cache: cacheInfo,
-        guardrails: guardEvents.length ? { events: guardEvents, classifierMs: guardIn.modelMs } : undefined,
-      }), Boolean(hit), strongestAction(guardEvents), reusedJudge?.score ?? null],
+      [session.session_id, email, mode, question, success, latencyMs, errorMessage, assistantMessageId, JSON.stringify(logDetails()),
+        Boolean(hit), strongestAction(guardEvents), reusedJudge?.score ?? null],
     );
 
     const title = await titlePromise.catch(() => null);
     if (title) send('session_title', { sessionId: session.session_id, title });
-    send('done', { success, latencyMs, fromCache: Boolean(hit), blocked: guardIn.blocked });
+    send('done', {
+      success, latencyMs, fromCache: Boolean(hit), blocked: guardIn.blocked,
+      judging: Boolean(liveRun?.success && answer?.text && aiConfig.judge),
+    });
     res.end();
 
-    // Faithfulness judge: after the user has the answer, so it never adds to their wait.
+    // Answer-quality judge: after the user has the answer, so it never adds to their wait.
     if (liveRun?.success && answer?.text) {
       const eventId = logged.rows[0]?.event_id as string | undefined;
+      const judgeStart = trace.now();
       void judgeAnswer(question, answer.text, liveRun.evidence).then(async (verdict) => {
         if (!verdict) return;
+        trace.add(`Answer quality judge (${modelLabel(aiConfig.judge?.model) || 'numbers check'})`, 'model', judgeStart, trace.now() - judgeStart);
         if (eventId) {
           await appkit.lakebase.query(
-            `UPDATE chatapp.usage_log SET faithfulness = $2,
-                    details = jsonb_set(COALESCE(details, '{}'::jsonb), '{judge}', $3::jsonb)
-              WHERE event_id = $1`,
-            [eventId, verdict.score, JSON.stringify(verdict)],
+            `UPDATE chatapp.usage_log SET faithfulness = $2, details = $3::jsonb WHERE event_id = $1`,
+            [eventId, verdict.score, JSON.stringify({ ...logDetails(), judge: verdict })],
           );
         }
         if (storedKey) await attachJudge(appkit.lakebase, storedKey, verdict);
       }).catch((err: unknown) => console.warn('[judge] failed:', err instanceof Error ? err.message : err));
     }
+  };
+
+  // --- how an answer was made: trace, sources, checks, quality -------------
+
+  router.get('/api/chat/messages/:id/trace', async (req, res) => {
+    const email = currentUserEmail(req);
+    const { rows } = await appkit.lakebase.query(
+      `SELECT u.details, u.faithfulness, u.success, u.created_at, u.from_cache, u.latency_ms, u.mode, u.question
+         FROM chatapp.chat_messages m
+         JOIN chatapp.usage_log u ON u.assistant_message_id = m.message_id
+        WHERE m.message_id = $1 AND m.user_email = $2`,
+      [req.params.id, email],
+    );
+    const r = rows[0];
+    if (!r) {
+      res.status(404).json({ error: 'answer not found' });
+      return;
+    }
+    const d = (r.details ?? {}) as Row;
+    const ledger = (d.tokens ?? {}) as TokenLedger;
+    res.json({
+      question: r.question,
+      mode: r.mode,
+      latencyMs: r.latency_ms,
+      quality: qualitySummary(r),
+      trace: d.trace ?? null,
+      timeline: d.timeline ?? [],
+      queries: ((d.queries ?? []) as Array<Row>).map((q) => ({ title: q.title, sql: q.sql, rows: q.rows })),
+      cache: d.cache ?? null,
+      guard: ((d.guardrails as Row | undefined)?.events ?? []) as GuardEvent[],
+      tokens: Object.entries(ledger).map(([feature, e]) => ({ feature, model: modelLabel(e.model), calls: e.calls, input: e.input, output: e.output })),
+      cost: costOf(ledger),
+    });
   });
 
-  // --- answer feedback: stored here and sent to Genie's Monitor ----------
+  // --- answer feedback: stored here and sent to the engine's monitor ----------
 
   router.post('/api/chat/messages/:id/feedback', async (req, res) => {
     const email = currentUserEmail(req);
     const raw = req.body?.rating;
     const value = raw === 'up' ? 1 : raw === 'down' ? -1 : null;
+    // A thumbs-down can say why; it then waits in Monitoring's review queue.
+    const REASONS = ['wrong_numbers', 'wrong_data', 'not_answered', 'unclear', 'other'];
+    const reason = value === -1 && REASONS.includes(String(req.body?.reason)) ? String(req.body.reason) : null;
+    const comment = value === -1 ? String(req.body?.comment ?? '').trim().slice(0, 500) || null : null;
     const { rows } = await appkit.lakebase.query(
-      `UPDATE chatapp.chat_messages SET feedback = $1, feedback_at = now()
+      `UPDATE chatapp.chat_messages SET feedback = $1, feedback_at = now(), feedback_reason = $4, feedback_comment = $5
         WHERE message_id = $2 AND user_email = $3 AND role = 'assistant'
         RETURNING genie_conversation_id, genie_message_id, cache_key`,
-      [value, req.params.id, email],
+      [value, req.params.id, email, reason, comment],
     );
     if (!rows.length) {
       res.status(404).json({ error: 'answer not found' });
@@ -422,7 +585,14 @@ export function buildChatRouter(appkit: ChatAppKit): express.Router {
     }
     // A thumbs-down removes the answer from the cache, so the next person gets a fresh one.
     if (value === -1 && rows[0].cache_key) await evict(appkit.lakebase, rows[0].cache_key as string).catch(() => {});
-    await appkit.lakebase.query(`UPDATE chatapp.usage_log SET feedback = $1 WHERE assistant_message_id = $2`, [value, req.params.id]);
+    await appkit.lakebase.query(
+      `UPDATE chatapp.usage_log
+          SET feedback = $1, feedback_reason = $3, feedback_comment = $4,
+              review_status = CASE WHEN $1::smallint = -1 THEN COALESCE(NULLIF(review_status, 'dismissed'), 'open')
+                                   WHEN review_status = 'open' THEN NULL ELSE review_status END
+        WHERE assistant_message_id = $2`,
+      [value, req.params.id, reason, comment],
+    );
 
     // Genie's feedback API accepts both Chat and Agent answers (verified).
     let sentToGenie = false;
@@ -454,7 +624,11 @@ export function buildChatRouter(appkit: ChatAppKit): express.Router {
                 COUNT(*) FILTER (WHERE guard_action = 'blocked')::int AS blocked,
                 COUNT(*) FILTER (WHERE faithfulness IS NOT NULL)::int AS judged,
                 ROUND(AVG(faithfulness)::numeric, 3) AS avg_faithfulness,
-                COUNT(*) FILTER (WHERE faithfulness < 0.7)::int AS low_faithfulness,
+                COUNT(*) FILTER (WHERE faithfulness < $1)::int AS low_faithfulness,
+                ROUND(AVG((details->'judge'->'llm'->'metrics'->>'relevance')::numeric), 3) AS avg_relevance,
+                ROUND(AVG((details->'judge'->'llm'->'metrics'->>'completeness')::numeric), 3) AS avg_completeness,
+                ROUND(AVG((details->'judge'->'llm'->'metrics'->>'safety')::numeric), 3) AS avg_safety,
+                COALESCE(SUM((details->'cache'->>'originalLatencyMs')::numeric) FILTER (WHERE from_cache), 0)::bigint AS engine_ms_saved,
                 COUNT(*) FILTER (WHERE details->'cache'->>'match' = 'semantic')::int AS semantic_hits,
                 ROUND(AVG(latency_ms)) AS avg_latency_ms,
                 COUNT(*) FILTER (WHERE feedback = 1)::int AS helpful,
@@ -463,6 +637,7 @@ export function buildChatRouter(appkit: ChatAppKit): express.Router {
                 ROUND(AVG(latency_ms) FILTER (WHERE from_cache)) AS avg_cache_latency_ms,
                 ROUND(AVG(latency_ms) FILTER (WHERE NOT from_cache)) AS avg_live_latency_ms
            FROM chatapp.usage_log`,
+        [aiConfig.judge?.warnBelow ?? 0.7],
       ),
       appkit.lakebase.query(
         `SELECT u.user_email, COUNT(*)::int AS questions,
@@ -485,7 +660,7 @@ export function buildChatRouter(appkit: ChatAppKit): express.Router {
       ),
       appkit.lakebase.query(
         `SELECT u.event_id, u.session_id, s.title AS session_title, u.user_email, u.mode, u.question, u.success,
-                u.latency_ms, u.error_message, u.feedback, u.details, u.from_cache, u.guard_action, u.faithfulness, u.created_at
+                u.latency_ms, u.error_message, u.feedback, u.feedback_reason, u.feedback_comment, u.details, u.from_cache, u.guard_action, u.faithfulness, u.created_at
            FROM chatapp.usage_log u
            LEFT JOIN chatapp.chat_sessions s ON s.session_id = u.session_id
           ORDER BY u.created_at DESC
@@ -540,7 +715,80 @@ export function buildChatRouter(appkit: ChatAppKit): express.Router {
       }),
       cache,
       ai,
+      cost: await costView(),
+      feedbackQueue: await feedbackQueue(),
     });
+  });
+
+  /** Tokens by feature and model (questions and eval runs), with an estimated cost when prices are set. */
+  const costView = async () => {
+    const [byFeature, evals] = await Promise.all([
+      appkit.lakebase.query(
+        `SELECT f.key AS feature, f.value->>'model' AS model, SUM((f.value->>'calls')::int)::int AS calls,
+                SUM((f.value->>'input')::bigint)::bigint AS input, SUM((f.value->>'output')::bigint)::bigint AS output,
+                COUNT(DISTINCT u.event_id)::int AS questions
+           FROM chatapp.usage_log u, jsonb_each(u.details->'tokens') f
+          GROUP BY 1, 2 ORDER BY input DESC`,
+      ),
+      appkit.lakebase.query(
+        `SELECT f.key AS feature, f.value->>'model' AS model, SUM((f.value->>'calls')::int)::int AS calls,
+                SUM((f.value->>'input')::bigint)::bigint AS input, SUM((f.value->>'output')::bigint)::bigint AS output
+           FROM chatapp.eval_runs r, jsonb_each(r.summary->'tokens') f
+          GROUP BY 1, 2`,
+      ).catch(() => ({ rows: [] as Row[] })),
+    ]).catch(() => [{ rows: [] as Row[] }, { rows: [] as Row[] }]);
+    const shape = (r: Row, source: string) => {
+      const entry = { model: String(r.model), calls: Number(r.calls), input: Number(r.input), output: Number(r.output) };
+      return { source, feature: r.feature, modelLabel: modelLabel(entry.model), ...entry, questions: r.questions ?? null, cost: costOf({ x: entry }) };
+    };
+    return {
+      priced: Object.keys(aiConfig.pricing).length > 0,
+      rows: [...byFeature.rows.map((r) => shape(r, 'questions')), ...evals.rows.map((r) => shape(r, 'evals'))],
+    };
+  };
+
+  const feedbackQueue = async () => {
+    const { rows } = await appkit.lakebase.query(
+      `SELECT event_id, created_at, user_email, mode, question, feedback_reason, feedback_comment,
+              COALESCE(review_status, 'open') AS review_status, reviewed_by, reviewed_at, faithfulness,
+              details->>'answerPreview' AS answer_preview
+         FROM chatapp.usage_log
+        WHERE feedback = -1
+        ORDER BY (COALESCE(review_status, 'open') = 'open') DESC, created_at DESC
+        LIMIT 100`,
+    ).catch(() => ({ rows: [] as Row[] }));
+    return rows.map((r) => ({ ...r, answer_preview: stripCitations(String(r.answer_preview ?? '')).slice(0, 600) }));
+  };
+
+  // A reviewer works through thumbs-down answers: fixed, dismissed, or turned into an eval case.
+  router.patch('/api/admin/feedback/:eventId', async (req, res) => {
+    const email = currentUserEmail(req);
+    const status = String(req.body?.status ?? '');
+    if (!['open', 'fixed', 'dismissed', 'added_to_evals'].includes(status)) {
+      res.status(400).json({ error: 'status must be open, fixed, dismissed or added_to_evals' });
+      return;
+    }
+    const { rows } = await appkit.lakebase.query(
+      `UPDATE chatapp.usage_log SET review_status = $2, reviewed_by = $3, reviewed_at = now()
+        WHERE event_id = $1 AND feedback = -1
+        RETURNING question, mode, feedback_reason, feedback_comment`,
+      [req.params.eventId, status, email],
+    );
+    if (!rows.length) {
+      res.status(404).json({ error: 'feedback not found' });
+      return;
+    }
+    if (status === 'added_to_evals') {
+      const r = rows[0];
+      const note = [r.feedback_reason, r.feedback_comment].filter(Boolean).join(': ');
+      await appkit.lakebase.query(
+        `INSERT INTO chatapp.eval_cases (category, question, mode, source, notes)
+         VALUES ('accuracy', $1, $2, 'feedback', $3)
+         ON CONFLICT (category, question) DO UPDATE SET enabled = true, notes = EXCLUDED.notes`,
+        [r.question, r.mode, note ? `From a thumbs-down (${note})` : 'From a thumbs-down'],
+      );
+    }
+    res.json({ status });
   });
 
   return router;

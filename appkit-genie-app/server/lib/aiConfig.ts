@@ -5,6 +5,8 @@
  * it to the app with CAN_QUERY. A missing section means the feature is off.
  */
 
+import { modelLabel } from './models.js';
+
 export type GuardAction = 'block' | 'redact' | 'warn' | 'flag' | 'off';
 
 export interface AiConfig {
@@ -14,11 +16,17 @@ export interface AiConfig {
     input: { pii: GuardAction; profanity: GuardAction; prompt_injection: GuardAction; off_topic: GuardAction };
     output: { pii: GuardAction; profanity: GuardAction; policy_checks: GuardAction };
   } | null;
-  judge: { model: string | null; samplePercent: number } | null; // model null = numbers check only
+  judge: { model: string | null; samplePercent: number; warnBelow: number } | null; // model null = numbers check only
+  /** Suggested next questions when the query engine offers none. */
+  followUps: { model: string } | null;
+  /** Evaluation suite: how many ground-truth (accuracy) questions one run may ask. */
+  evals: { maxAccuracyCases: number } | null;
+  /** Optional USD per million tokens, per model endpoint, for Monitoring's cost estimate. */
+  pricing: Record<string, { input: number; output: number }>;
 }
 
 function parse(): AiConfig {
-  const off: AiConfig = { semanticCache: null, guardrails: null, judge: null };
+  const off: AiConfig = { semanticCache: null, guardrails: null, judge: null, followUps: null, evals: null, pricing: {} };
   const raw = process.env.LENSS_AI_CONFIG;
   if (!raw) return off;
   try {
@@ -26,6 +34,7 @@ function parse(): AiConfig {
     const sc = c.semantic_cache;
     const g = c.guardrails;
     const j = c.faithfulness_judge;
+    const pct = (v: unknown, d: number) => (v === undefined || v === null || v === '' ? d : Number(v) > 1 ? Number(v) / 100 : Number(v));
     const action = (v: unknown, d: GuardAction): GuardAction =>
       ['block', 'redact', 'warn', 'flag', 'off'].includes(String(v)) ? (v as GuardAction) : d;
     return {
@@ -48,7 +57,17 @@ function parse(): AiConfig {
             },
           }
         : null,
-      judge: j ? { model: j.model ? String(j.model) : null, samplePercent: Math.max(0, Math.min(100, Number(j.sample_percent ?? 100))) } : null,
+      judge: j
+        ? {
+            model: j.model ? String(j.model) : null,
+            samplePercent: Math.max(0, Math.min(100, Number(j.sample_percent ?? 100))),
+            warnBelow: pct(j.warn_below, 0.7),
+          }
+        : null,
+      followUps: c.follow_ups?.model ? { model: String(c.follow_ups.model) } : null,
+      evals: c.evals ? { maxAccuracyCases: Math.max(0, Math.min(50, Number(c.evals.max_accuracy_cases ?? 5))) } : null,
+      pricing: Object.fromEntries(Object.entries((c.pricing ?? {}) as Record<string, { input?: number; output?: number }>)
+        .map(([m, p]) => [m, { input: Number(p?.input ?? 0), output: Number(p?.output ?? 0) }])),
     };
   } catch (err) {
     console.warn('LENSS_AI_CONFIG is not valid JSON; AI features are off:', err instanceof Error ? err.message : err);
@@ -58,12 +77,16 @@ function parse(): AiConfig {
 
 export const aiConfig: AiConfig = parse();
 
-/** What Monitoring shows about the configuration (model names, thresholds, on/off). */
+/** What Monitoring and the Responsible AI page show: on/off, thresholds, and each model by its own name. */
 export function aiConfigSummary() {
   const c = aiConfig;
   return {
-    semanticCache: c.semanticCache ? { threshold: c.semanticCache.threshold, model: c.semanticCache.embeddingModel } : null,
-    guardrails: c.guardrails ? { model: c.guardrails.model, input: c.guardrails.input, output: c.guardrails.output } : null,
-    judge: c.judge ? { model: c.judge.model, samplePercent: c.judge.samplePercent } : null,
+    semanticCache: c.semanticCache ? { threshold: c.semanticCache.threshold, model: modelLabel(c.semanticCache.embeddingModel) } : null,
+    guardrails: c.guardrails ? { model: modelLabel(c.guardrails.model) || null, input: c.guardrails.input, output: c.guardrails.output } : null,
+    judge: c.judge ? { model: modelLabel(c.judge.model) || null, samplePercent: c.judge.samplePercent, warnBelow: c.judge.warnBelow } : null,
+    followUps: c.followUps ? { model: modelLabel(c.followUps.model) } : null,
+    evals: c.evals,
+    titles: process.env.LENSS_TITLE_ENDPOINT ? { model: modelLabel(process.env.LENSS_TITLE_ENDPOINT) } : null,
+    priced: Object.keys(c.pricing).length > 0,
   };
 }

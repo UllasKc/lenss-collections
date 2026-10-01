@@ -5,10 +5,10 @@
   "schema_prefix": "lenss_collections",
   "warehouse_id": null,
   "warehouse_name": "Starter Warehouse",
-  "genie_space_title": "LensS Collections Analytics",
+  "genie_space_title": "LensS Collections Analytics v2",
   "lakebase_project": "lenss-collections-app",
-  "lakebase_database": "chatapp",
-  "app_name": "lenss-collections",
+  "lakebase_database": "chatapp_v2",
+  "app_name": "lenss-collections-v2",
   "readers_group": null,
   "semantic_cache": { "threshold": 98, "embedding_model": "databricks-gte-large-en" },
   "guardrails": {

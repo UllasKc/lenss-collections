@@ -47,8 +47,8 @@ function autosize() { inputEl.style.height = 'auto'; inputEl.style.height = Math
 
 // ---------------------------------------------------------------- starter questions
 // One list feeds both the empty-state tiles and the side panel shown once a
-// conversation has started. Each question is checked against the live Genie
-// space for a strong answer before being listed. The server owns the list
+// conversation has started. Each question is checked against the live data
+// for a strong answer before being listed. The server owns the list
 // (it also pre-warms the answer cache with it); these copies are only a
 // fallback until /api/chat/suggestions answers.
 let STARTERS = [
@@ -74,7 +74,7 @@ function starterButton(s, cls) {
   return b;
 }
 // The side panel shows the six starters plus four more (five per mode), also
-// checked against the live Genie space for strong answers.
+// checked against the live data for strong answers.
 let MORE_SUGGESTIONS = [
   { mode: 'chat', label: 'Best channel for each DPD bucket', q: 'Which channel should we use for each DPD bucket?' },
   { mode: 'chat', label: 'Non-payment drivers with the lowest recovery', q: 'Which non-payment drivers have the lowest recovery rate?' },
@@ -240,7 +240,7 @@ async function openSession(id) {
     if (m.role === 'user') { addUserBubble(m.content, m.mode); question = m.content; }
     else addAnswer(normalizeStored(m), {
       mode: m.mode, at: m.created_at, messageId: m.message_id, feedback: m.feedback,
-      question, canRefresh: i === messages.length - 1,
+      question, canRefresh: i === messages.length - 1, isLast: i === messages.length - 1, quality: m.quality,
     });
   });
   updateEmpty();
@@ -258,6 +258,14 @@ function normalizeStored(m) {
 function addRow(role) {
   const row = document.createElement('div');
   row.className = 'turnrow ' + role;
+  if (role === 'bot') {
+    // The Concentrix mark identifies the assistant's replies (also in the PDF, which captures these rows).
+    const av = document.createElement('img');
+    av.className = 'bot-avatar';
+    av.src = '/img/cnx-mark.png';
+    av.alt = '';
+    row.appendChild(av);
+  }
   const msg = document.createElement('div');
   msg.className = 'msg';
   row.appendChild(msg);
@@ -308,18 +316,7 @@ function renderAnswer(msg, answer, opts) {
     msg.appendChild(d);
   }
 
-  if (answer.suggestions && answer.suggestions.length && opts.live) {
-    const f = document.createElement('div');
-    f.className = 'followups';
-    answer.suggestions.slice(0, 3).forEach(q => {
-      const b = document.createElement('button');
-      b.className = 'followup';
-      b.textContent = q;
-      b.addEventListener('click', () => sendMessage(q));
-      f.appendChild(b);
-    });
-    msg.appendChild(f);
-  }
+  if (opts.live || opts.isLast) addFollowups(msg, answer.suggestions);
 
   // Guardrails: a blocked question shows its reason as the answer; notes (e.g. removed PII) sit above the footer.
   if (answer.guard && answer.guard.blocked) msg.classList.add('guard-blocked');
@@ -330,8 +327,149 @@ function renderAnswer(msg, answer, opts) {
   const when = opts.at ? new Date(opts.at).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }) : '';
   const took = opts.latencyMs && !answer.cache ? `${(opts.latencyMs / 1000).toFixed(0)}s` : '';
   msg.insertAdjacentHTML('beforeend', metaLine(mode, [took, when].filter(Boolean).join(' · ')));
-  if (answer.cache) addCacheNote(msg, msg.lastElementChild, answer, opts);
-  if (opts.messageId) addFeedback(msg.lastElementChild, opts.messageId, opts.feedback);
+  const metaEl = msg.lastElementChild;
+  if (answer.cache) addCacheNote(msg, metaEl, answer, opts);
+  if (opts.messageId) addFeedback(metaEl, opts.messageId, opts.feedback);
+  if (opts.messageId && !(answer.guard && answer.guard.blocked)) addTrustBar(msg, metaEl, opts);
+}
+
+// ---------------------------------------------------------------- trust: quality, sources, checks
+
+const METRIC_LABELS = { faithfulness: 'Faithfulness', relevance: 'Relevance', completeness: 'Completeness', safety: 'Safety' };
+const CHECK_LABELS = {
+  pii: 'Personal details', profanity: 'Offensive language', prompt_injection: 'Prompt injection', off_topic: 'Off-topic',
+  causal_claim: 'Causal uplift wording', forecast: 'Month-end forecast', cure_rate: 'Cure rate', probability: 'Probability of target',
+};
+
+/**
+ * The trust bar under an answer: its quality score (or "checking" while the
+ * judge runs, which is after the answer arrives), the data sources it used and
+ * any guardrail that acted. Click for the full "How this answer was made" view.
+ * Answers scoring below the configured threshold also get a visible warning.
+ */
+function addTrustBar(msg, metaEl, opts) {
+  const bar = document.createElement('div');
+  bar.className = 'trust';
+  msg.insertBefore(bar, metaEl);
+  const paint = (q) => {
+    if (!q) { bar.remove(); return; }
+    const chips = [];
+    if (q.status === 'done' && q.score !== null) {
+      const pct = Math.round(q.score * 100);
+      const tone = pct >= 85 ? 'ok' : q.score >= q.warnBelow ? 'mid' : 'low';
+      const word = tone === 'ok' ? 'Verified' : tone === 'mid' ? 'Mostly verified' : 'Low confidence';
+      chips.push(`<button class="trust-chip ${tone}" data-open title="Faithfulness: how well the figures and claims match the data the queries returned${q.judgeModel ? ` (scored by ${esc(q.judgeModel)})` : ''}">${tone === 'low' ? '⚠' : '✓'} ${word} · ${pct}%</button>`);
+    } else if (q.status === 'pending') {
+      chips.push('<span class="trust-chip pending"><span class="dot"></span>Checking accuracy…</span>');
+    }
+    if (q.sources && q.sources.length) {
+      chips.push(`<span class="trust-chip" title="${esc(q.sources.join(', '))}">📊 ${q.sources.length} certified data source${q.sources.length === 1 ? '' : 's'}</span>`);
+    }
+    const acted = (q.guard || []).filter(g => g.action !== 'off');
+    if (acted.some(g => g.check === 'pii' && g.action === 'redact')) chips.push('<span class="trust-chip">🛡 Personal details masked</span>');
+    else if (acted.length) chips.push(`<span class="trust-chip" title="${esc(acted.map(g => CHECK_LABELS[g.check] || g.check).join(', '))}">🛡 ${acted.length} safety check${acted.length === 1 ? '' : 's'} applied</span>`);
+    else chips.push('<span class="trust-chip">🛡 Safety checks passed</span>');
+    chips.push('<button class="trust-link" data-open>How this answer was made ›</button>');
+    bar.innerHTML = chips.join('');
+    bar.querySelectorAll('[data-open]').forEach(b => b.addEventListener('click', () => openTrace(opts.messageId)));
+
+    // Low confidence: say so where it can't be missed, with what couldn't be verified.
+    msg.querySelectorAll('.lowconf').forEach(n => n.remove());
+    if (q.status === 'done' && q.score !== null && q.score < q.warnBelow) {
+      const items = [...(q.unsupported || []), ...(q.missing || []).map(m => `the figure ${m}`)].slice(0, 4);
+      const box = document.createElement('div');
+      box.className = 'lowconf';
+      box.innerHTML = `<b>⚠ Some of this answer couldn't be verified against the data</b> (${Math.round(q.score * 100)}%). Please double-check before acting.` +
+        (items.length ? `<ul>${items.map(i => `<li>${esc(i)}</li>`).join('')}</ul>` : '');
+      msg.insertBefore(box, bar);
+    }
+  };
+  const load = async (tries) => {
+    try {
+      const r = await fetch(`/api/chat/messages/${opts.messageId}/trace`);
+      // Just after the answer appears its log entry may not be written yet; try again shortly.
+      if (r.status === 404 && tries > 0) { setTimeout(() => load(tries - 1), 1500); return; }
+      if (!r.ok) return paint(null);
+      const q = (await r.json()).quality;
+      paint(q);
+      if (q.status === 'pending' && tries > 0 && document.body.contains(bar)) setTimeout(() => load(tries - 1), 4000);
+    } catch { /* the bar is a nice-to-have */ }
+  };
+  if (opts.quality) {
+    paint(opts.quality);
+    if (opts.quality.status === 'pending') setTimeout(() => load(25), 4000);
+  } else {
+    paint({ status: opts.judging ? 'pending' : 'n/a', guard: [], sources: [] });
+    load(25);
+  }
+}
+
+const traceDialog = document.getElementById('traceDialog');
+document.getElementById('traceClose').addEventListener('click', () => traceDialog.close());
+traceDialog.addEventListener('click', (e) => { if (e.target === traceDialog) traceDialog.close(); });
+
+/** "How this answer was made": quality scores, data sources and SQL, safety checks, request trace and AI usage. */
+async function openTrace(messageId) {
+  const body = document.getElementById('traceBody');
+  body.innerHTML = '<div class="score-reason">Loading…</div>';
+  traceDialog.showModal();
+  let t;
+  try {
+    const r = await fetch(`/api/chat/messages/${messageId}/trace`);
+    if (!r.ok) throw new Error('HTTP ' + r.status);
+    t = await r.json();
+  } catch {
+    body.innerHTML = '<div class="score-reason">Could not load the details for this answer.</div>';
+    return;
+  }
+  const q = t.quality;
+  const pctOf = v => (v === null || v === undefined ? null : Math.round(v * 100));
+  const meter = (label, v) => {
+    const pct = pctOf(v);
+    const tone = pct === null ? '' : pct >= 85 ? 'ok' : pct >= 70 ? 'mid' : 'low';
+    return `<div class="meter"><span class="meter-l">${label}</span><span class="meter-bar"><span class="${tone}" style="width:${pct ?? 0}%"></span></span><span class="meter-v">${pct === null ? '—' : pct + '%'}</span></div>`;
+  };
+  const quality = q.status === 'done'
+    ? `${meter('Faithfulness (overall)', q.score)}${q.metrics ? Object.keys(METRIC_LABELS).filter(k => k !== 'faithfulness').map(k => meter(METRIC_LABELS[k], q.metrics[k])).join('') : ''}
+       <div class="score-reason">${q.numbers && q.numbers.checked ? `${q.numbers.found} of ${q.numbers.checked} figures found in the query results. ` : ''}${q.reason ? esc(q.reason) : ''}${q.judgeModel ? ` <span class="muted">Scored by ${esc(q.judgeModel)}${q.reused ? ', when this answer was first generated' : ''}.</span>` : ''}</div>
+       ${(q.unsupported || []).length ? `<div class="score-reason"><b>Not supported by the data:</b><ul>${q.unsupported.map(c => `<li>${esc(c)}</li>`).join('')}</ul></div>` : ''}
+       ${(q.missing || []).length ? `<div class="score-reason"><b>Figures not found in the results:</b> ${esc(q.missing.join(', '))}</div>` : ''}`
+    : `<div class="score-reason">${q.status === 'pending' ? 'The quality check is still running; it takes a few seconds after the answer arrives.' : q.status === 'off' ? 'The answer-quality judge is turned off for this deployment.' : 'This answer was not scored.'}</div>`;
+  const guard = (t.guard || []).length
+    ? `<ul class="checklist">${t.guard.map(g => `<li><b>${esc(g.stage === 'input' ? 'Question' : 'Answer')}:</b> ${esc(CHECK_LABELS[g.check] || g.check)} → ${esc(g.action)}${g.by === 'model' ? ' (AI classifier)' : ''}</li>`).join('')}</ul>`
+    : '<div class="score-reason">Every check passed: personal details, offensive language, prompt injection and off-topic on the question; personal details, offensive language and policy wording (forecasts, causal uplift, probabilities) on the answer.</div>';
+  const sources = (q.sources || []).length
+    ? `<div class="retry-pills">${q.sources.map(s => `<span class="retry-pill">${esc(s)}</span>`).join('')}</div>` : '<div class="score-reason">No data was queried.</div>';
+  const queries = (t.queries || []).map((x, i) => `<details class="trace-sql"><summary>${i + 1}. ${esc(x.title || 'Query')}${x.rows != null ? ` · ${fmtNum(x.rows)} rows` : ''}</summary><pre>${esc(x.sql || '')}</pre></details>`).join('');
+  const usage = (t.tokens || []).length
+    ? `<table class="mini"><thead><tr><th>Step</th><th>Model</th><th>Input</th><th>Output</th></tr></thead><tbody>${t.tokens.map(k =>
+        `<tr><td>${esc(featureLabel(k.feature))}</td><td>${esc(k.model)}</td><td>${fmtNum(k.input)}</td><td>${fmtNum(k.output)}</td></tr>`).join('')}</tbody></table>
+       ${t.cost !== null ? `<div class="score-reason">Estimated cost: $${t.cost.toFixed(4)}</div>` : ''}`
+    : '<div class="score-reason">No AI model calls were needed.</div>';
+  body.innerHTML = `
+    <div class="trace-q">“${esc(t.question)}”<span>${t.mode === 'agent' ? 'Agent' : 'Chat'} · ${fmtMs(t.latencyMs)}${t.cache && t.cache.hit ? ' · answered from cache' : ''}</span></div>
+    <section><h3>Answer quality</h3>${quality}</section>
+    <section><h3>Data used</h3>${sources}${queries}</section>
+    <section><h3>Safety checks</h3>${guard}</section>
+    <section><h3>Request trace</h3>${renderWaterfall(t.trace, t.latencyMs, t.timeline)}</section>
+    <section><h3>AI usage</h3>${usage}</section>`;
+}
+
+/** Suggested next questions as buttons, above the trust bar (they can arrive just after the answer). */
+function addFollowups(msg, list) {
+  msg.querySelectorAll('.followups').forEach(n => n.remove());
+  if (!list || !list.length) return;
+  const f = document.createElement('div');
+  f.className = 'followups';
+  list.slice(0, 3).forEach(q => {
+    const b = document.createElement('button');
+    b.className = 'followup';
+    b.textContent = q;
+    b.addEventListener('click', () => sendMessage(q));
+    f.appendChild(b);
+  });
+  const before = msg.querySelector(':scope > .trust, :scope > .lowconf, :scope > .guard-note, :scope > .meta');
+  msg.insertBefore(f, before);
 }
 
 /** Cached answers say so, with when they were generated, and can be re-asked live. */
@@ -344,8 +482,8 @@ function addCacheNote(msg, metaEl, answer, opts) {
   note.className = 'cache-note';
   const similar = answer.cache.similarTo;
   note.title = similar
-    ? `Your question matched an earlier one closely (${(similar.similarity * 100).toFixed(1)}% similar, same products, buckets and figures), so its answer was reused. Refresh asks Genie again.`
-    : 'This question was answered recently on the same data, so the saved answer was reused. Refresh asks Genie again.';
+    ? `Your question matched an earlier one closely (${(similar.similarity * 100).toFixed(1)}% similar, same products, buckets and figures), so its answer was reused. Refresh gets a fresh live answer.`
+    : 'This question was answered recently on the same data, so the saved answer was reused. Refresh gets a fresh live answer.';
   note.innerHTML = `<span class="cache-bolt" aria-hidden="true">⚡</span>Answered from cache` +
     (similar ? ` · similar to “${esc(similar.question.length > 70 ? similar.question.slice(0, 70) + '…' : similar.question)}”` : '') +
     ` · generated ${esc(at)}`;
@@ -354,7 +492,7 @@ function addCacheNote(msg, metaEl, answer, opts) {
     const b = document.createElement('button');
     b.className = 'cache-refresh';
     b.textContent = '↻ Refresh';
-    b.title = 'Ask Genie again for a live answer';
+    b.title = 'Get a fresh live answer';
     b.addEventListener('click', () => {
       if (sending) return;
       setMode(answer.mode || opts.mode || 'chat');
@@ -364,7 +502,7 @@ function addCacheNote(msg, metaEl, answer, opts) {
   }
 }
 
-/** 👍/👎 on an answer: saved in the app and sent to the Genie space's Monitor. Click again to clear. */
+/** 👍/👎 on an answer: saved in the app (a 👎 asks why, for the review queue). Click again to clear. */
 function addFeedback(metaEl, messageId, current) {
   const box = document.createElement('span');
   box.className = 'fb';
@@ -378,12 +516,11 @@ function addFeedback(metaEl, messageId, current) {
     b.setAttribute('aria-pressed', String(b.dataset.r === rating));
   });
   paintFb();
-  box.querySelectorAll('button').forEach(b => b.addEventListener('click', async () => {
-    const next = rating === b.dataset.r ? null : b.dataset.r;
+  const submit = async (next, extra = {}) => {
     box.querySelectorAll('button').forEach(x => { x.disabled = true; });
     try {
       const r = await fetch(`/api/chat/messages/${messageId}/feedback`, {
-        method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ rating: next }),
+        method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ rating: next, ...extra }),
       });
       if (r.ok) {
         rating = next;
@@ -393,8 +530,34 @@ function addFeedback(metaEl, messageId, current) {
       box.querySelectorAll('button').forEach(x => { x.disabled = false; });
       paintFb();
     }
+  };
+  box.querySelectorAll('.fb-up,.fb-down').forEach(b => b.addEventListener('click', () => {
+    const next = rating === b.dataset.r ? null : b.dataset.r;
+    if (next === 'down') askWhy(box, (reason, comment) => submit('down', { reason, comment }));
+    else submit(next);
   }));
   metaEl.appendChild(box);
+}
+
+const FB_REASONS = [['wrong_numbers', 'Wrong numbers'], ['wrong_data', 'Wrong products, buckets or filters'], ['not_answered', "Didn't answer my question"], ['unclear', 'Hard to understand'], ['other', 'Something else']];
+
+/** A small popover under 👎: pick a reason, optionally add a note. Sending without a reason still records the 👎. */
+function askWhy(box, done) {
+  document.querySelectorAll('.fb-why').forEach(n => n.remove());
+  const pop = document.createElement('div');
+  pop.className = 'fb-why';
+  pop.innerHTML = `<div class="fb-why-h">What was wrong?</div>
+    <div class="fb-why-opts">${FB_REASONS.map(([v, l]) => `<button data-v="${v}">${esc(l)}</button>`).join('')}</div>
+    <textarea rows="2" maxlength="500" placeholder="Anything else? (optional)"></textarea>
+    <div class="fb-why-bar"><button class="fb-why-cancel">Cancel</button><button class="fb-why-send">Send</button></div>`;
+  let reason = null;
+  pop.querySelectorAll('.fb-why-opts button').forEach(b => b.addEventListener('click', () => {
+    reason = b.dataset.v;
+    pop.querySelectorAll('.fb-why-opts button').forEach(x => x.classList.toggle('on', x === b));
+  }));
+  pop.querySelector('.fb-why-cancel').addEventListener('click', () => pop.remove());
+  pop.querySelector('.fb-why-send').addEventListener('click', () => { pop.remove(); done(reason, pop.querySelector('textarea').value.trim()); });
+  box.appendChild(pop);
 }
 
 // ---------------------------------------------------------------- sending
@@ -445,6 +608,8 @@ async function sendMessage(preset, opts = {}) {
   let latencyMs = null;
   let savedId = null;
   let sentSessionId = null;
+  let judging = false;
+  let rendered = false;
   try {
     const sessionId = await ensureSession();
     sentSessionId = sessionId;
@@ -485,12 +650,24 @@ async function sendMessage(preset, opts = {}) {
           answer = data;
         } else if (type === 'saved') {
           savedId = data.messageId;
+          // Show the answer now; follow-up suggestions and the session name may still be on their way.
+          if (answer && !rendered) {
+            clearInterval(timer);
+            thinking.classList.remove('thinking');
+            renderAnswer(thinking, answer, { mode, latencyMs: Date.now() - started, at: new Date(), live: true, messageId: savedId, question: text, judging: !answer.cache });
+            rendered = true;
+            scrollToEnd();
+          }
+        } else if (type === 'followups') {
+          if (answer) answer.suggestions = data.questions;
+          if (rendered) { addFollowups(thinking, data.questions); scrollToEnd(); }
         } else if (type === 'error') {
           errorText = data.error;
         } else if (type === 'session_title') {
           titleEl.textContent = data.title;
         } else if (type === 'done') {
           latencyMs = data.latencyMs;
+          judging = Boolean(data.judging);
         }
       }
     }
@@ -501,8 +678,10 @@ async function sendMessage(preset, opts = {}) {
 
   clearInterval(timer);
   thinking.classList.remove('thinking');
-  if (answer) {
-    renderAnswer(thinking, answer, { mode, latencyMs, at: new Date(), live: true, messageId: savedId, question: text });
+  if (rendered) {
+    // already on screen
+  } else if (answer) {
+    renderAnswer(thinking, answer, { mode, latencyMs, at: new Date(), live: true, messageId: savedId, question: text, judging });
   } else {
     thinking.classList.add('failed');
     thinking.innerHTML = `Sorry — that question couldn't be answered. Please try again${mode === 'chat' ? ', or switch to Agent for a deeper analysis' : ''}.` +
@@ -594,8 +773,8 @@ function renderMarkdown(src) {
   return out.join('');
 }
 
-/** Genie's citation links point into the Genie space in the workspace, which app users
- * can't open; removed here too for answers stored before the server stripped them. */
+/** Citation links point into the workspace, which app users can't open; removed here
+ * too for answers stored before the server stripped them. */
 function stripCitations(s) {
   return s
     .replace(/[ \t]*\\?\[\\?\[\d+\\?\]\([^)\s]*\)\\?\]/g, '') // [[1](url)]

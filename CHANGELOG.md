@@ -11,7 +11,87 @@ Versions match git tags where one exists. Dates are when the change was committe
 
 ---
 
-## v1.4.0 — Semantic cache, guardrails, faithfulness judge, notifications, Genie fixes (2026-10-01)
+## v1.5.0 — Demo showcase: answer trust, evals, Responsible AI, Concentrix branding (2026-10-01)
+
+Deployed to the personal workspace. For the org it can run next to the existing version: `deploy/config/org-v2.json` with `--only genie,lakebase,app` (see `SETUP_GUIDE.md` 11.1). The `lakebase` step adds schema v6 and seeds the eval cases.
+
+### Added
+- **Trust bar under every answer.**
+  - **Quality chip:** "✓ Verified · 96%" (green 85% and up, amber from the warning threshold, red below it). It shows "Checking accuracy…" while the judge runs and updates when the score lands.
+  - **Other chips:** the number of certified data sources used, and whether personal details were masked or other safety checks acted.
+  - **How this answer was made** opens a panel with:
+    - the four quality scores, with the judge's reason and any unsupported claims;
+    - the data sources and each SQL query;
+    - the safety checks;
+    - the request trace;
+    - the AI models and tokens used.
+- **Low-confidence warning.** An answer scoring below `faithfulness_judge.warn_below` (default 70%) shows a red box listing what couldn't be verified. It also appears in the PDF.
+- **Multi-metric judge.** The judge model now scores **faithfulness, relevance, completeness and safety** in one call.
+  - The faithfulness score is still the average of the numbers check and the judge.
+  - The other three are shown in the answer panel, the audit trail, and as a new **Relevance** KPI in Monitoring.
+- **Evals tab.** An evaluation suite run on demand, with run history and the change against the previous run. Cases live in `chatapp.eval_cases`, are seeded by the deploy from `deploy/evals/cases.py`, and can be switched on or off in the tab. There are 29 cases:
+  - **Accuracy (7):** the Genie benchmark questions with their ground-truth SQL. Each is asked live and the figures returned are compared with the ground truth (recall and precision). The answer is then scored by the judge; one case checks that the engine declines.
+    - **Cap:** `evals.max_accuracy_cases` limits how many are asked per run (1 in the personal workspace, 10 in the org).
+  - **Guardrails (15):** red-team prompts covering injection, jailbreak, profanity, PII and off-topic, plus false-positive checks. The false-positive checks are legitimate questions, account IDs, thanks, and Hindi and Spanish questions.
+  - **Policy (7):** answer sentences the output checks must flag (forecast, causal uplift, cure rate, probability), redact, or leave alone (the negated caveat).
+- **Responsible AI tab.** It covers purpose and intended use, and each AI model with when it runs and whether it's on. It also lists the certified data sources (read live from the gold schema) and the protections in force, with counts. It explains how quality is measured, using the latest eval run and the feedback review numbers, and covers data handling, known limitations and a NIST AI RMF / EU AI Act alignment table (described as design, not certification).
+- **Feedback review queue (Monitoring).** A 👎 now asks why: wrong numbers, wrong products/buckets/filters, didn't answer, hard to understand, or something else, with an optional note. Each one waits in **Monitoring → Feedback review**, where a reviewer can mark it fixed, dismiss it, or **add it to evals** (it becomes an accuracy case).
+- **AI usage and cost (Monitoring).**
+  - **What's counted:** every model call's tokens by feature (guardrail classifier, embeddings, judge, follow-ups, session naming) and model, for questions and eval runs separately.
+  - **Cost:** an estimated cost appears when an optional `pricing` section (USD per million tokens per endpoint) is set.
+  - **Cache savings:** the Cache Hits KPI now shows the total waiting time saved.
+- **Request trace (waterfall).** Each question records spans with start offsets: input checks, the classifier (in parallel), the exact and similar-question cache lookups, the embedding, the query engine and its stages, output checks, follow-ups and the judge. It's shown in the answer panel and the audit trail.
+- **Suggested follow-up questions.** The engine's own suggestions are topped up to three by a small model (`follow_ups.model`). Agent mode now gets them too. Each suggestion passes the input pattern checks, and they're written in the language of the question.
+- **Voice input.** A mic button dictates the question using the browser's speech recognition, in the browser's language (Chrome and Edge; hidden elsewhere). Nothing is recorded by the app.
+- **Concentrix branding.**
+  - **Logos**, made from the files supplied in `all_details_and _data/` and used sparingly:
+    - **Full wordmark** (`public/img/concentrix-logo.png`, trimmed to the wordmark): in the header next to LensS, and at the top of the PDF's first page.
+    - **Small mark** (`public/img/cnx-mark.png`): as the assistant's avatar beside each reply in the chat, which carries into the PDF, and as the browser-tab icon (`favicon.png`).
+    - **Not used elsewhere:** tabs, Monitoring, Evals and toasts. If the logo file is missing, the header shows "Concentrix" as text.
+  - **Product name:** the page title is now "LensS Collections Intelligence | Concentrix".
+- **AI-generated notice** under the question box.
+- **`deploy/config/org-v2.json`** deploys this version next to the existing org app. It uses its own app name, Genie space and Lakebase database, and the same data.
+- **Tab order:** Command Center, Chat + Agent, Monitoring, Evals, Responsible AI.
+- **Long tables scroll inside their card.** Every table in Monitoring and Evals shows about 10 rows, with a header that stays put, so the page no longer grows with every question.
+
+### Changed
+- **No platform names in the app.** "Genie" and "Databricks" no longer appear anywhere users look.
+  - **Wording:** "Refresh gets a fresh live answer", "LensS query engine", "Generated SQL", "Semantic model version", "answered live".
+  - **Model names:** shown by their own names (e.g. "GPT-OSS 20B", "Llama 3.1 8B Instruct"), not endpoint names.
+  - **Unchanged:** code, deploy scripts and the technical guides still name the platform.
+- **PDF export.**
+  - **Header and file name:** every page's header is "LensS Collections Intelligence" with no session name. The first page shows the Concentrix logo or name, the product name, and "Conversation export · N questions · date". The file is named "LensS Collections Intelligence - <date>.pdf".
+  - **Footer:** "Generated by Concentrix LensS Collections Intelligence".
+- **Session names from guarded questions.** A first question that was blocked, or had personal details removed, no longer names the session. The session is called "⚠ Blocked question" or "⚠ Personal details removed", and the next clean question renames it. Schema v6 also renamed older sessions named that way.
+- **Answers appear as soon as they're saved.** Follow-ups and the session name arrive a moment later, so a cache hit appears in under a second.
+- **Exact cache hits skip the classifier wait.** The identical question was screened when it was first answered, and the pattern checks still run; semantic hits still wait for the classifier. A warm exact hit went from about 2.5 s to 0.8 s.
+- **Guardrail classifier and multilingual questions:**
+  - **Languages:** the classifier is told questions may be in any language.
+  - **Courtesy messages:** thanks and greetings are never marked off-topic. The eval suite caught the 8B classifier doing this.
+- **Lakebase schema v6:** `eval_cases`, `eval_runs`, `eval_results`; feedback reason, comment and review status on `chat_messages` and `usage_log`.
+
+### Verified (personal workspace, a handful of model calls)
+- **One live Chat question:**
+  - **Trace:** the classifier ran in parallel (2.4 s) with the cache lookups and embedding; the query engine took 27.9 s with its stages.
+  - **Sources:** `qry_product_vs_target`.
+  - **Quality:** the judge (GPT-OSS 20B, 702 tokens) scored 100% on all four metrics, and the trust bar went from "Checking accuracy…" to "Verified · 100%".
+  - **Feedback:** a 👎 with a reason appeared in the review queue and was marked fixed.
+- **Blocked question:** a profane question was blocked by the pattern check and the session got "⚠ Blocked question".
+- **Eval runs:**
+  - **First run:** accuracy 1/1 ("What is MTD collection versus target?": 100% of the ground-truth figures matched, faithfulness 100%) and policy 7/7. Guardrails were 14/15: the 8B classifier called "Thanks, that's really helpful!" off-topic.
+  - **After the courtesy fix:** guardrails 15/15.
+  - **Cost:** 11 classifier calls (about 2.8k tokens) and 1 judge call for the first run.
+- **Table scrolling:** the audit trail (133 rows) scrolls in a 453 px box with its header fixed; the page dropped to about 3,800 px tall. The answer cache, eval results and eval cases tables scroll the same way.
+- **UI in headless Chrome, at desktop and phone widths:**
+  - **Tabs:** Concentrix wordmark, new tabs, mic button, trust bar, the answer panel, the 👎 reason popover, the Evals tab, Monitoring (cost table, feedback queue, audit trace), Responsible AI.
+  - **PDF:** the downloaded PDF's text is "CONCENTRIX / LensS Collections Intelligence / Conversation export…" with the new footer and no session name.
+  - **Layout:** no horizontal scroll on a phone and no console errors.
+- **Logos:** the header wordmark loads (shown at 141×22), the favicon is served, each reply has the mark, and the PDF's first page shows the wordmark above the product name. The layout was also checked at phone width.
+- **Not verified live:** Agent mode with the new follow-ups and trace, voice input with a real microphone (needs a person), cost figures (no `pricing` set), and anything in the org workspace.
+
+---
+
+## v1.4.0 — Semantic cache, guardrails, faithfulness judge, notifications, Genie fixes (2026-10-01, `9a502e8`)
 
 Built and deployed to the personal workspace. The org workspace still needs `--only genie,lakebase,app`.
 
@@ -187,17 +267,18 @@ Kept to a handful of model calls on the personal workspace.
 - **A redeploy briefly starts the old deployment.** Anything claimed at startup needs a heartbeat or a timeout.
 - **Models are enabled per workspace by hand.** The deploy checks they exist and degrades gracefully rather than failing.
 - **Test against the personal workspace with few model calls.** It has unknown usage limits, so use lightweight models there and offline tests for the rest.
+- **Show the platform's work, not its name.** The app is presented as Concentrix LensS: users see what the AI did (sources, SQL, checks, scores, trace) but no vendor names. The technical docs keep the platform names because engineers need them.
+- **Evals pay for themselves early.** The first guardrail run found a real false positive (thanks marked off-topic by the 8B classifier) that no one had noticed in manual testing.
+- **Cache hits shouldn't wait for checks that already ran.** An identical question was screened the first time it was answered; only near-matches need the classifier again.
 
 ---
 
 ## Open items
 
 - **Org workspace:** an admin still needs to run `GRANT USE CATALOG ON CATALOG cnx_automl_dev TO <app service principal>` (see v1.1.3). Enable the models named in `org.json` before deploying v1.4.0 there.
-- **Demo guide docx:** refresh the screenshots and content for v1.2.0 onwards (suggested-questions panel, cache, PDF, guardrails, judge).
+- **Demo guide docx:** refresh the screenshots and content for v1.2.0 onwards (suggested-questions panel, cache, PDF, guardrails, judge, trust bar, Evals, Responsible AI).
 - **Verify live** when convenient: the judge on the deployed app, the classifier on borderline questions, and Agent mode with the uplift guardrail and the new features.
-- **Evals (proposed, not built):**
-  1. an accuracy set of ~50 questions with reference SQL, run as a deploy step that fails below a threshold;
-  2. a guardrail test set (refusals, injections, forbidden content);
-  3. an Agent-answer rubric judge, e.g. with MLflow `Guidelines`.
+- **Cost estimates:** add a `pricing` section (USD per million input/output tokens per endpoint, from your price sheet) to show estimated cost in Monitoring.
+- **Evals, next steps:** grow the accuracy set (aim for ~50 ground-truth questions, including Agent questions), and consider running it as a deploy step that fails below a threshold.
 - **Personal workspace:** turn `prewarm_suggestions` back on when testing is done.
-- **Optional:** restrict Monitoring to admins.
+- **Optional:** restrict Monitoring and Evals to admins (today any app user can open them and start an eval run).

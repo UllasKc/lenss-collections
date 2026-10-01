@@ -18,5 +18,7 @@
     "input": { "pii": "redact", "profanity": "block", "prompt_injection": "block", "off_topic": "warn" },
     "output": { "pii": "redact", "profanity": "redact", "policy_checks": "flag" }
   },
-  "faithfulness_judge": { "model": "databricks-gpt-oss-20b", "sample_percent": 100 }
+  "faithfulness_judge": { "model": "databricks-gpt-oss-20b", "sample_percent": 100, "warn_below": 70 },
+  "follow_ups": { "model": "databricks-meta-llama-3-1-8b-instruct" },
+  "evals": { "max_accuracy_cases": 1 }
 }

@@ -117,6 +117,75 @@ ALTER TABLE chatapp.usage_log ADD COLUMN IF NOT EXISTS guard_action TEXT;
 -- Faithfulness judge: 0-1 score, written shortly after the answer (details.judge has the rest).
 ALTER TABLE chatapp.usage_log ADD COLUMN IF NOT EXISTS faithfulness REAL;
 
+-- v6: feedback review, evaluations.
+-- A thumbs-down asks why; reviewers work through them in Monitoring.
+ALTER TABLE chatapp.chat_messages ADD COLUMN IF NOT EXISTS feedback_reason TEXT;
+ALTER TABLE chatapp.chat_messages ADD COLUMN IF NOT EXISTS feedback_comment TEXT;
+ALTER TABLE chatapp.usage_log ADD COLUMN IF NOT EXISTS feedback_reason TEXT;
+ALTER TABLE chatapp.usage_log ADD COLUMN IF NOT EXISTS feedback_comment TEXT;
+ALTER TABLE chatapp.usage_log ADD COLUMN IF NOT EXISTS review_status TEXT;   -- open | fixed | dismissed | added_to_evals
+ALTER TABLE chatapp.usage_log ADD COLUMN IF NOT EXISTS reviewed_by TEXT;
+ALTER TABLE chatapp.usage_log ADD COLUMN IF NOT EXISTS reviewed_at TIMESTAMPTZ;
+
+-- Evaluation suite. Cases are seeded by deploy.py (ground-truth questions from
+-- the Genie benchmarks, red-team prompts, policy wording) and added from the
+-- feedback queue. category: accuracy | guardrail | policy.
+-- expected: accuracy = ground-truth SQL in expected_sql; guardrail = block |
+-- redact | detect:<check> | allow; policy = flag:<check> | redact | allow.
+CREATE TABLE IF NOT EXISTS chatapp.eval_cases (
+  case_id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  category TEXT NOT NULL CHECK (category IN ('accuracy','guardrail','policy')),
+  question TEXT NOT NULL,
+  mode TEXT NOT NULL DEFAULT 'chat',
+  expected TEXT,
+  expected_sql TEXT,
+  source TEXT NOT NULL DEFAULT 'manual',   -- benchmark | redteam | policy | feedback | manual
+  notes TEXT,
+  enabled BOOLEAN NOT NULL DEFAULT true,
+  created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+  UNIQUE (category, question)
+);
+
+CREATE TABLE IF NOT EXISTS chatapp.eval_runs (
+  run_id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  started_by TEXT,
+  categories TEXT[],
+  status TEXT NOT NULL DEFAULT 'running',  -- running | done | failed
+  total INTEGER NOT NULL DEFAULT 0,
+  completed INTEGER NOT NULL DEFAULT 0,
+  config JSONB,                            -- models and versions the run used
+  summary JSONB,                           -- pass rates and average scores per category
+  started_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+  finished_at TIMESTAMPTZ
+);
+
+CREATE TABLE IF NOT EXISTS chatapp.eval_results (
+  result_id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  run_id UUID NOT NULL REFERENCES chatapp.eval_runs(run_id) ON DELETE CASCADE,
+  case_id UUID,
+  category TEXT NOT NULL,
+  question TEXT NOT NULL,
+  expected TEXT,
+  passed BOOLEAN,
+  scores JSONB,                            -- correctness, faithfulness, relevance, completeness, safety
+  outcome TEXT,                            -- what actually happened, in a few words
+  details JSONB,                           -- answer preview, SQL, judge reasons, guard events
+  latency_ms INTEGER,
+  created_at TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+CREATE INDEX IF NOT EXISTS idx_eval_results_run ON chatapp.eval_results (run_id);
+
+-- Sessions named from a question a guardrail blocked or redacted get a neutral
+-- title instead (the app does this for new sessions; this fixes older ones).
+UPDATE chatapp.chat_sessions s
+   SET title = CASE WHEN f.guard_action = 'blocked' THEN '⚠ Blocked question' ELSE '⚠ Personal details removed' END
+  FROM (SELECT DISTINCT ON (session_id) session_id, guard_action, details
+          FROM chatapp.usage_log ORDER BY session_id, created_at) f
+ WHERE f.session_id = s.session_id
+   AND (f.guard_action = 'blocked'
+        OR (f.guard_action = 'redacted' AND f.details->'guardrails'->'events' @> '[{"stage":"input","check":"pii"}]'))
+   AND s.title IS NOT NULL AND s.title NOT LIKE '⚠%';
+
 CREATE INDEX IF NOT EXISTS idx_chat_sessions_user ON chatapp.chat_sessions (user_email, updated_at DESC);
 CREATE INDEX IF NOT EXISTS idx_chat_messages_session ON chatapp.chat_messages (session_id, created_at);
 CREATE INDEX IF NOT EXISTS idx_usage_log_created ON chatapp.usage_log (created_at);

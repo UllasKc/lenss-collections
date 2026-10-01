@@ -1303,6 +1303,38 @@ Enabled in the workspace by hand:
 
 ---
 
+## Step 8g — Demo showcase: answer trust, evals, Responsible AI, branding
+
+The AI features from Step 8f mostly lived in Monitoring. This step puts them in front of the user and adds the pieces clients ask about: evaluation, transparency, human review, cost and tracing. The app is presented as **Concentrix LensS**: users see what the AI did, never the platform's name.
+
+### What was built
+
+| Piece | Where | How |
+|---|---|---|
+| Trust bar + "How this answer was made" | `public/js/chat.js` (`addTrustBar`, `openTrace`) | Reads `GET /api/chat/messages/:id/trace` (owner-checked). That endpoint reads the question's `usage_log` row: quality summary, trace, queries, sources, guard events and tokens. Polls every 4 s while the judge is pending |
+| Low-confidence warning | same | Score below `faithfulness_judge.warn_below` (default 0.7) |
+| Multi-metric judge | `server/lib/judge.ts` | One call returns faithfulness, relevance, completeness and safety; the faithfulness score is still averaged with the numbers check |
+| Request trace | `server/lib/trace.ts`, `chat.ts` | Spans with start offsets: patterns, classifier (parallel), exact and semantic cache, embedding, the engine plus its stages, output checks, follow-ups and judge. Stored in `usage_log.details.trace`; drawn as a waterfall by `renderWaterfall` in `app.js` |
+| Token ledger | `server/lib/models.ts` | An `AsyncLocalStorage` ledger per question or eval run. Every `chat()` and `embed()` call adds its usage under a feature label set with `forFeature()`. Stored in `details.tokens` and summed in Monitoring; cost is computed when `pricing` is set |
+| Follow-up suggestions | `server/lib/followups.ts` | Engine suggestions topped up to three by a small model; each passes `inputPatterns`. Sent as a `followups` SSE event and saved into the message |
+| Feedback review | `chat.ts` (`PATCH /api/admin/feedback/:id`), `monitoring.js` | The 👎 reason and comment are stored on the message and the usage log (`review_status` open, fixed, dismissed or added_to_evals); "Add to evals" inserts an accuracy case |
+| Evals | `server/lib/evals.ts`, `routes/evals.ts`, `public/js/evals.js`, `deploy/evals/cases.py` | Cases are seeded by `write_eval_cases` in the lakebase step. One background run at a time, results written as each case finishes. Accuracy compares the engine's returned figures with the ground-truth SQL's (recall and precision, ±0.5%, ratio vs percent tolerated) and runs the judge with `force` |
+| Responsible AI | `routes/evals.ts` (`GET /api/ai/transparency`), `public/js/responsible.js` | Live config with model names, gold views from `information_schema` (cached 1 h), the latest eval run, guard and feedback counts |
+| Voice input | `public/js/voice.js` | Web Speech API (`webkitSpeechRecognition`), `lang = navigator.language`, interim results into the box; the user still presses Send |
+| Branding | `index.html`, `chat.js`, `export.js`, `style.css`, `public/img/` | The full wordmark goes in the header and on the PDF's first page (drawn from the header image), with a text fallback. The small mark is the assistant's avatar in chat rows and the favicon. The PDF header and footer leave out the session name, and models are shown by name via `modelLabel()` |
+| Guarded session names | `server/lib/titles.ts`, schema v6 | Blocked or PII-redacted first questions get "⚠ Blocked question" or "⚠ Personal details removed"; the next clean question renames the session |
+
+### Choices worth knowing
+- **Answers render on `saved`, not on stream end.** Follow-ups, the title and the usage-log row come after. The trust bar therefore retries its lookup on 404 for a few seconds.
+- **Exact cache hits don't wait for the classifier.** The same normalized text was screened when it was first answered. Semantic hits (different text) still wait.
+- **Eval accuracy is lenient on shape and strict on figures.** It passes when at least 80% of the ground-truth figures appear in what the engine returned, *or* at least 80% of what it returned is in the ground truth. This tolerates a breakdown versus a total while still catching wrong numbers. Faithfulness must also clear `warn_below`.
+- **Evals run in-process,** not as an MLflow job. The demo needs results inside the app with no extra infrastructure. Moving the same cases to `mlflow.genai.evaluate` is straightforward if the org wants experiment tracking.
+
+### Verified
+See `CHANGELOG.md` (Unreleased / v1.5.0): one live question end to end; a blocked question; two eval runs (the second after fixing a classifier false positive the first one found); and the UI and PDF in headless Chrome.
+
+---
+
 ## Step 9 — Version control and deployment
 
 Mirror the CNX reference's repo layout: a git repo with `src/jobs` (the notebooks/SQL above as ordered install tasks), `metrics/` (the metric-view YAML from Step 3), `genie/serialized_space.json` (export your Genie space config as code once it's stable), and a `docs/DATA_CONTRACT.md` — you already have the equivalent in this repo's two markdown files. Deploy via a Databricks Asset Bundle (`databricks.yml`) rather than hand-editing workspace objects going forward.
