@@ -4,6 +4,7 @@ import type { Answer } from './answers.js';
 import { cosine, embed, forFeature } from './models.js';
 import { runGenie, type GenieLike, type GenieRun, type Mode } from './genieRun.js';
 import { ALL_SUGGESTIONS } from './suggestions.js';
+import { dropEmptyCharts } from './emptyResults.js';
 
 /**
  * Exact-match answer cache in Lakebase (chatapp.answer_cache).
@@ -299,6 +300,7 @@ export async function prewarmOnce(db: Lakebase, genie: GenieLike, onPrewarmed?: 
     );
     if (existing.rows.length) { answered++; continue; }
     const run = await runGenie(genie, s.mode, s.q);
+    if (run.success && run.answer) await dropEmptyCharts(s.q, run.answer).catch(() => null);
     if (run.success) {
       // Suggested questions don't expire; they stay until the versions change.
       await store(db, key, s.q, s.mode, v, run, 'prewarm', vectors[i]);

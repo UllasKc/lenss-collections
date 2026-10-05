@@ -9,7 +9,11 @@ import {
 import { runGenie, type GenieLike, type GenieRun, type Mode } from '../lib/genieRun.js';
 import { checkOutput, inputClassifier, inputPatterns, type GuardEvent } from '../lib/guardrails.js';
 import { judgeAnswer } from '../lib/judge.js';
-import { rememberRoute, routeQuestion, takeRoute } from '../lib/autoMode.js';
+import { rememberRoute, routeFollowUp, takeRoute } from '../lib/autoMode.js';
+import { answerPlatform, followsPlatform, type PlatformAnswer } from '../lib/platformHelp.js';
+import { dropEmptyCharts } from '../lib/emptyResults.js';
+import { contextPreamble, isVagueFollowUp, loadHistory, maybeCompact, type SessionHistory } from '../lib/memory.js';
+import { platformCandidate } from '../lib/platformGuide.js';
 import { suggestFollowUps } from '../lib/followups.js';
 import { modelLabel, withTokenLedger, type TokenLedger } from '../lib/models.js';
 import { LIBRARY, MORE_SUGGESTIONS, QUICK_START, STARTERS } from '../lib/suggestions.js';
@@ -93,6 +97,15 @@ function currentUserEmail(req: express.Request): string {
   // Local dev has no reverse proxy setting this header.
   return 'local-dev@localhost';
 }
+
+/** Follow-ups offered after a platform answer: other parts of the guide. */
+const PLATFORM_FOLLOW_UPS = [
+  { section: 'command-center', q: 'What does the Command Center show?' },
+  { section: 'explorer', q: 'How do I filter and drill down in the Explorer?' },
+  { section: 'modes', q: 'When should I use Quick answer or Deep analysis?' },
+  { section: 'trust', q: 'How does LensS check that answers are accurate?' },
+  { section: 'observability', q: 'What can I see in Observability?' },
+];
 
 export function buildChatRouter(appkit: ChatAppKit): express.Router {
   const router = express.Router();
@@ -280,8 +293,18 @@ export function buildChatRouter(appkit: ChatAppKit): express.Router {
     const question = String(req.body?.question ?? '').trim().slice(0, 2000);
     if (!question) { res.status(400).json({ error: 'question is required' }); return; }
     const ledger: TokenLedger = {};
-    const route = await withTokenLedger(ledger, () => routeQuestion(question));
-    rememberRoute(currentUserEmail(req), question, route, ledger);
+    const email = currentUserEmail(req);
+    // The conversation so far, so a follow-up is routed as part of it (not as a new question).
+    const session = typeof req.body?.sessionId === 'string' ? await ownedSession(req.body.sessionId, email).catch(() => null) : null;
+    const turns = session ? (await loadHistory(appkit.lakebase, session.session_id as string).catch(() => null))?.turns ?? [] : [];
+    const last = turns[turns.length - 1];
+    // Questions about the platform (or a "tell me more" after one) are answered from its guide, quickly.
+    const route = aiConfig.platformHelp && (platformCandidate(question, true) || followsPlatform(question, turns))
+      ? { mode: 'chat' as const, method: 'rules' as const, reason: 'a question about the LensS platform' }
+      : await withTokenLedger(ledger, () => routeFollowUp(question,
+          last ? { previousQuestion: last.q, previousMode: last.mode === 'agent' ? 'agent' : 'chat', previousWasPlatform: last.platform } : null,
+          Boolean(last) && isVagueFollowUp(question)));
+    rememberRoute(email, question, route, ledger);
     res.json({ mode: route.mode, method: route.method, reason: route.reason, model: route.model ? modelLabel(route.model) : null, ms: route.ms ?? null, fallback: route.fallback ?? null });
   });
 
@@ -350,7 +373,14 @@ export function buildChatRouter(appkit: ChatAppKit): express.Router {
 
     // What's stored and sent on is the guarded question: PII never reaches the engine, the cache or the logs.
     const question = patterns.text;
-    const key = versions && !patterns.blocked ? cacheKey(question, mode, versions) : null;
+    // The session so far (all modes, cached, platform and engine answers alike), for follow-ups.
+    const history: SessionHistory = await loadHistory(appkit.lakebase, session.session_id as string)
+      .catch(() => ({ turns: [], summary: null, summarizedUpto: 0 }));
+    // Questions about LensS itself are answered from the platform guide (the engine only knows the data).
+    // Only questions that mention the platform are checked; everything else is untouched.
+    const platform: PlatformAnswer | null = patterns.blocked || refreshOf ? null
+      : await trace.time('Platform guide', aiConfig.platformHelp?.model ? 'model' : 'cache', () => answerPlatform(question, history.turns)).catch(() => null);
+    const key = versions && !patterns.blocked && !platform ? cacheKey(question, mode, versions) : null;
     let hit = key && !refreshOf
       ? await trace.time('Answer cache: exact match', 'cache', () => lookup(appkit.lakebase, key).catch(() => null))
       : null;
@@ -371,12 +401,19 @@ export function buildChatRouter(appkit: ChatAppKit): express.Router {
     // An exact repeat was already screened when it was first answered, so it doesn't
     // wait for the classifier (the pattern checks above still apply); everything else does.
     const exactHit = Boolean(hit) && !semantic;
-    const guardIn = exactHit ? { ...patterns, events: [...patterns.events] } : await guardInPromise;
+    let guardIn = exactHit ? { ...patterns, events: [...patterns.events] } : await guardInPromise;
+    // An off-topic block can't apply to a question about the platform itself (other blocks still do).
+    if (platform && guardIn.blocked && guardIn.events.filter((e) => e.action === 'block').every((e) => e.check === 'off_topic')) {
+      guardIn = { ...guardIn, blocked: false, message: null };
+    }
     const guardEvents: GuardEvent[] = [...guardIn.events];
     if (guardIn.blocked) hit = null;
     const piiRemoved = guardEvents.some((e) => e.stage === 'input' && e.check === 'pii' && e.action === 'redact');
 
-    const preamble = hit || guardIn.blocked ? '' : await crossModeContext(session.session_id as string, mode);
+    // Follow-ups carry the conversation so far (summary + recent turns); a self-contained question
+    // (first of a chat, or a suggested question) doesn't. Without memory, only the other mode's turns.
+    const preamble = hit || guardIn.blocked || platform || standalone ? ''
+      : aiConfig.memory ? contextPreamble(history) : await crossModeContext(session.session_id as string, mode);
     if (!refreshOf) {
       await appkit.lakebase.query(
         `INSERT INTO chatapp.chat_messages (session_id, user_email, role, content, mode, from_cache)
@@ -423,7 +460,9 @@ export function buildChatRouter(appkit: ChatAppKit): express.Router {
     let cacheInfo: Record<string, unknown> | null = null;
     let liveRun: GenieRun | null = null;
     let storedKey: string | null = null;
-    const notices: string[] = guardIn.message && !guardIn.blocked ? [guardIn.message] : [];
+    // A platform question is on-topic by definition: an off-topic warning doesn't apply to it.
+    const offTopicOnly = guardEvents.length > 0 && guardEvents.every((e) => e.check === 'off_topic');
+    const notices: string[] = guardIn.message && !guardIn.blocked && !(platform && offTopicOnly) ? [guardIn.message] : [];
 
     if (guardIn.blocked) {
       // Never sent to the engine; the reason is shown as the answer.
@@ -431,6 +470,17 @@ export function buildChatRouter(appkit: ChatAppKit): express.Router {
       success = false;
       errorMessage = `Blocked by guardrail: ${guardEvents.filter((e) => e.action === 'block').map((e) => e.check).join(', ')}`;
       details = { queries: [] };
+    } else if (platform) {
+      // Answered from the platform guide; the engine and its conversation are not involved.
+      const g = checkOutput(platform.text);
+      guardEvents.push(...g.events);
+      answer = {
+        version: 2, mode, text: g.text, charts: [],
+        platform: { method: platform.method, sections: platform.sections },
+        suggestions: PLATFORM_FOLLOW_UPS.filter((f) => !platform.sections.includes(f.section)).slice(0, 3).map((f) => f.q),
+      };
+      success = true;
+      details = { queries: [], platformHelp: { method: platform.method, sections: platform.sections, model: platform.model ?? null, ms: platform.ms } };
     } else if (hit) {
       // Same answer, charts, steps and SQL as when it was first produced; nothing
       // is sent to the engine, so the session's engine conversation is untouched.
@@ -462,6 +512,9 @@ export function buildChatRouter(appkit: ChatAppKit): express.Router {
         return r;
       };
       let usedMode: Mode = mode;
+      // A retry starts a fresh engine conversation, so it gets the same context a follow-up gets
+      // (a self-contained question still goes on its own).
+      const retryContext = async () => standalone ? '' : preamble || await recentContext(session.session_id as string, question);
       let run = await attempt(mode, preamble + question, priorConversation);
       const retries: string[] = [];
       for (const wait of [3000, 8000]) {
@@ -469,13 +522,13 @@ export function buildChatRouter(appkit: ChatAppKit): express.Router {
         retries.push(String(run.errorMessage).slice(0, 160));
         progress({ kind: 'notice', text: 'The analysis service is busy, retrying…' });
         await new Promise((r) => setTimeout(r, wait));
-        run = await attempt(mode, (await recentContext(session.session_id as string, question)) + question, undefined);
+        run = await attempt(mode, (await retryContext()) + question, undefined);
       }
       if (!run.success && mode === 'agent' && busy(run.errorMessage)) {
         retries.push(String(run.errorMessage).slice(0, 160));
         progress({ kind: 'notice', text: 'Deep analysis is busy, getting you a quick answer instead…' });
         usedMode = 'chat';
-        run = await attempt('chat', (await recentContext(session.session_id as string, question)) + question, undefined);
+        run = await attempt('chat', (await retryContext()) + question, undefined);
         if (run.success && run.answer) {
           run.answer.mode = 'chat';
           notices.push('Deep analysis was busy, so this is a quick answer. Ask again in a minute for the full step-by-step analysis.');
@@ -494,6 +547,15 @@ export function buildChatRouter(appkit: ChatAppKit): express.Router {
           `UPDATE chatapp.chat_sessions SET ${usedMode === 'agent' ? 'agent_conversation_id' : 'genie_conversation_id'} = $1, updated_at = now() WHERE session_id = $2`,
           [genieConversationId, session.session_id],
         );
+      }
+      // Empty tables aren't shown; where nothing else explains them, a one-line reason takes their place.
+      if (answer && run.success) {
+        const emptyStart = trace.now();
+        const dropped = await dropEmptyCharts(question, answer).catch(() => null);
+        if (dropped) {
+          details.emptyResults = dropped;
+          if (dropped.explained) trace.add('Empty results explained', 'model', emptyStart, trace.now() - emptyStart);
+        }
       }
       // Output guardrails before the answer is sent or cached.
       if (answer?.text) {
@@ -524,7 +586,7 @@ export function buildChatRouter(appkit: ChatAppKit): express.Router {
     // (Agent mode never suggests any; Chat mode often gives one).
     const followStart = trace.now();
     const engineSuggestions = answer?.suggestions ?? [];
-    const followPromise: Promise<string[]> = answer && !guardIn.blocked && answer.text && engineSuggestions.length < 3
+    const followPromise: Promise<string[]> = answer && !guardIn.blocked && !platform && answer.text && engineSuggestions.length < 3
       ? suggestFollowUps(question, answer.text).then((q) => {
           if (aiConfig.followUps) trace.add(`Follow-up suggestions (${modelLabel(aiConfig.followUps.model)})`, 'model', followStart, trace.now() - followStart);
           return q;
@@ -545,7 +607,7 @@ export function buildChatRouter(appkit: ChatAppKit): express.Router {
       );
       assistantMessageId = saved.rows[0]?.message_id as string;
       send('saved', { messageId: assistantMessageId, feedbackEnabled: Boolean(genieConversationId && genieMessageId) });
-      if (hit || guardIn.blocked) {
+      if (hit || guardIn.blocked || platform) {
         await appkit.lakebase.query(`UPDATE chatapp.chat_sessions SET updated_at = now() WHERE session_id = $1`, [session.session_id]);
       }
       const extra = await followPromise.catch(() => [] as string[]);
@@ -570,6 +632,9 @@ export function buildChatRouter(appkit: ChatAppKit): express.Router {
       agentSteps: answer?.steps?.length ?? null,
       answerPreview: (answer?.text ?? '').slice(0, 1500),
       contextCarriedOver: Boolean(preamble),
+      memory: preamble && aiConfig.memory
+        ? { turns: history.turns.length, summarized: history.summary ? history.summarizedUpto : 0, chars: preamble.length }
+        : undefined,
       genieConversationId,
       genieMessageId,
       cache: cacheInfo,
@@ -597,6 +662,20 @@ export function buildChatRouter(appkit: ChatAppKit): express.Router {
       judging: Boolean(liveRun?.success && answer?.text && aiConfig.judge),
     });
     res.end();
+
+    // Conversation memory: every N question-and-answer pairs, older turns fold into the session summary.
+    if (assistantMessageId) {
+      const memEventId = logged.rows[0]?.event_id as string | undefined;
+      void withTokenLedger(tokens, () => maybeCompact(appkit.lakebase, session.session_id as string))
+        .then(async () => {
+          // The summary's model tokens belong to the question that triggered it (Monitoring's cost view).
+          if (tokens.memory && memEventId) {
+            await appkit.lakebase.query(`UPDATE chatapp.usage_log SET details = jsonb_set(details, '{tokens}', $2::jsonb) WHERE event_id = $1`,
+              [memEventId, JSON.stringify(tokens)]);
+          }
+        })
+        .catch((err: unknown) => console.warn('[memory] compaction failed:', err instanceof Error ? err.message : err));
+    }
 
     // Answer-quality judge: after the user has the answer, so it never adds to their wait.
     if (liveRun?.success && answer?.text) {

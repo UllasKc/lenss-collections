@@ -46,16 +46,33 @@ const PROMPT = `You route questions for a collections analytics assistant that h
   ("Why are collections lagging and what should we do?", "Are our policies too aggressive?",
   "Where is the biggest opportunity and which channel should we use for each segment?").
 Greetings, help requests and anything unclear are "quick". The question may be in any language.
+A PREVIOUS QUESTION, when given, is only there so you can tell what a short follow-up refers to.
 Reply with JSON only: {"mode": "quick" | "deep", "reason": "<under 12 words>"}`;
 
-export async function routeQuestion(question: string): Promise<RouteResult> {
+/** Where the conversation is, for a follow-up: the previous question and how it was answered. */
+export interface RouteContext { previousQuestion: string; previousMode: Mode; previousWasPlatform: boolean }
+
+/**
+ * For the person asking, it's one assistant: a short follow-up ("tell me more", "and for
+ * Mumbai?") continues at the depth of the answer it follows. It can go deeper (a "why" after
+ * a quick answer), but a follow-up to a deep analysis is never cut down to a quick answer.
+ */
+export async function routeFollowUp(question: string, ctx: RouteContext | null, isFollowUp: boolean): Promise<RouteResult> {
+  const route = await routeQuestion(question, isFollowUp ? ctx?.previousQuestion : undefined);
+  if (ctx && isFollowUp && !ctx.previousWasPlatform && ctx.previousMode === 'agent' && route.mode === 'chat') {
+    return { ...route, mode: 'agent', reason: 'a follow-up to a deep analysis' };
+  }
+  return route;
+}
+
+export async function routeQuestion(question: string, previousQuestion?: string): Promise<RouteResult> {
   const cfg = aiConfig.autoMode;
   if (cfg.method !== 'ai' || !cfg.model) return rulesMode(question);
   const t0 = Date.now();
   try {
     const { text } = await forFeature('auto_mode', () => chat(cfg.model!, [
       { role: 'system', content: PROMPT },
-      { role: 'user', content: question.slice(0, 800) },
+      { role: 'user', content: (previousQuestion ? `PREVIOUS QUESTION: ${previousQuestion.slice(0, 300)}\n` : '') + `QUESTION: ${question.slice(0, 800)}` },
     ], { maxTokens: 60, timeoutMs: cfg.timeoutMs }));
     const j = parseJsonObject<{ mode?: string; reason?: string }>(text);
     const mode = j?.mode === 'deep' ? 'agent' : j?.mode === 'quick' ? 'chat' : null;

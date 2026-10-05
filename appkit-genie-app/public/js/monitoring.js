@@ -6,6 +6,11 @@ let obsFeedback = [];
 
 const STAGE_COLORS = ['#1D4ED8', '#059669', '#D97706', '#9333EA', '#0E9384', '#4338CA', '#DC2626', '#64748B', '#EA580C', '#0891B2'];
 
+/** Service principals (the smoke test, automation) log an ID instead of an email; show them as such. */
+function userName(u) {
+  return /^[0-9a-f]{8}-[0-9a-f]{4}-/i.test(String(u || '')) ? 'Automated test' : String(u || '');
+}
+
 function fmtMs(ms) {
   if (ms === null || ms === undefined) return '—';
   return ms >= 1000 ? `${(ms / 1000).toFixed(1)} s` : `${Math.round(ms)} ms`;
@@ -105,7 +110,7 @@ function renderAuditTrail() {
       : e.success ? '<span class="chip ok">answered</span>'
       : `<span class="chip bad" title="${esc(e.error_message || '')}">failed</span>`;
     tr.innerHTML = `<td>${new Date(e.created_at).toLocaleString()}</td>
-      <td style="max-width:180px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${esc(e.user_email)}</td>
+      <td style="max-width:180px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${esc(userName(e.user_email))}</td>
       <td><span class="badge ${e.mode === 'agent' ? 'amber' : 'green'}">${esc(modeName(e.mode))}</span></td>
       <td style="max-width:320px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap" title="${esc(e.question)}">${esc(e.question)}</td>
       <td>${resultChip}</td><td>${ratingChip(e.feedback)}</td><td>${faithChip(e.faithfulness)}</td>
@@ -124,16 +129,16 @@ function renderAuditTrail() {
       : 'Cache miss: answered live';
     const facts = [
       cacheFact,
-      `Session: ${esc(e.session_title || String(e.session_id || '').slice(0, 8))}`,
+      `Chat: ${esc(e.session_title || 'Untitled chat')}`,
       `SQL queries: ${(d.queries || []).length}`,
       `Charts: ${d.charts ?? 0}`,
       d.agentSteps != null ? `Agent steps: ${d.agentSteps}` : null,
       d.contextCarriedOver ? 'Context carried over from the other mode' : null,
       (d.sources || []).length ? `Data sources: ${esc(d.sources.join(', '))}` : null,
       d.followUps ? `Follow-ups suggested: ${d.followUps}` : null,
+      d.platformHelp ? `Answered from the platform guide (${d.platformHelp.method === 'ai' ? 'AI model' : 'guide text'}): ${esc((d.platformHelp.sections || []).join(', '))}` : null,
       d.autoMode ? `Mode chosen by Auto (${d.autoMode.method === 'ai' ? 'AI classifier' : 'word rule'}): ${esc(d.autoMode.reason || '')}${d.autoMode.fallback ? ` · fell back to the rule: ${esc(d.autoMode.fallback)}` : ''}` : null,
       e.feedback_reason ? `Feedback: ${esc(e.feedback_reason.replace(/_/g, ' '))}${e.feedback_comment ? ` ("${esc(e.feedback_comment)}")` : ''}` : null,
-      d.genieConversationId ? `Conversation: ${esc(d.genieConversationId)}` : null,
       d.genieMessageId ? `Message: ${esc(d.genieMessageId)}` : null,
     ].filter(Boolean);
     td.innerHTML = `
@@ -327,7 +332,7 @@ window.loadMonitoring = async function loadMonitoring() {
   userBody.innerHTML = '';
   data.byUser.forEach(u => {
     const tr = document.createElement('tr');
-    tr.innerHTML = `<td>${esc(u.user_email)}</td><td>${fmtNum(u.sessions)}</td><td>${fmtNum(u.questions)}</td><td>${fmtNum(u.successful)}</td>
+    tr.innerHTML = `<td>${esc(userName(u.user_email))}</td><td>${fmtNum(u.sessions)}</td><td>${fmtNum(u.questions)}</td><td>${fmtNum(u.successful)}</td>
       <td>${fmtNum(u.avg_latency_ms)} ms</td><td>${new Date(u.last_active).toLocaleString()}</td>`;
     userBody.appendChild(tr);
   });
@@ -345,7 +350,7 @@ window.loadMonitoring = async function loadMonitoring() {
   const current = sel.value;
   const users = [...new Set(obsRecent.map(e => e.user_email))];
   sel.innerHTML = '<option value="">All users</option>' +
-    users.map(u => `<option value="${esc(u)}">${esc(u)}</option>`).join('');
+    users.map(u => `<option value="${esc(u)}">${esc(userName(u))}</option>`).join('');
   sel.value = users.includes(current) ? current : '';
   renderAuditTrail();
 
@@ -381,7 +386,7 @@ function renderFeedback() {
   rows.forEach(f => {
     const tr = document.createElement('tr');
     tr.innerHTML = `<td>${new Date(f.created_at).toLocaleString()}</td>
-      <td style="max-width:160px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${esc(f.user_email)}</td>
+      <td style="max-width:160px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${esc(userName(f.user_email))}</td>
       <td style="max-width:320px;white-space:normal" title="${esc(f.answer_preview)}">${esc(f.question)}</td>
       <td style="white-space:normal">${esc(FB_REASON_LABELS[f.feedback_reason] || 'No reason given')}${f.feedback_comment ? `<div class="score-reason">“${esc(f.feedback_comment)}”</div>` : ''}</td>
       <td>${faithChip(f.faithfulness)}</td>
@@ -457,7 +462,7 @@ function renderAi(ai) {
   events.innerHTML = ((ai && ai.guardEvents) || []).map(e => {
     const checks = (e.events || []).map(x => `${guardLabel(x.check)} (${x.action})`).join(', ');
     return `<tr><td>${new Date(e.created_at).toLocaleString()}</td>
-      <td style="max-width:160px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${esc(e.user_email)}</td>
+      <td style="max-width:160px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${esc(userName(e.user_email))}</td>
       <td style="max-width:300px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap" title="${esc(e.question)}">${esc(e.question)}</td>
       <td>${esc(e.guard_action)}: ${esc(checks)}</td></tr>`;
   }).join('') || '<tr><td colspan="4">No guardrail events yet.</td></tr>';

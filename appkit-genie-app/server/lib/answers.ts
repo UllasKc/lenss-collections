@@ -30,6 +30,8 @@ export interface Answer {
   cache?: { generatedAt: string; source: 'live' | 'prewarm'; similarTo?: { question: string; similarity: number } };
   /** Guardrail outcome shown with the answer: blocked questions, and notes such as removed PII. */
   guard?: { blocked?: boolean; notices?: string[] };
+  /** Set when the question was about the platform and was answered from the platform guide, not the data. */
+  platform?: { method: 'ai' | 'guide'; sections: string[] };
 }
 
 /** Enough rows for any sensible chart or table; keeps Lakebase rows small. */
@@ -183,7 +185,8 @@ interface AgentOutputItem {
 export function parseMarkdownTable(md: string): { columns: string[]; rows: string[][] } | null {
   const lines = md.split('\n').map((l) => l.trim()).filter((l) => l.startsWith('|'));
   if (lines.length < 2) return null;
-  const cells = (l: string) => l.replace(/^\|/, '').replace(/\|$/, '').split('|').map((c) => c.trim());
+  // Cell values can contain escaped pipes ("a \| b"); splitting on them dropped whole rows.
+  const cells = (l: string) => l.replace(/^\|/, '').replace(/(?<!\\)\|$/, '').split(/(?<!\\)\|/).map((c) => c.trim().replace(/\\\|/g, '|'));
   const columns = cells(lines[0]);
   const rows = lines.slice(2).map(cells).filter((r) => r.length === columns.length);
   return { columns, rows };

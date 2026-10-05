@@ -8,7 +8,7 @@
   const p0 = v => (v === null || v === undefined || v === '' || Number.isNaN(Number(v)) ? '—' : Math.round(Number(v) * 100) + '%');
   const p1 = v => (v === null || v === undefined || v === '' ? '—' : (Number(v) * 100).toFixed(1) + '%');
   const ms = v => (v === null || v === undefined ? '—' : Number(v) >= 1000 ? (Number(v) / 1000).toFixed(1) + ' s' : Math.round(Number(v)) + ' ms');
-  const traceId = e => 'TRC-' + String(e.event_id || '').replace(/-/g, '').slice(0, 8).toUpperCase();
+  const userLabel = e => userName(e.user_email);
   const charts = {};
   const chart = (id, cfg) => { if (charts[id]) charts[id].destroy(); const el = document.getElementById(id); if (el && window.Chart) charts[id] = new Chart(el, cfg); };
 
@@ -71,9 +71,9 @@
       const st = statusOf(e);
       const toks = Object.values((e.details || {}).tokens || {}).reduce((a, x) => a + (x.input || 0) + (x.output || 0), 0);
       return `<button class="trace-item${selected === e.event_id ? ' on' : ''}" data-id="${e.event_id}">
-        <div class="ti-top"><span class="mono">${traceId(e)}</span><span class="st st-${st}">${st === 'passed' ? 'Passed' : st === 'blocked' ? 'Blocked' : 'Failed'}</span></div>
+        <div class="ti-top"><span class="ti-when">${new Date(e.created_at).toLocaleString()}</span><span class="st st-${st}">${st === 'passed' ? 'Passed' : st === 'blocked' ? 'Blocked' : 'Failed'}</span></div>
         <div class="ti-q">“${oEsc(String(e.question).slice(0, 160))}”</div>
-        <div class="ti-meta"><span>${oEsc(e.user_email)} · ${modeName(e.mode)}</span><span>${ms(e.latency_ms)}${toks ? ` · ${toks.toLocaleString()} tokens` : ''}${e.from_cache ? ' · ⚡ cache' : ''}</span></div>
+        <div class="ti-meta"><span>${oEsc(userLabel(e))} · ${modeName(e.mode)}</span><span>${ms(e.latency_ms)}${toks ? ` · ${toks.toLocaleString()} tokens` : ''}${e.from_cache ? ' · ⚡ cache' : ''}</span></div>
       </button>`;
     }).join('') || '<div class="empty-note">No traces match.</div>';
     box.querySelectorAll('.trace-item').forEach(b => b.addEventListener('click', () => { selected = b.dataset.id; renderTraceList(); renderTraceDetail(); }));
@@ -98,14 +98,14 @@
     const stageMs = re => tl.filter(s => re.test(s.stage)).reduce((a, s) => a + (s.ms || 0), 0);
     const engine = spans.find(s => /^LensS query engine/.test(s.name));
     return [
-      ['Ask', sum(/^Input checks/), `Question received in ${modeName(e.mode)} mode${d.autoMode ? ` (chosen by Auto, ${d.autoMode.method === 'ai' ? 'AI classifier' : 'word rule'}${d.autoMode.reason ? ': ' + d.autoMode.reason : ''})` : ''}${d.contextCarriedOver ? ', with earlier turns carried over as context' : ''}.`],
+      ['Ask', sum(/^Input checks/), `Question received in ${modeName(e.mode)} mode${d.autoMode ? ` (chosen by Auto, ${d.autoMode.method === 'ai' ? 'AI classifier' : 'word rule'}${d.autoMode.reason ? ': ' + d.autoMode.reason : ''})` : ''}${d.contextCarriedOver ? (d.memory ? `, with the conversation so far as context (${d.memory.turns} earlier question${d.memory.turns === 1 ? '' : 's'}${d.memory.summarized ? `, ${d.memory.summarized} of them summarised` : ''})` : ', with earlier turns carried over as context') : ''}.`],
       ['Secure', sum(/Input classifier/), inG.length ? `Checks fired: ${inG.map(x => `${x.check} → ${x.action}`).join(', ')}.` : 'Personal data, offensive language, prompt injection and off-topic checks passed.'],
       ['Cache', sum(/^Answer cache|Question embedding/), c.hit ? `Served from the answer cache (${c.match === 'semantic' ? 'similar question' : 'exact match'}).` : c.closest ? `No match; closest cached question was ${(c.closest.similarity * 100).toFixed(1)}% similar.` : 'Not eligible for the cache (follow-up question) or no match.'],
-      ['Plan', stageMs(/metadata|context|Writing SQL|Reasoning|Sending/), blocked ? 'Not run: the question was blocked.' : c.hit ? 'Reused the plan of the cached answer.' : `Query engine selected certified sources${(d.sources || []).length ? ` (${d.sources.join(', ')})` : ''} and wrote ${q.length} SQL quer${q.length === 1 ? 'y' : 'ies'}.`],
+      ['Plan', stageMs(/metadata|context|Writing SQL|Reasoning|Sending/) + sum(/^Platform guide/), blocked ? 'Not run: the question was blocked.' : d.platformHelp ? `A question about the platform: answered from the LensS platform guide (${d.platformHelp.method === 'ai' ? 'AI model' : 'guide text'}; ${(d.platformHelp.sections || []).join(', ')}), not the data.` : c.hit ? 'Reused the plan of the cached answer.' : `Query engine selected certified sources${(d.sources || []).length ? ` (${d.sources.join(', ')})` : ''} and wrote ${q.length} SQL quer${q.length === 1 ? 'y' : 'ies'}.`],
       ['Retrieve', stageMs(/warehouse|Running SQL|Fetching/), blocked ? '—' : `${q.length} quer${q.length === 1 ? 'y' : 'ies'} on the governed gold views returned ${rows.toLocaleString()} row${rows === 1 ? '' : 's'}.`],
       ['Verify', sum(/^Output checks|quality judge/), j ? `Output checks ${outG.length ? outG.map(x => x.check).join(', ') + ' acted' : 'passed'}; judge scored ${p0(j.score)} (${(j.numeric || {}).found ?? 0}/${(j.numeric || {}).checked ?? 0} figures reconciled).` : `Output checks ${outG.length ? outG.map(x => x.check).join(', ') + ' acted' : 'passed'}${blocked ? '' : '; not scored'}.`],
       ['Synthesize', stageMs(/Writing the answer|Building chart|Finishing/) + sum(/Follow-up/), blocked ? 'Explained why the question was blocked.' : `Answer with ${d.charts || 0} chart${d.charts === 1 ? '' : 's'}${d.followUps ? ` and ${d.followUps} follow-up questions` : ''}.`],
-      ['Deliver', engine ? 0 : e.latency_ms, `Delivered to ${oEsc(e.user_email)} in ${ms(e.latency_ms)}${e.from_cache ? ' from the cache' : ''}.`],
+      ['Deliver', engine ? 0 : e.latency_ms, `Delivered to ${oEsc(userLabel(e))} in ${ms(e.latency_ms)}${e.from_cache ? ' from the cache' : ''}.`],
       ['Log', 0, `Logged to the audit trail with request trace${toks ? `, ${toks.toLocaleString()} AI tokens` : ''} and quality score.`],
     ];
   }
@@ -116,15 +116,15 @@
     if (!e) { el.innerHTML = '<div class="empty-note">Select a trace to see its full execution path.</div>'; return; }
     const d = e.details || {};
     const st = statusOf(e);
-    const intent = (d.cache && d.cache.hit ? 'CACHED_' : '') + (e.mode === 'agent' ? 'DEEP_ANALYSIS' : 'QUICK_ANSWER') + (st === 'blocked' ? '_BLOCKED' : '');
+    const intent = (d.platformHelp ? 'Platform question' : modeName(e.mode)) + (st === 'blocked' ? ', blocked' : d.cache && d.cache.hit ? ', from the answer cache' : '');
     const stages = stagesOf(e);
     const q = d.queries || [];
     el.innerHTML = `
-      <div class="td-head"><span class="mono td-id">${traceId(e)}</span><span class="muted">· ${new Date(e.created_at).toLocaleString()}</span><span class="st st-${st}">${st === 'passed' ? 'Passed' : st === 'blocked' ? 'Blocked' : 'Failed'}</span></div>
+      <div class="td-head"><span class="muted">${new Date(e.created_at).toLocaleString()}</span><span class="st st-${st}">${st === 'passed' ? 'Passed' : st === 'blocked' ? 'Blocked' : 'Failed'}</span></div>
       <div class="td-intent">${intent}</div>
-      <div class="td-prompt"><div class="td-lab">Audited input prompt · ${oEsc(e.user_email)}</div>“${oEsc(e.question)}”</div>
+      <div class="td-prompt"><div class="td-lab">Audited input prompt · ${oEsc(userLabel(e))}</div>“${oEsc(e.question)}”</div>
       <div class="td-lab">LensS 9-stage governed execution path</div>
-      <ol class="td-stages">${stages.map(([n, t, desc], i) => `<li><span class="td-n">${i + 1}</span><div><div class="td-sn">${n.toUpperCase()} <span class="td-ms">${t ? ms(t) : ''}</span></div><div class="td-sd">${desc}</div></div></li>`).join('')}</ol>
+      <ol class="td-stages">${stages.map(([n, t, desc], i) => `<li><span class="td-n">${i + 1}</span><div><div class="td-sn">${n} <span class="td-ms">${t ? ms(t) : ''}</span></div><div class="td-sd">${desc}</div></div></li>`).join('')}</ol>
       ${d.trace ? `<div class="td-lab">Request trace</div>${renderWaterfall(d.trace, e.latency_ms, d.timeline)}` : ''}
       ${q.length ? `<div class="td-lab">Synthesized execution logic</div>${q.map(x => `<div class="td-sql"><div class="td-sql-h">${oEsc(x.title || 'Query')}<button class="copy-sql" data-sql="${oEsc(x.sql || '')}">Copy</button></div><pre>${oEsc(x.sql || '')}</pre></div>`).join('')}` : ''}
       <div class="td-foot">${st === 'blocked' ? 'Stopped by a guardrail before any data was queried' : 'Personal data screened · certified sources only · figures reconciled by the judge'}</div>`;
@@ -206,6 +206,8 @@
       ['Answer-quality judge', c.judge && c.judge.model],
       ['Follow-up suggestions', c.followUps && c.followUps.model],
       ['Auto mode router', c.autoMode ? (c.autoMode.method === 'ai' ? c.autoMode.model : 'word rule (no model)') : null],
+      ['Platform questions', c.platformHelp ? (c.platformHelp.method === 'ai' ? c.platformHelp.model : 'platform guide text (no model)') : null],
+      ['Conversation memory', c.memory ? `${c.memory.model || 'digest, no model'} · every ${c.memory.compactEvery} questions` : null],
     ];
     document.getElementById('obsModels').innerHTML = `<div class="panel-head"><div><h3>Models in use</h3><div class="panel-sub">Pinned per deployment; a change shows up here and in eval runs</div></div></div>
       <div class="panel-body"><table class="mini"><tbody>${models.map(([k, m]) => `<tr><td>${k}</td><td>${m ? `<b>${oEsc(m)}</b>` : '<span class="muted">off</span>'}</td></tr>`).join('')}</tbody></table></div>`;

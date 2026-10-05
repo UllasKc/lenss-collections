@@ -1298,3 +1298,18 @@ h2.sect::before{content:"";width:3px;height:12px;border-radius:2px;background:va
 .ask-tip[hidden]{display:none}
 .ask-tip-k{font:700 10.5px var(--mono);letter-spacing:.06em;text-transform:uppercase;color:var(--aqua)}
 .ask-tip-q{font:500 13px/1.45 var(--body)}
+.platform-note{margin-top:8px;font-size:12px;color:var(--brand-2);background:var(--brand-soft);border:1px solid #CFE6F0;border-radius:8px;padding:6px 10px}
+
+/* Large monitors: pages use the width instead of a 1280px column with wide empty margins.
+   Laptops (up to ~1600px wide in CSS pixels) are unchanged. */
+@media(min-width:1600px){
+  .wrap,.site-foot{max-width:min(1800px,94vw)}
+  .narr,.rai-hero p{max-width:none}
+  #tab-assistant .turnrow,#tab-assistant .composer,#tab-assistant .notify-banner,#tab-assistant .starters,.empty-inner{max-width:1280px}
+  #tab-assistant .viz-body .cv{height:280px}
+}
+@media(min-width:2200px){
+  .wrap,.site-foot{max-width:2100px}
+  #tab-assistant .turnrow,#tab-assistant .composer,#tab-assistant .notify-banner,#tab-assistant .starters,.empty-inner{max-width:1440px}
+}
+.ti-when{font:500 12px var(--body);color:var(--muted)}

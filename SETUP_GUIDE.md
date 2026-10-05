@@ -214,6 +214,8 @@ Open it in any editor (Notepad works):
 | `faithfulness_judge` | *(optional)* `{ "model": "databricks-gpt-oss-120b", "sample_percent": 100, "warn_below": 70 }` | Scores each answer's faithfulness, relevance, completeness and safety; answers below `warn_below` (%) show a warning. **Left out = off.** See 9.5 |
 | `follow_ups` | *(optional)* `{ "model": "databricks-meta-llama-3-3-70b-instruct" }` | Tops up suggested follow-up questions to three after each answer. **Left out = only the engine's own suggestions.** See 9.6 |
 | `auto_mode` | *(optional)* `{ "method": "ai", "model": "databricks-meta-llama-3-3-70b-instruct" }` or `{ "method": "rules" }` | How **Auto** picks Quick answer or Deep analysis. `ai`: a small model reads each question (about 2 s, about 250 tokens), with the word rule as fallback. `rules`: a word rule, no model. **Left out = `ai` with the guardrail classifier's model if there is one, else `rules`.** `personal.json` uses `rules` to keep model calls down. See 9.5 |
+| `platform_help` | *(optional)* `{ "enabled": true, "method": "ai", "model": "databricks-meta-llama-3-1-8b-instruct" }`, `{ "method": "guide" }`, or `{ "enabled": false }` to send every question straight to the query engine | Questions about LensS itself (what it is, the tabs, navigation, how answers are checked) are answered from the platform guide instead of the query engine, which only knows the data. `ai`: a small model answers from the guide (about 8 s, about 2,500 tokens, only for such questions). `guide`: the guide's own sections, no model. **Left out = `ai` with the follow-up or guardrail model, else `guide`.** See 9.5 |
+| `conversation_memory` | *(optional)* `{ "enabled": true, "compact_every": 5, "model": "databricks-meta-llama-3-1-8b-instruct" }` or `{ "enabled": false }` | Follow-up questions carry the conversation so far: a summary of older turns plus the recent turns, across both modes and including cached and platform answers. Every `compact_every` questions in a chat, older turns are summarised (by the model, about 700 tokens, after the answer is sent; or a no-model digest). **Left out = on, every 5, with the follow-up or guardrail model.** `false` = only the query engine's own conversation for that mode. Needs the `lakebase` step (two columns on `chat_sessions`). See 9.5 |
 | `evals` | *(optional)* `{ "max_accuracy_cases": 10 }` | Turns on the **Evals** tab; caps how many ground-truth questions one run asks. **Left out = off.** See 9.6 |
 | `pricing` | *(optional)* `{ "databricks-gpt-oss-120b": { "input": 0.15, "output": 0.6 } }` | USD per million tokens per endpoint, from your price sheet, so Monitoring can estimate cost. **Left out = tokens only** |
 
@@ -391,6 +393,19 @@ The first three are switched on per workspace in the config (step 7); leaving a 
 - **`rules`:** reasoning words (why, what should, recommend, compare, root cause, prioritise, explain…) or more than 22 words → Deep analysis; plain lookups ("which…", "show…", "top 10…") → Quick answer.
 - **Where it shows:** each question's trace in Observability records the decision, the method and the reason; the classifier's tokens are counted under "Auto mode router"; the Responsible AI page and the models list say which method is on.
 - **Not affected:** picking Quick answer or Deep analysis yourself, and prompts that carry their own mode (quick-start, library, Command Center and Explorer links).
+
+**Platform questions** (`platform_help`)
+- **What it does:** "What is LensS?", "What tabs are there?", "How do I filter by region?", "Where can I see the SQL?" are answered from the platform guide (`server/lib/platformGuide.ts`), with a note "From the LensS platform guide, not the collections data" and platform follow-up questions. Auto sends them to Quick answer.
+- **Data questions are untouched:** a cheap word check only lets questions that mention the platform through; with `ai`, the model also hands back any data question (it replies `DATA_QUESTION`) and it goes to the query engine as usual. Guardrails still run first; only an off-topic flag is lifted for a platform question.
+- **Keeping it right:** the guide is the only source these answers may use, so update it when the UI changes. It holds no data figures, so reloading data never makes it stale.
+- **Where it shows:** the trace in Observability says the question was answered from the guide and which sections; tokens count under "Platform questions"; Responsible AI lists the feature.
+
+**Conversation memory** (`conversation_memory`)
+- **Why:** the query engine remembers only its own conversation for one mode. Answers from the cache, from the platform guide or from the other mode never reach it, so "tell me more about this" used to arrive with no context.
+- **What follow-ups are sent with:** "Context from earlier in this conversation…", then the session summary (if any) and the recent questions and answers (answers trimmed), then the new question. The first question of a chat and suggested questions are sent on their own (and can use the answer cache).
+- **Compaction:** after every `compact_every` questions, the older turns are folded into a summary stored on the session (`context_summary`); the last two turns stay word for word. It runs after the answer is sent.
+- **Platform follow-ups:** "tell me more", "explain that", "my previous question" right after a platform answer go back to the platform guide, which then shows the parts not covered yet.
+- **Where it shows:** each question's trace says how many earlier questions were carried (and how many summarised); summary tokens count under "Conversation memory".
 
 **Notifications** (no config)
 - **When:** an answer finishes while the person is on another tab or another chat.

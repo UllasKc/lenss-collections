@@ -63,9 +63,13 @@ export function buildDashboardRouter(db: Lakebase): express.Router {
         SELECT COUNT(*) AS over_contact_segments FROM ${GOLD}.qry_over_contact_risk
       `);
       // Written once by deploy.py's `summary` step; missing until that step has run.
+      // data_refreshed_at was added later: an older table without it still shows the summary.
       const [narrative] = await runSql(`
+        SELECT narrative, CAST(generated_at AS STRING) AS narrative_generated_at,
+               CAST(data_refreshed_at AS STRING) AS data_refreshed_at FROM ${GOLD}.exec_summary LIMIT 1
+      `).catch(() => runSql(`
         SELECT narrative, CAST(generated_at AS STRING) AS narrative_generated_at FROM ${GOLD}.exec_summary LIMIT 1
-      `).catch(() => [{ narrative: null, narrative_generated_at: null }]);
+      `)).catch(() => [{ narrative: null, narrative_generated_at: null }]);
       return { ...totals, ...funnel, ...intervention, ...overContact, ...narrative };
     }));
 

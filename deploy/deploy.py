@@ -397,11 +397,18 @@ def build_exec_summary(sql: Sql, gold: str) -> tuple[str, str]:
 def step_summary(sql: Sql, cfg: dict) -> None:
     gold = f"{cfg['catalog']}.{cfg['schema_prefix']}_gold"
     narrative, snapshot = build_exec_summary(sql, gold)
-    sql.execute(f"CREATE TABLE IF NOT EXISTS {gold}.exec_summary "
-                f"(generated_at TIMESTAMP, snapshot_date DATE, narrative STRING) "
-                f"COMMENT 'Command Center executive summary, written by deploy.py from the certified views'")
+    # When the data was last loaded (the ingest step), shown under the summary. The app
+    # can only read gold, so it's stored here rather than looked up by the app.
+    silver = f"{cfg['schema_prefix']}_silver"
+    rows = sql.execute(f"SELECT CAST(MAX(last_altered) AS STRING) FROM {cfg['catalog']}.information_schema.tables "
+                       f"WHERE table_schema = '{silver}' AND table_name = 'fact_collections_snapshot'")
+    refreshed = f"TIMESTAMP '{rows[0][0]}'" if rows and rows[0][0] else "CAST(NULL AS TIMESTAMP)"
     escaped = narrative.replace("\\", "\\\\").replace("'", "\\'")
-    sql.execute(f"INSERT OVERWRITE {gold}.exec_summary VALUES (current_timestamp(), DATE '{snapshot}', '{escaped}')")
+    # One row, rewritten every run (CREATE OR REPLACE also adds new columns to an older table).
+    sql.execute(f"CREATE OR REPLACE TABLE {gold}.exec_summary "
+                f"COMMENT 'Command Center executive summary, written by deploy.py from the certified views' AS "
+                f"SELECT current_timestamp() AS generated_at, DATE '{snapshot}' AS snapshot_date, '{escaped}' AS narrative, "
+                f"{refreshed} AS data_refreshed_at")
     log(f"Executive summary written ({len(narrative)} characters):\n    {narrative}")
 
 
@@ -703,6 +710,40 @@ def resolve_ai_config(db: Databricks, cfg: dict) -> dict:
         ai["auto_mode"] = {"method": "rules"}
         log("Auto mode: word rule (no model)" + (" - no model available for the AI classifier" if method == "ai" else ""))
 
+    # Platform help: questions about LensS itself (tabs, navigation, how answers are checked) are
+    # answered from the platform guide. "ai": a small model answers from the guide (default, with the
+    # follow-up or guardrail model); "guide": the guide's own text, no model; "off": sent to the engine.
+    ph = cfg.get("platform_help") or {}
+    method = "off" if ph.get("enabled") is False else str(ph.get("method") or "ai").lower()
+    if method not in ("ai", "guide", "off"):
+        raise DeployError(f'platform_help.method must be "ai", "guide" or "off", got {ph.get("method")!r}')
+    model = (ph.get("model") or (ai.get("follow_ups") or {}).get("model") or (ai.get("guardrails") or {}).get("model")) if method == "ai" else None
+    if method == "ai" and model and exists(model):
+        ai["platform_help"] = {"method": "ai", "model": model}
+        log(f"Platform questions: answered from the platform guide by {model}")
+    elif method == "off":
+        ai["platform_help"] = {"method": "off"}
+        log("Platform questions: disabled (every question goes to the query engine)")
+    else:
+        ai["platform_help"] = {"method": "guide"}
+        log("Platform questions: answered with the platform guide's text (no model)")
+
+    # Conversation memory: follow-ups carry a summary of older turns (compacted every
+    # compact_every question-and-answer pairs, by a small model or a no-model digest) plus the
+    # recent turns, so "tell me more about this" is understood whichever mode or source answered.
+    cm = cfg.get("conversation_memory") or {}
+    if cm.get("enabled") is False:
+        ai["conversation_memory"] = {"enabled": False}
+        log("Conversation memory: off (only the query engine's own conversation)")
+    else:
+        every = int(cm.get("compact_every", 5))
+        if not 2 <= every <= 20:
+            raise DeployError(f"conversation_memory.compact_every must be between 2 and 20, got {every}")
+        model = cm.get("model") or (ai.get("follow_ups") or {}).get("model") or (ai.get("guardrails") or {}).get("model")
+        model = model if model and exists(model) else None
+        ai["conversation_memory"] = {"enabled": True, "compact_every": every, **({"model": model} if model else {})}
+        log(f"Conversation memory: on, compacted every {every} questions ({model or 'no-model digest'})")
+
     e = cfg.get("evals")
     if e:
         ai["evals"] = {"max_accuracy_cases": int(e.get("max_accuracy_cases", 5))}
@@ -721,7 +762,9 @@ def ai_endpoints(ai: dict) -> list[str]:
            (ai.get("guardrails") or {}).get("model"),
            (ai.get("faithfulness_judge") or {}).get("model"),
            (ai.get("follow_ups") or {}).get("model"),
-           (ai.get("auto_mode") or {}).get("model")]
+           (ai.get("auto_mode") or {}).get("model"),
+           (ai.get("platform_help") or {}).get("model"),
+           (ai.get("conversation_memory") or {}).get("model")]
     return sorted({e for e in eps if e})
 
 

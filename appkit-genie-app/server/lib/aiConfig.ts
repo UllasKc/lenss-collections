@@ -21,6 +21,10 @@ export interface AiConfig {
   followUps: { model: string } | null;
   /** Auto mode: how a question is routed to Quick answer or Deep analysis ("ai" model or "rules"). */
   autoMode: { method: 'ai' | 'rules'; model: string | null; timeoutMs: number };
+  /** Questions about the platform itself: answered from the platform guide (by a model, or the guide's own text). */
+  platformHelp: { method: 'ai' | 'guide'; model: string | null } | null;
+  /** Conversation memory: follow-ups carry a summary of older turns (compacted every N pairs) plus recent turns. */
+  memory: { compactEvery: number; model: string | null } | null;
   /** Evaluation suite: how many ground-truth (accuracy) questions one run may ask. */
   evals: { maxAccuracyCases: number } | null;
   /** Optional USD per million tokens, per model endpoint, for Monitoring's cost estimate. */
@@ -29,7 +33,8 @@ export interface AiConfig {
 
 function parse(): AiConfig {
   const off: AiConfig = { semanticCache: null, guardrails: null, judge: null, followUps: null,
-    autoMode: { method: 'rules', model: null, timeoutMs: 6000 }, evals: null, pricing: {} };
+    autoMode: { method: 'rules', model: null, timeoutMs: 6000 }, platformHelp: { method: 'guide', model: null },
+    memory: { compactEvery: 5, model: null }, evals: null, pricing: {} };
   const raw = process.env.LENSS_AI_CONFIG;
   if (!raw) return off;
   try {
@@ -72,6 +77,16 @@ function parse(): AiConfig {
       autoMode: c.auto_mode?.method === 'ai' && c.auto_mode?.model
         ? { method: 'ai', model: String(c.auto_mode.model), timeoutMs: Math.max(1000, Math.min(15000, Number(c.auto_mode.timeout_ms ?? 6000))) }
         : { method: 'rules', model: null, timeoutMs: 6000 },
+      // enabled: false (or method "off") sends every question straight to the query engine.
+      platformHelp: c.platform_help?.enabled === false || c.platform_help?.method === 'off'
+        ? null
+        : c.platform_help?.method === 'ai' && c.platform_help?.model
+          ? { method: 'ai', model: String(c.platform_help.model) }
+          : { method: 'guide', model: null },
+      memory: c.conversation_memory?.enabled === false
+        ? null
+        : { compactEvery: Math.max(2, Math.min(20, Number(c.conversation_memory?.compact_every ?? 5))),
+            model: c.conversation_memory?.model ? String(c.conversation_memory.model) : null },
       evals: c.evals ? { maxAccuracyCases: Math.max(0, Math.min(50, Number(c.evals.max_accuracy_cases ?? 5))) } : null,
       pricing: Object.fromEntries(Object.entries((c.pricing ?? {}) as Record<string, { input?: number; output?: number }>)
         .map(([m, p]) => [m, { input: Number(p?.input ?? 0), output: Number(p?.output ?? 0) }])),
@@ -93,6 +108,8 @@ export function aiConfigSummary() {
     judge: c.judge ? { model: modelLabel(c.judge.model) || null, samplePercent: c.judge.samplePercent, warnBelow: c.judge.warnBelow } : null,
     followUps: c.followUps ? { model: modelLabel(c.followUps.model) } : null,
     autoMode: { method: c.autoMode.method, model: c.autoMode.model ? modelLabel(c.autoMode.model) : null },
+    platformHelp: c.platformHelp ? { method: c.platformHelp.method, model: c.platformHelp.model ? modelLabel(c.platformHelp.model) : null } : null,
+    memory: c.memory ? { compactEvery: c.memory.compactEvery, model: c.memory.model ? modelLabel(c.memory.model) : null } : null,
     evals: c.evals,
     titles: process.env.LENSS_TITLE_ENDPOINT ? { model: modelLabel(process.env.LENSS_TITLE_ENDPOINT) } : null,
     priced: Object.keys(c.pricing).length > 0,

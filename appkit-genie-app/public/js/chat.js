@@ -19,7 +19,7 @@ function autoModeLocal(question) {
 }
 async function autoRoute(question) {
   try {
-    const r = await fetch('/api/chat/route', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ question }) });
+    const r = await fetch('/api/chat/route', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ question, sessionId: activeSessionId || undefined }) });
     if (!r.ok) throw new Error('HTTP ' + r.status);
     const d = await r.json();
     if (d.mode === 'agent' || d.mode === 'chat') return d;
@@ -417,7 +417,8 @@ function addAnswer(answer, opts) {
 
 function renderAnswer(msg, answer, opts) {
   const mode = answer.mode || opts.mode || 'chat';
-  const charts = answer.charts || [];
+  // A table with no rows is never shown (answers saved before the server dropped them).
+  const charts = (answer.charts || []).filter(c => (c.rows || []).length);
   const placed = new Set();
   const body = document.createElement('div');
   body.className = 'md';
@@ -436,6 +437,10 @@ function renderAnswer(msg, answer, opts) {
   ((answer.guard && answer.guard.notices) || []).forEach(n => {
     msg.insertAdjacentHTML('beforeend', `<div class="guard-note"><span aria-hidden="true">🛡</span> ${esc(n)}</div>`);
   });
+  // Questions about LensS itself are answered from the platform guide, not the collections data.
+  if (answer.platform) {
+    msg.insertAdjacentHTML('beforeend', `<div class="platform-note"><span aria-hidden="true">📘</span> From the LensS platform guide, not the collections data. Ask about the data any time.</div>`);
+  }
 
   // One row of actions under the answer, like Copilot: copy, 👍, 👎, regenerate, details.
   const actions = document.createElement('div');

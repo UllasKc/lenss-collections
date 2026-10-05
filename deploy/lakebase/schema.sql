@@ -186,6 +186,11 @@ UPDATE chatapp.chat_sessions s
         OR (f.guard_action = 'redacted' AND f.details->'guardrails'->'events' @> '[{"stage":"input","check":"pii"}]'))
    AND s.title IS NOT NULL AND s.title NOT LIKE '⚠%';
 
+-- v8: conversation memory. Every N question-and-answer pairs the older turns of a session
+-- are folded into a short summary, sent with follow-up questions together with the recent turns.
+ALTER TABLE chatapp.chat_sessions ADD COLUMN IF NOT EXISTS context_summary TEXT;
+ALTER TABLE chatapp.chat_sessions ADD COLUMN IF NOT EXISTS context_summary_upto INTEGER NOT NULL DEFAULT 0;
+
 CREATE INDEX IF NOT EXISTS idx_chat_sessions_user ON chatapp.chat_sessions (user_email, updated_at DESC);
 CREATE INDEX IF NOT EXISTS idx_chat_messages_session ON chatapp.chat_messages (session_id, created_at);
 CREATE INDEX IF NOT EXISTS idx_usage_log_created ON chatapp.usage_log (created_at);

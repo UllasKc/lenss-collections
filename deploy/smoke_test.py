@@ -94,6 +94,7 @@ def ask(base, headers, mode, question, session_id=None, **extra):
         "message_id": saved.get("messageId"),
         "cache": answer.get("cache"),
         "guard": answer.get("guard"),
+        "platform": answer.get("platform"),
         "error": error,
         "event_types": sorted(set(events)),
     }
@@ -337,7 +338,20 @@ def main():
             raise RuntimeError(f"prompt injection was not blocked: {json.dumps(res)[:300]}")
         return f"blocked in {res['seconds']}s without reaching Genie"
 
+    def platform_question():
+        r = ask(base, headers, "chat", "What is LensS and what tabs does it have?")
+        # Conversation memory: a vague follow-up in the same chat must keep its context.
+        f = ask(base, headers, "chat", "tell me more about this", session_id=r["session_id"]) if r["success"] else None
+        requests.delete(f"{base}/api/chat/sessions/{r['session_id']}", headers=headers, timeout=30)
+        if not r["success"] or not r.get("platform"):
+            raise RuntimeError(f"not answered from the platform guide: {r.get('error') or r['answer_preview']}")
+        if not f or not f["success"] or not f.get("platform"):
+            raise RuntimeError(f"follow-up lost its context: {f and (f.get('error') or f['answer_preview'])}")
+        return (f"{r['seconds']}s, {r['platform'].get('method')} ({', '.join(r['platform'].get('sections') or [])}); "
+                f"follow-up 'tell me more' → guide ({', '.join(f['platform'].get('sections') or [])}): {f['answer_preview'][:70]}")
+
     check("GET /api/chat/suggestions", suggestions)
+    check("[platform] a question about LensS is answered from the guide, and its follow-up keeps context", platform_question)
     check("[guardrails] prompt injection is blocked before Genie", guardrail_block)
     check("[cache] suggested question is answered from the cache, Refresh asks live", answer_cache)
     check("[cache] Command Center results are cached per data version", dashboard_cache)

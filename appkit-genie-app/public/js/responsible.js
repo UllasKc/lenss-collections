@@ -29,6 +29,8 @@ window.loadResponsibleAi = async function loadResponsibleAi() {
     ['Matching similar questions', c.semanticCache ? c.semanticCache.model : '—', 'To reuse a recent answer to the same question', on(c.semanticCache)],
     ['Checking answer quality', c.judge ? (c.judge.model || 'Numbers check only') : '—', 'After each answer, without delaying it', on(c.judge)],
     ['Choosing quick or deep (Auto)', c.autoMode && c.autoMode.method === 'ai' ? c.autoMode.model : 'Word rule, no model', 'When Auto is selected, before the question is sent', on(true)],
+    ['Answering questions about the platform', c.platformHelp ? (c.platformHelp.method === 'ai' ? c.platformHelp.model : 'Platform guide text, no model') : '—', 'Only for questions about LensS itself (tabs, navigation, how answers are checked), answered from the platform guide', on(c.platformHelp)],
+    ['Remembering the conversation', c.memory ? (c.memory.model ? c.memory.model : 'Short digest, no model') : '—', c.memory ? `Every ${c.memory.compactEvery} questions in a chat, older turns are summarised so follow-ups keep their context` : 'Off', on(c.memory)],
     ['Suggesting follow-up questions', c.followUps ? c.followUps.model : '—', 'After an answer, when the engine suggests none', on(c.followUps)],
     ['Naming conversations', c.titles ? c.titles.model : 'From the first question', 'Once per conversation', on(true)],
   ];

@@ -128,10 +128,6 @@ async function loadHome() {
 }
 
 function renderHero(s, o, cc) {
-  const asOf = new Date((o.asOf || '2026-09-15') + 'T00:00:00');
-  const days = new Date(asOf.getFullYear(), asOf.getMonth() + 1, 0).getDate();
-  document.getElementById('heroDate').textContent =
-    `Snapshot · ${asOf.toLocaleDateString(undefined, { weekday: 'long', day: 'numeric', month: 'long', year: 'numeric' })} · day ${asOf.getDate()} of ${days}`;
   document.getElementById('heroGreeting').textContent = greeting();
   const ach = num(s.achievement_pct);
   const out = cc.outlook || {};
@@ -155,9 +151,11 @@ function renderHero(s, o, cc) {
 function renderNarrative(s) {
   const el = document.getElementById('narrative');
   el.textContent = s.narrative || 'No executive summary yet. Run the deploy\'s summary step: python deploy/deploy.py --config <config> --only summary';
-  const gen = s.narrative_generated_at ? new Date(s.narrative_generated_at.replace(' ', 'T') + 'Z') : null;
+  // Timestamps come from the warehouse in UTC; shown in the viewer's local time.
+  const when = (v) => { const d = v ? new Date(v.replace(' ', 'T') + 'Z') : null; return d && !isNaN(d) ? d.toLocaleString() : v; };
   document.getElementById('narrativeMeta').textContent = s.narrative_generated_at
-    ? `Written from the certified views on ${gen && !isNaN(gen) ? gen.toLocaleString() : s.narrative_generated_at}` : '';
+    ? `Written from the certified views on ${when(s.narrative_generated_at)}` +
+      (s.data_refreshed_at ? `, data refreshed on ${when(s.data_refreshed_at)}` : '') : '';
 }
 
 /** Today's priorities: four cards worked out from the data, each opening the right analysis. */

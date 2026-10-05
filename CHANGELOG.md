@@ -11,6 +11,80 @@ Versions match git tags where one exists. Dates are when the change was committe
 
 ---
 
+## v1.8.0 — The Assistant answers about the platform, remembers the conversation, and routes as one assistant (2026-10-05)
+
+The Assistant answered "What is LensS" with "not related to the database schema": the query engine only knows the collections data. Questions about the platform itself are now answered from a written platform guide, without changing how data questions are handled. Then "tell me more about this" after that answer got "Your question is too vague", and "I am asking about my previous question" got "You have not asked a previous question yet": follow-ups carried no context, because the earlier answer never reached the engine's conversation. Follow-ups now carry the conversation, compacted every 5 questions.
+
+### Fixed (conversation context)
+- **Follow-ups lost their context.** The old context carried only the other mode's turns since the last answer in the same mode. A platform answer (or a cached one) counts as an answer in that mode, so nothing was carried. Now every follow-up carries the conversation so far (`server/lib/memory.ts`): a running summary of older turns plus the recent questions and answers, across both modes and including cached and platform answers.
+
+### Added (conversation memory, platform switch)
+- **Compaction every 5 questions:** after every 5 questions in a chat, older turns are folded into a short summary stored on the session; the last two stay word for word. It runs after the answer is sent, so it adds no wait. `conversation_memory` in the deploy config: `enabled`, `compact_every` (default 5), `model` (default: the follow-up or guardrail model; without one, a short digest). Lakebase schema v8 adds `context_summary` and `context_summary_upto` to `chat_sessions`.
+- **Platform follow-ups:** "tell me more", "explain that", "my previous question" right after a platform answer go back to the platform guide, with only the parts not shown yet (so it adds detail instead of repeating).
+- **`platform_help.enabled`:** `false` sends every question straight to the query engine (same as `method: "off"`). All three configs now state `platform_help` and `conversation_memory` explicitly.
+- **Visible:** each question's trace says how many earlier questions were carried and how many were summarised; summary tokens count under "Conversation memory"; Responsible AI and the models list show the feature.
+
+### Fixed (routing review: one assistant, whichever path answers)
+- **Auto ignored the conversation.**
+  - It routed each question as if it were new, so "tell me more about this" after a Deep analysis came back as a shallow Quick answer.
+  - The browser now sends the chat's ID, and the router reads the history (`routeFollowUp` in `server/lib/autoMode.ts`).
+  - A short follow-up to a Deep analysis stays Deep. A follow-up to a Quick answer can still go deeper ("why is that?").
+  - The AI router is given the previous question when the new one is a follow-up.
+  - A new, unrelated lookup in the same chat still gets a Quick answer.
+- **Platform follow-ups and the router now agree.** A "tell me more" after a platform answer is routed to the guide (Quick) by Auto too, instead of being classified on its own words.
+- **Data follow-ups after a platform answer reach the data.** "And what is the recovery rate for it this month?" right after "What is LensS?" was treated as a platform follow-up, because it was short and vague. A follow-up that names data (accounts, products, regions, rates, months, figures and similar) now goes to the engine. With a model this was caught later anyway; without one, the guide would have answered it.
+- **Retries keep the context.** When the engine is busy, the retry (in a fresh engine conversation) now gets the same conversation context as the original question: the summary plus recent turns, rather than the last 5 raw messages. A self-contained question is still retried on its own.
+
+### Fixed (empty tables)
+- **Tables with no rows are no longer shown** (`server/lib/emptyResults.ts`):
+  - An empty table with the same title as one that has data is dropped.
+  - Otherwise, a one-line reason takes its place, written by the follow-up model from the query, for example "No Mortgage accounts in Mumbai had a broken promise to pay." (about 200 tokens). Without a model, a plain sentence is used.
+  - A Quick answer already explains its single query, so an empty table there is dropped without a note.
+  - The same applies to pre-warmed answers.
+  - Answers saved earlier hide their empty tables in the browser.
+  - The trace records how many were removed and explained, and the tokens count under "Empty-result notes".
+- **Agent tables lost rows with a "|" in a value:** escaped pipes in the engine's result table split the row, so the row was discarded. They are now parsed correctly.
+- **Verified:**
+  - Auto routing with seeded chats (no engine calls): 11/11. For example, "tell me more about this" after a Deep analysis → Deep; "why is that?" after a Quick answer → Deep; a new lookup after a Deep analysis → Quick; "tell me more" after a platform answer → guide; a data follow-up after a platform answer → engine.
+  - AI router (Llama 3.1 8B) with the previous question: "why is that?" → deep, "Which of those is the lowest?" → quick.
+  - Empty-table logic: a unit test of duplicate, inline, unplaced and Quick-answer cases.
+  - Wording of the notes: two real queries.
+  - Deployed to personal (`--only app`). The full smoke test was not re-run, to save engine calls.
+
+### Changed (large monitors, Command Center, Observability)
+- **Large monitors use the width:** on screens 1600px and wider, pages grow from a 1280px column to up to 1800px (2100px from 2200px wide), and the Assistant's reading column grows from 1080px to 1280px (1440px). Laptops are unchanged.
+- **Command Center:** the hero's "Snapshot · Tuesday, September 15, 2026 · day 15 of 30" line is removed. Under the executive summary: "Written from the certified views on …, data refreshed on …". The deploy's `summary` step reads when the data was last loaded (Unity Catalog `last_altered` of the silver fact table) and stores it in `exec_summary.data_refreshed_at`, because the app can only read gold. The table is now rewritten each run, so older tables gain the column. Before the next `summary` run, the line shows only the written time.
+- **Observability: no internal IDs.**
+  - Traces show their date and time instead of "TRC-xxxx".
+  - The trace heading reads "Quick answer", "Deep analysis, from the answer cache" or "Platform question" instead of `CACHED_DEEP_ANALYSIS`.
+  - Stage names are no longer upper case.
+  - Service principals (the smoke test) show as "Automated test" instead of their ID, in traces, user lists, the audit trail and the user filter.
+  - The audit trail shows the chat title (or "Untitled chat") instead of a session ID, and no longer shows the engine's conversation ID.
+- **Verified:**
+  - Personal workspace: `--only summary` stored the refresh time; the app was deployed with `--only app`.
+  - In a headless browser at 1920px: the page is 1800px wide, and at 1440px it stays at 1280px.
+  - The summary reads "Written from the certified views on 10/5/2026, 6:08:04 PM, data refreshed on 10/2/2026, 7:27:38 PM", and the snapshot line is gone.
+  - Observability has no "TRC-" or ID text left, and there were no console errors.
+
+### Added
+- **Platform guide** (`server/lib/platformGuide.ts`): what LensS and LensS Collections Intelligence are (a Concentrix decision-intelligence platform, built by the Concentrix Data & Analytics Practice), each tab, exact how-to steps, Quick answer / Deep analysis / Auto, how answers are checked and kept safe, navigation and account, the data used, and known limits. No data figures, so it never goes stale when data is reloaded.
+- **Platform answers** (`server/lib/platformHelp.ts`, wired into the send pipeline before the answer cache):
+  - a word check lets through only questions that mention the platform (stricter when there is no model);
+  - `platform_help` in the deploy config: `ai` (a small model answers from the guide only, or replies `DATA_QUESTION` and the question goes to the engine as usual), `guide` (the guide's sections, no model) or `off`. Left out: `ai` with the follow-up or guardrail model, else `guide`. Personal uses Llama 3.1 8B (only for platform questions);
+  - guardrails still run first; an off-topic warning or block doesn't apply to a platform question (other blocks do);
+  - the answer carries a note "From the LensS platform guide, not the collections data", and three platform follow-ups;
+  - Auto sends platform questions to Quick answer; Observability records the guide sections used and counts the tokens under "Platform questions"; Responsible AI lists the feature.
+
+### Verified
+- **Detection (no model):** 10 platform questions and 8 data questions: every platform question flagged, every data question passed through to the engine; one data question with "help" in it is flagged only by the looser check, where the model decides.
+- **No-model path (local):** "What is LensS", "How do I filter by region in the Explorer?" (in Deep analysis mode) and "What is Concentrix LensS and who built it?" answered from the guide in about 6 s; "Help me find accounts with broken promises in Mumbai" still went to the engine and was answered from the data.
+- **AI path (local, Llama 3.1 8B):** the first try invented UI ("Filters tab", "search bar"); after adding exact how-to steps to the guide and tightening the prompt, "What is LensS", "How do I filter by region…" and "How do I export the accounts to CSV?" were answered correctly from the guide (about 8 s each). In the browser the answer shows the guide note and platform follow-ups, with no console errors.
+- **Personal deploy:** `--only app` (log: "Platform questions: answered from the platform guide by databricks-meta-llama-3-1-8b-instruct"). Smoke test (`--skip-agent`, with a new platform check): 27/27 passed; "What is LensS and what tabs does it have?" was answered from the guide in 4.0 s.
+- **Not verified:** the org deploy (it will use its follow-up model, Llama 3.3 70B, unless `platform_help` says otherwise).
+- **Conversation memory (local, Llama 3.1 8B, one chat):** the reported sequence now works: "Tell me about Lens" → guide; "tell me more about this" → guide, follow-up; "I am asking about my previous question" → guide, understood; "What is the recovery rate by product?" → engine with 3 earlier questions carried; "Which of those is the lowest…" → engine with 4 carried, understood "those"; "Going back to the first thing we discussed, what are its four tabs?" → answered. After the 5th question the session summary was written (3 turns folded, last 2 kept) and its tokens (588 in, 140 out) were logged on that question.
+- **Prompt tuning found during testing:** "tell me more" first repeated the previous answer and the 8B summary padded itself with "not specified"; fixed by giving a follow-up only the unseen guide sections (and the earlier question, not the answer) and a stricter summary prompt. Re-test: "tell me more" now adds the Explorer and Command Center details.
+- **Seen, not ours:** in one data follow-up the engine's own answer compared 0.0018 and 0.0015 the wrong way round; the context was correct. The answer-quality judge is there to flag such answers.
+
 ## v1.7.0 — Four tabs like the benchmark: Command Center, Explorer, Assistant, Observability (2026-10-05, `edb2d53`)
 
 The leadership spec (`all_details_and _data/Book6.xlsx`) defines six Command Center sections, and a healthcare referral demo was named as the UX benchmark to beat. This release builds the spec on governed views, adopts the benchmark's best ideas (quick-start prompts, an executive brief, watchouts, a KPI dictionary, Observability split into areas with a trace console) and goes further: one-click "Ask LensS" from every panel, account-level action queues, and a trace link under every answer. Deployed to the personal workspace; not committed.
