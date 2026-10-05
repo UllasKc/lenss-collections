@@ -159,12 +159,13 @@ function renderHero(s, o, cc) {
     <div class="hp-track"><div class="hp-fill" style="width:${Math.min(100, (ach || 0) * 100).toFixed(1)}%"></div></div>
     <div class="hp-legend"><span><b>${pct(ach)}</b> of target achieved</span><span>${money(s.mtd_collections)} / ${money(s.monthly_target)}</span></div>`;
   const p = o.portfolio || {};
-  const oc = o.overContact || {};
+  const a = cc.actions || {};
   document.getElementById('heroStats').innerHTML = [
     ['Recoverable now', money(s.recovery_opportunity), `from ${count(s.immediate_intervention_accounts)} priority accounts`, 'cash'],
     ['Customers in arrears', count(p.accounts ?? s.eligible_accounts), `${money(p.outstanding)} outstanding`, 'users'],
     ['High-risk customers', count(p.high_risk), 'unlikely to pay without action', 'alert'],
-    ['Over-contact risk', count(oc.segments ?? s.over_contact_segments), `customer groups contacted 4.5+ times this month`, 'phone'],
+    // Same rule as the Action center's broken-PTP queue: due in 7 days, propensity < 0.35 or risk ≥ 0.60.
+    ['Promises at risk this week', count(a.PTP_Break_Risk_7d_Accounts), `${money(a.PTP_Break_Risk_7d_Amount)} due in the next 7 days from customers likely to break`, 'promise'],
   ].map(([l, v, sub, ic]) => `<div class="hs"><div class="hs-ico">${icon(ic)}</div><div><div class="hs-l">${l}</div><div class="hs-v">${v}</div><div class="hs-s">${sub}</div></div></div>`).join('');
 }
 

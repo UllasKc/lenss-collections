@@ -30,6 +30,7 @@ Versions match git tags where one exists. Dates are when the change was committe
   - The outlook line "Promises due this month cover the gap 5.2×, so the outlook is high" now reads "Promises due before month-end could bring in about ₹30.2M, more than 5× what we still need, so we're on track to hit target."
   - It reads "within reach" when the outlook is Medium, "at risk" when Low, and "Target achieved: …" once the target is met. The figures come from `qry_cc_target_outlook`.
 - **Executive summary footer** shows only "Data refreshed on …" (the "Written from the certified views on …" part is removed).
+- **Hero tile "Over-contact risk" replaced by "Promises at risk this week"**: promises due in the next 7 days from customers likely to break them (propensity < 0.35 or risk ≥ 0.60, the Action center's broken-PTP queue), with the ₹ at stake. Over-contact stays in Today's priorities and the watchouts.
 - **Greeting** in title case: "Good Morning / Afternoon / Evening".
 - **Verified (local, 1440px):**
   - Fresh browser with the server's data already loaded: headline and executive summary at 0.7 s, priorities at 2.9 s, last panel at 3.1 s.
