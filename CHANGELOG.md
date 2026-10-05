@@ -11,7 +11,7 @@ Versions match git tags where one exists. Dates are when the change was committe
 
 ---
 
-## v1.8.0 — The Assistant answers about the platform, remembers the conversation, and routes as one assistant (2026-10-05)
+## v1.8.0 — The Assistant answers about the platform, remembers the conversation, and routes as one assistant (2026-10-05, `fcb90c4`)
 
 The Assistant answered "What is LensS" with "not related to the database schema": the query engine only knows the collections data. Questions about the platform itself are now answered from a written platform guide, without changing how data questions are handled. Then "tell me more about this" after that answer got "Your question is too vague", and "I am asking about my previous question" got "You have not asked a previous question yet": follow-ups carried no context, because the earlier answer never reached the engine's conversation. Follow-ups now carry the conversation, compacted every 5 questions.
 
