@@ -5,8 +5,10 @@
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>LensS Collections Intelligence | Concentrix</title>
 <link rel="icon" type="image/png" href="/img/favicon.png">
-<script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.3/dist/chart.umd.min.js"></script>
+<!-- Deferred scripts run in document order once the page is parsed: Chart.js first, then the app. -->
+<script defer src="https://cdn.jsdelivr.net/npm/chart.js@4.4.3/dist/chart.umd.min.js"></script>
 <link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=Manrope:wght@600;700;800&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
 <link rel="stylesheet" href="/css/style.css">
 </head>
@@ -50,7 +52,7 @@
           <button class="btn hero-cta" data-ask="Why are collections lagging this month and what should we do about it?" data-mode="agent">
             <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 3l1.9 4.6L18.5 9.5l-4.6 1.9L12 16l-1.9-4.6L5.5 9.5l4.6-1.9z"/></svg>Ask LensS for a deep-dive
           </button>
-          <button class="btn ghost hero-ghost" data-tab-jump="explorer">Explore the why</button>
+          <button class="btn ghost hero-ghost" data-tab-jump="explorer">Drill into the data</button>
           <button class="btn ghost hero-ghost" id="kpiDictBtn">KPI definitions</button>
         </div>
       </div>
@@ -95,7 +97,7 @@
 
     <button class="card cc-explore" data-tab-jump="explorer">
       <span class="cc-explore-ico" aria-hidden="true"><svg viewBox="0 0 24 24"><path d="M4 5h16l-6 7.5V19l-4 2v-8.5z"/></svg></span>
-      <span><b>Need the why?</b> Open Explorer to drill into products, arrears stages, regions, channels, strategies, drivers, teams and collectors, with filters for dates and business units.</span>
+      <span><b>Want to dig deeper?</b> Open Explorer to drill into products, arrears stages, regions, channels, strategies, drivers, teams and collectors, with filters for dates and business units.</span>
       <span class="cc-explore-go" aria-hidden="true">→</span>
     </button>
     <div class="home-foot">Every figure comes from certified, governed views of the collections data (accounts past due, as of the snapshot date). No AI is used to compute them. <button class="ask-link plain" id="kpiDictBtn2">See KPI definitions</button></div>
@@ -499,16 +501,16 @@
   <div class="trace-body" id="traceBody"></div>
 </dialog>
 
-<script src="/js/app.js"></script>
-<script src="/js/home.js"></script>
-<script src="/js/explorer.js"></script>
-<script src="/js/chat.js"></script>
-<script src="/js/monitoring.js"></script>
-<script src="/js/observability.js"></script>
-<script src="/js/export.js"></script>
-<script src="/js/notify.js"></script>
-<script src="/js/voice.js"></script>
-<script src="/js/evals.js"></script>
-<script src="/js/responsible.js"></script>
+<script defer src="/js/app.js"></script>
+<script defer src="/js/home.js"></script>
+<script defer src="/js/explorer.js"></script>
+<script defer src="/js/chat.js"></script>
+<script defer src="/js/monitoring.js"></script>
+<script defer src="/js/observability.js"></script>
+<script defer src="/js/export.js"></script>
+<script defer src="/js/notify.js"></script>
+<script defer src="/js/voice.js"></script>
+<script defer src="/js/evals.js"></script>
+<script defer src="/js/responsible.js"></script>
 </body>
 </html>

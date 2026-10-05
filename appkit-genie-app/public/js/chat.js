@@ -162,13 +162,23 @@ function renderLibrary() {
   });
 }
 renderSuggestions();
-fetch('/api/chat/suggestions').then(r => r.ok ? r.json() : null).then(d => {
+/**
+ * The Assistant's own requests wait until the page the person is looking at has loaded
+ * (the browser is idle), unless they open the Assistant first.
+ */
+function whenIdle(fn) {
+  let done = false;
+  const go = () => { if (!done) { done = true; fn(); } };
+  (window.requestIdleCallback || ((f) => setTimeout(f, 1500)))(go, { timeout: 5000 });
+  document.querySelector('.tabs button[data-tab="assistant"]')?.addEventListener('click', go, { once: true });
+}
+whenIdle(() => fetch('/api/chat/suggestions').then(r => r.ok ? r.json() : null).then(d => {
   if (!d) return;
   if (Array.isArray(d.starters) && d.starters.length) { STARTERS = d.starters; MORE_SUGGESTIONS = d.more || []; }
   if (Array.isArray(d.quickStart) && d.quickStart.length) QUICK_START = d.quickStart;
   if (Array.isArray(d.library)) LIBRARY = d.library;
   renderSuggestions();
-}).catch(() => {});
+}).catch(() => {}));
 
 // Layout like ChatGPT / Copilot: the conversation list folds away (minimized by default,
 // remembered per person; an overlay on small screens) and suggested questions open on demand.
@@ -1140,4 +1150,4 @@ function drawChart(canvas, chart, plan) {
 }
 
 updateEmpty();
-loadSessions().catch(console.error);
+whenIdle(() => loadSessions().catch(console.error));

@@ -66,7 +66,7 @@ function skeletons() {
 
 function greeting() {
   const h = new Date().getHours();
-  const part = h < 12 ? 'Good morning' : h < 17 ? 'Good afternoon' : 'Good evening';
+  const part = h < 12 ? 'Good Morning' : h < 17 ? 'Good Afternoon' : 'Good Evening';
   return window.userFirstName ? `${part}, ${window.userFirstName}` : part;
 }
 document.addEventListener('lenss:user', () => { const g = document.getElementById('heroGreeting'); if (g) g.textContent = greeting(); });
@@ -109,22 +109,32 @@ document.getElementById('kpiMoreBtn').addEventListener('click', (e) => {
   e.currentTarget.textContent = sec.hidden ? 'Show 7 more metrics' : 'Show fewer metrics';
 });
 
+/** Lets the browser paint before the next panel is built (a hidden tab doesn't paint, so it doesn't wait). */
+const nextFrame = () => new Promise(r => (document.hidden ? setTimeout(r, 0) : requestAnimationFrame(() => r())));
+
+/**
+ * Loads top to bottom: both requests start at once, the headline and executive summary
+ * are drawn as soon as the (small) summary arrives, and the panels below follow in page
+ * order when the overview arrives, one per frame so the top of the page shows first.
+ */
 async function loadHome() {
   skeletons();
-  const [summary, overview] = await Promise.all([
-    fetch('/api/dashboard/summary').then(r => r.json()),
-    fetch('/api/dashboard/overview').then(r => r.json()).catch(() => ({})),
-  ]);
-  const o = overview || {};
+  const summaryReq = fetch('/api/dashboard/summary').then(r => r.json());
+  const overviewReq = fetch('/api/dashboard/overview').then(r => r.json()).catch(() => ({}));
+  // One panel's problem never blanks the page.
+  const run = fn => { try { fn(); } catch (err) { console.error('Command Center panel failed', err); } };
+  const summary = await summaryReq;
+  run(() => renderHero(summary, {}, {}));
+  run(() => renderNarrative(summary));
+  const o = (await overviewReq) || {};
   const cc = o.cc || {};
   const steps = [
-    () => renderHero(summary, o, cc), () => renderNarrative(summary), () => renderPriorities(summary, o),
+    () => renderHero(summary, o, cc), () => renderPriorities(summary, o),
     () => renderExecKpis(summary, o, cc), () => renderBrief(summary, o, cc), () => renderWatchouts(summary, o, cc),
     () => renderRisk(cc), () => renderTarget(summary, cc), () => renderActionCenter(cc, o),
     () => renderActions(o), () => renderOpportunity(o), () => renderAccounts(summary, o),
   ];
-  // One panel's problem never blanks the page.
-  steps.forEach(fn => { try { fn(); } catch (err) { console.error('Command Center panel failed', err); } });
+  for (const fn of steps) { run(fn); await nextFrame(); }
 }
 
 function renderHero(s, o, cc) {
@@ -132,9 +142,19 @@ function renderHero(s, o, cc) {
   const ach = num(s.achievement_pct);
   const out = cc.outlook || {};
   const likely = out.Target_Likelihood;
+  // The outlook in plain words: what this month's promises should bring in (at today's
+  // keep rate) against what is still needed (qry_cc_target_outlook).
+  const expected = money(out.Expected_From_Promises);
+  const cover = num(out.Gap_Coverage);
+  const outlookLine = {
+    Achieved: `Target <b>achieved</b>: ${money(out.Recovery_Achieved ?? s.mtd_collections)} collected against ${money(out.Recovery_Target ?? s.monthly_target)}.`,
+    High: `Promises due before month-end could bring in about <b>${expected}</b>, more than <b>${Math.floor(cover)}×</b> what we still need, so we're <b>on track</b> to hit target.`,
+    Medium: `Promises due before month-end could bring in about <b>${expected}</b>, just enough to close the gap, so target is <b>within reach</b> but needs promises kept.`,
+    Low: `Promises due before month-end could bring in about <b>${expected}</b>, short of what we still need, so target is <b>at risk</b> without extra effort.`,
+  }[likely];
   document.getElementById('heroSub').innerHTML =
     `We've collected <b>${money(s.mtd_collections)}</b> of this month's <b>${money(s.monthly_target)}</b> target, with <b>${money(s.target_gap)}</b> still to collect` +
-    (likely ? ` and ${count(out.Days_Remaining)} days to go. Promises due this month cover the gap <b>${num(out.Gap_Coverage).toFixed(1)}×</b>, so the outlook is <b>${hEsc(likely.toLowerCase())}</b>.` : '.');
+    (likely ? ` and ${count(out.Days_Remaining)} days to go. ${outlookLine ?? ''}` : '.');
   document.getElementById('heroProgress').innerHTML = `
     <div class="hp-track"><div class="hp-fill" style="width:${Math.min(100, (ach || 0) * 100).toFixed(1)}%"></div></div>
     <div class="hp-legend"><span><b>${pct(ach)}</b> of target achieved</span><span>${money(s.mtd_collections)} / ${money(s.monthly_target)}</span></div>`;

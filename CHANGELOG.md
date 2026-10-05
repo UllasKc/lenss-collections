@@ -13,6 +13,29 @@ Versions match git tags where one exists. Dates are when the change was committe
 
 ## Unreleased
 
+### Faster first load, top to bottom
+- **The Command Center is ready before anyone opens it.**
+  - The app computes the Command Center data itself, a few seconds after it starts. Every 5 minutes it checks the data version, a quick Lakebase read, and recomputes only if the data changed. So the first visitor no longer waits for the warehouse; before, the first visitor after a restart waited about 16 s on a cold warehouse.
+  - Visitors who arrive while it is being computed share that one computation.
+  - The summary's 5 queries now run in parallel instead of one after another.
+  - The overview's 23 queries run in one parallel round instead of two.
+- **The page loads in order:**
+  - The headline and executive summary are drawn as soon as the small summary arrives.
+  - The panels below follow in page order, one per frame, when the overview arrives.
+  - The Explorer and Observability already loaded only when opened.
+  - The Assistant's chat list and suggestions now wait until the browser is idle, unless the Assistant is opened first.
+- **Standard script loading:** Chart.js and the app's scripts are `defer` (they no longer block the first paint, and still run in order), and the font host is preconnected.
+- **Command Center wording:**
+  - The hero button "Explore the why" is now "Drill into the data", and the banner "Need the why?" is now "Want to dig deeper?".
+  - The outlook line "Promises due this month cover the gap 5.2×, so the outlook is high" now reads "Promises due before month-end could bring in about ₹30.2M, more than 5× what we still need, so we're on track to hit target."
+  - It reads "within reach" when the outlook is Medium, "at risk" when Low, and "Target achieved: …" once the target is met. The figures come from `qry_cc_target_outlook`.
+- **Greeting** in title case: "Good Morning / Afternoon / Evening".
+- **Verified (local, 1440px):**
+  - Fresh browser with the server's data already loaded: headline and executive summary at 0.7 s, priorities at 2.9 s, last panel at 3.1 s.
+  - Same browser, second load: everything within 0.3 s.
+  - Request order: summary, overview, then the Assistant's requests; no console errors.
+  - Deployed to personal with `--only app`.
+
 - `deploy/config/org2-v2.json` (the `lenss-collections-v2` org app) is now in git, with `auto_mode`, `platform_help` and `conversation_memory` stated explicitly (`7c2934f`). `org2.json` stays out of git.
 
 ## v1.8.0 — The Assistant answers about the platform, remembers the conversation, and routes as one assistant (2026-10-05, `fcb90c4`)
