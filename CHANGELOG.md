@@ -11,7 +11,7 @@ Versions match git tags where one exists. Dates are when the change was committe
 
 ---
 
-## v1.7.0 — Four tabs like the benchmark: Command Center, Explorer, Assistant, Observability (2026-10-05)
+## v1.7.0 — Four tabs like the benchmark: Command Center, Explorer, Assistant, Observability (2026-10-05, `edb2d53`)
 
 The leadership spec (`all_details_and _data/Book6.xlsx`) defines six Command Center sections, and a healthcare referral demo was named as the UX benchmark to beat. This release builds the spec on governed views, adopts the benchmark's best ideas (quick-start prompts, an executive brief, watchouts, a KPI dictionary, Observability split into areas with a trace console) and goes further: one-click "Ask LensS" from every panel, account-level action queues, and a trace link under every answer. Deployed to the personal workspace; not committed.
 
