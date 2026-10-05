@@ -173,9 +173,7 @@ function renderNarrative(s) {
   el.textContent = s.narrative || 'No executive summary yet. Run the deploy\'s summary step: python deploy/deploy.py --config <config> --only summary';
   // Timestamps come from the warehouse in UTC; shown in the viewer's local time.
   const when = (v) => { const d = v ? new Date(v.replace(' ', 'T') + 'Z') : null; return d && !isNaN(d) ? d.toLocaleString() : v; };
-  document.getElementById('narrativeMeta').textContent = s.narrative_generated_at
-    ? `Written from the certified views on ${when(s.narrative_generated_at)}` +
-      (s.data_refreshed_at ? `, data refreshed on ${when(s.data_refreshed_at)}` : '') : '';
+  document.getElementById('narrativeMeta').textContent = s.data_refreshed_at ? `Data refreshed on ${when(s.data_refreshed_at)}` : '';
 }
 
 /** Today's priorities: four cards worked out from the data, each opening the right analysis. */
