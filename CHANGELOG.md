@@ -13,6 +13,33 @@ Versions match git tags where one exists. Dates are when the change was committe
 
 ## Unreleased
 
+### Command Center rebuilt as one story, top to bottom
+Presenters found the page hard to follow: the same figures appeared in several places (hero tiles, executive summary, priorities, watchouts, core metrics, brief, target panel), with no order to tell them in. It is now five numbered chapters, each answering one question and leading to the next. Each opens with a one-sentence answer written from the certified figures, and each figure appears once.
+
+| Chapter | Question | What's there |
+|---|---|---|
+| 1 (hero) | Are we on track this month? | One-line verdict (on track / within reach / at risk, with the broken-promise caveat); progress to target with days left; tiles for still to collect, expected from promises, month-end outlook and likelihood; how the outlook is worked out; data refresh time |
+| 2 | How healthy is the book? | Overdue balance, recovery rate, high-risk accounts, accounts worsening, cost to collect (+5 contact and promise metrics on demand); portfolio risk snapshot by arrears stage |
+| 3 | What is holding us back? | One ranked list of five issues (it replaces both Today's priorities and the watchouts): broken promises (critical, shown twice as wide), the product furthest behind, slide into late arrears, low reach, over-contact. Each has its metric, likely driver and an Ask LensS deep analysis |
+| 4 | Where is the money? | Recoverable now by product, and the 8 priority accounts worth the most, with their next step |
+| 5 | What should we do this week? | Four work queues numbered by urgency: Today (save the promises likely to break), This week (remind the other promises due, which no longer double-counts the at-risk ones; work high-value accounts), This month (stop accounts reaching 180+). Then how to handle each priority customer |
+
+- **Removed as repeats:**
+  - the executive summary paragraph (its refresh time is now in the hero);
+  - the executive decision brief (chapter 5's opening line is the plan);
+  - the target achievement panel (now the hero);
+  - the "Collected this month" metric card;
+  - the hero's arrears, high-risk and at-risk-promises tiles (now in chapters 2, 3 and 5);
+  - the "largest recovery opportunities" queue (its 250 accounts overlapped the priority list).
+  
+  No figure or definition changed. The data and API are unchanged.
+- **A story bar** under the hero ("1 · On track? … 5 · What to do this week") jumps to each chapter, stays in view while scrolling, and highlights the chapter being read.
+- **Verified (local, 1440px):**
+  - every chapter renders with its opening line from live figures;
+  - 5 issues and 4 queues are present;
+  - the accounts table fits without scrolling;
+  - there are no console errors.
+
 ### Faster first load, top to bottom
 - **The Command Center is ready before anyone opens it.**
   - The app computes the Command Center data itself, a few seconds after it starts. Every 5 minutes it checks the data version, a quick Lakebase read, and recomputes only if the data changed. So the first visitor no longer waits for the warehouse; before, the first visitor after a restart waited about 16 s on a cold warehouse.

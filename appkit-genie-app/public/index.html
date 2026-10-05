@@ -43,8 +43,12 @@
 <div class="wrap">
   <!-- ============ COMMAND CENTER ============ -->
   <section class="tab on" id="tab-home">
+    <!-- One story, top to bottom: each chapter answers one question and leads to the next.
+         The first line of every chapter is its answer, written from the certified figures. -->
+    <span class="ch-anchor" id="ch1"></span>
     <div class="hero" id="homeHero">
       <div class="hero-main">
+        <div class="hero-eyebrow">1 · Are we on track this month?</div>
         <h1 class="hero-h" id="heroGreeting">Welcome back</h1>
         <p class="hero-sub" id="heroSub">Loading our collections position…</p>
         <div class="hero-progress" id="heroProgress"></div>
@@ -56,44 +60,42 @@
           <button class="btn ghost hero-ghost" id="kpiDictBtn">KPI definitions</button>
         </div>
       </div>
-      <div class="hero-stats" id="heroStats"></div>
-    </div>
-
-    <div class="card narr-card">
-      <div class="narr-head">
-        <div class="eyebrow">Executive summary</div>
-        <button class="ask-link" data-ask="Summarise our collections performance this month: where we are against target, the main reasons, and the top three actions." data-mode="agent">Ask LensS ›</button>
+      <div class="hero-side">
+        <div class="hero-stats" id="heroStats"></div>
+        <div class="hero-note" id="heroNote"></div>
       </div>
-      <p class="narr" id="narrative">Loading executive summary…</p>
-      <div class="narr-meta" id="narrativeMeta"></div>
     </div>
 
-    <h2 class="sect">Today's priorities <span class="sect-note">click any card to ask LensS</span></h2>
-    <div class="prio-grid" id="priorities"></div>
+    <nav class="story-nav" aria-label="Command Center story">
+      <a href="#ch1">1 · On track?</a><a href="#ch2">2 · Book health</a><a href="#ch3">3 · What's holding us back</a><a href="#ch4">4 · Where the money is</a><a href="#ch5">5 · What to do this week</a>
+    </nav>
 
-    <h2 class="sect">Core metrics <span class="sect-note">collections portfolio · certified views</span>
-      <button class="sect-btn" id="kpiMoreBtn" aria-expanded="false">Show 7 more metrics</button></h2>
-    <div class="exec-kpis" id="execKpis"></div>
-    <div class="exec-kpis secondary" id="execKpis2" hidden></div>
+    <section class="chapter" id="ch2">
+      <div class="ch-head"><span class="ch-n">2</span><div><div class="ch-q">How healthy is the book?</div><p class="ch-take" id="ch2Take"></p></div>
+        <button class="sect-btn" id="kpiMoreBtn" aria-expanded="false">Show 5 more metrics</button></div>
+      <div class="exec-kpis" id="execKpis"></div>
+      <div class="exec-kpis secondary" id="execKpis2" hidden></div>
+      <div class="card panel" id="pnlRisk" style="margin-top:14px"></div>
+    </section>
 
-    <div class="grid brief-grid" style="margin-top:16px">
-      <div class="card panel brief" id="pnlBrief"></div>
-      <div class="card panel" id="pnlWatch"></div>
-    </div>
+    <section class="chapter" id="ch3">
+      <div class="ch-head"><span class="ch-n">3</span><div><div class="ch-q">What is holding us back?</div><p class="ch-take" id="ch3Take"></p></div></div>
+      <div class="issue-grid" id="issues"></div>
+    </section>
 
-    <h2 class="sect">Portfolio risk &amp; target</h2>
-    <div class="grid two">
-      <div class="card panel" id="pnlRisk"></div>
-      <div class="card panel" id="pnlTarget"></div>
-    </div>
+    <section class="chapter" id="ch4">
+      <div class="ch-head"><span class="ch-n">4</span><div><div class="ch-q">Where is the money?</div><p class="ch-take" id="ch4Take"></p></div></div>
+      <div class="grid money-grid">
+        <div class="card panel" id="pnlOpportunity"></div>
+        <div class="card panel" id="pnlAccounts"></div>
+      </div>
+    </section>
 
-    <h2 class="sect">Action center <span class="sect-note">today's work queues · click to ask LensS</span></h2>
-    <div class="action-grid" id="actionCenter"></div>
-    <div class="grid two" style="margin-top:14px">
-      <div class="card panel" id="pnlActions"></div>
-      <div class="card panel" id="pnlOpportunity"></div>
-    </div>
-    <div class="card panel" id="pnlAccounts" style="margin-top:14px"></div>
+    <section class="chapter" id="ch5">
+      <div class="ch-head"><span class="ch-n">5</span><div><div class="ch-q">What should we do this week?</div><p class="ch-take" id="ch5Take"></p></div></div>
+      <div class="action-grid" id="actionCenter"></div>
+      <div class="card panel" id="pnlActions" style="margin-top:14px"></div>
+    </section>
 
     <button class="card cc-explore" data-tab-jump="explorer">
       <span class="cc-explore-ico" aria-hidden="true"><svg viewBox="0 0 24 24"><path d="M4 5h16l-6 7.5V19l-4 2v-8.5z"/></svg></span>
