@@ -93,7 +93,7 @@ window.loadResponsibleAi = async function loadResponsibleAi() {
         <li>Everyone signs in with their organisation account; each person sees only their own conversations.</li>
         <li>Questions, answers and the usage log are kept in the app's own database, inside the same platform, for history and auditing. Personal details are removed before anything is stored.</li>
         <li>Deleting a conversation removes its messages; the monitoring log keeps the (already masked) question for audit.</li>
-        <li>Monitoring shows administrators every question, the SQL that ran, the checks that fired and the quality score.</li>
+        <li>Observability shows administrators every question, the SQL that ran, the checks that fired and the quality score.</li>
       </ul>
     </div>
     <div class="card">
@@ -111,7 +111,7 @@ window.loadResponsibleAi = async function loadResponsibleAi() {
     <h3>Alignment with responsible-AI frameworks</h3>
     <p class="score-reason">Designed around the principles of the NIST AI Risk Management Framework and the transparency expectations of the EU AI Act; this is a description of the design, not a certification.</p>
     <table class="mini rai-table"><thead><tr><th>Principle</th><th>How LensS meets it</th></tr></thead><tbody>
-      <tr><td><b>Govern</b></td><td>Every AI feature is set per deployment, can be switched off, and every model is named on this page and in Monitoring.</td></tr>
+      <tr><td><b>Govern</b></td><td>Every AI feature is set per deployment, can be switched off, and every model is named on this page and in Observability.</td></tr>
       <tr><td><b>Map</b></td><td>Intended use, data sources and limitations are documented here; out-of-scope requests are detected.</td></tr>
       <tr><td><b>Measure</b></td><td>Per-answer quality scoring, an evaluation suite with ground truth and red-team cases, and run-over-run comparison.</td></tr>
       <tr><td><b>Manage</b></td><td>Guardrails on questions and answers, low-confidence warnings, a feedback review queue, and a full audit trail with request traces.</td></tr>

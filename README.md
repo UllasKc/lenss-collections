@@ -62,7 +62,11 @@ set LENSS_SMOKE_CLIENT_SECRET=<its OAuth secret>
 python deploy/smoke_test.py --host https://<workspace> --app-url https://<app>.databricksapps.com
 ```
 
-It checks the UI, the dashboard APIs, four Chat-mode questions (including the PII refusal), two Agent-mode questions, then one session that switches from Chat to Agent (chart returned, session auto-named, history and charts stored, rename and delete), and the monitoring API — as a real, non-admin identity, which is what catches missing grants.
+It runs as a real, non-admin identity, which is what catches missing grants. It checks:
+- the UI shell, and the Command Center APIs (including the full overview);
+- four Quick-answer questions (including the personal-data refusal), and two Deep-analysis questions (skip them with `--skip-agent`);
+- a session end to end: a chart is returned, the session is auto-named, history and charts are stored, and rename, delete and feedback work;
+- guardrails, the answer cache with Refresh, Monitoring (usage and insights), Evals and Responsible AI.
 
 ## Repository layout
 

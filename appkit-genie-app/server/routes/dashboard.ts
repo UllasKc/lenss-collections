@@ -81,6 +81,72 @@ export function buildDashboardRouter(db: Lakebase): express.Router {
     cached('segments', res, () =>
       runSql(`SELECT * FROM ${GOLD}.qry_kpi_drivers ORDER BY Balance_Recovery_Rate, Outstanding_Balance DESC`)));
 
+  /**
+   * Everything the Command Center shows beyond the headline, in one round trip:
+   * each panel is a certified-view query (no AI), run in parallel and cached per
+   * data version like the rest. A panel that fails comes back empty rather than
+   * failing the page.
+   */
+  router.get('/api/dashboard/overview', (_req, res) =>
+    cached('overview', res, async () => {
+      // The app reads gold only; account-level cuts come from the governed metric view.
+      const MV = `${GOLD}.mv_collections_funnel`;
+      const q = (sql: string) => runSql(sql).catch((err) => {
+        console.warn('[dashboard] overview panel failed:', err instanceof Error ? err.message : err);
+        return [] as Record<string, string | null>[];
+      });
+      const [portfolio, funnel, rates, products, shortfall, buckets, heat, channels, actions, topAccounts,
+        drivers, strategies, regions, vulnerability, collectors, overContact, opportunity] = await Promise.all([
+        q(`SELECT MEASURE(account_count) AS accounts, MEASURE(outstanding_balance) AS outstanding,
+                  MEASURE(mtd_collections) AS recovered, MEASURE(total_cost) AS cost,
+                  MEASURE(cost_to_collect) AS cost_to_collect, MEASURE(high_risk_accounts) AS high_risk,
+                  MEASURE(digital_penetration) AS digital_penetration, MEASURE(promise_kept_rate) AS promise_kept_rate,
+                  MEASURE(roll_forward_rate) AS roll_forward_rate, MEASURE(roll_back_rate) AS roll_back_rate,
+                  MEASURE(average_attempts) AS average_attempts, MEASURE(ptp_amount_total) AS ptp_amount
+             FROM ${MV}`),
+        q(`SELECT * FROM ${GOLD}.qry_collections_funnel`),
+        q(`SELECT * FROM ${GOLD}.qry_funnel_rates`),
+        q(`SELECT * FROM ${GOLD}.qry_product_vs_target`),
+        q(`SELECT Product, DPD_Bucket, Target_Gap, Contribution_To_Gap_Pct FROM ${GOLD}.qry_shortfall_contribution
+            WHERE Target_Gap > 0 ORDER BY Target_Gap DESC LIMIT 6`),
+        q(`SELECT DPD_Bucket, SUM(Outstanding_Balance) AS outstanding, SUM(MTD_Collections) AS collected,
+                  SUM(Monthly_Target) AS target, 1.0*SUM(MTD_Collections)/NULLIF(SUM(Monthly_Target),0) AS achievement
+             FROM ${GOLD}.qry_product_bucket_performance GROUP BY DPD_Bucket`),
+        q(`SELECT Product, DPD_Bucket, Achievement_Pct, Target_Gap FROM ${GOLD}.qry_product_bucket_performance`),
+        q(`SELECT * FROM ${GOLD}.qry_recommended_channel`),
+        q(`SELECT Recommended_Action, COUNT(*) AS accounts, SUM(Incremental_Recovery_Opportunity) AS opportunity
+             FROM ${GOLD}.qry_immediate_intervention GROUP BY Recommended_Action ORDER BY accounts DESC`),
+        q(`SELECT Account_ID, Product, DPD, DPD_Bucket, Outstanding_Balance, Incremental_Recovery_Opportunity,
+                  Payment_Propensity, Preferred_Channel, Primary_Nonpayment_Driver, Recommended_Action
+             FROM ${GOLD}.qry_immediate_intervention ORDER BY Incremental_Recovery_Opportunity DESC LIMIT 8`),
+        q(`SELECT * FROM ${GOLD}.qry_nonpayment_drivers`),
+        q(`SELECT Treatment_Strategy, MEASURE(account_count) AS accounts, MEASURE(balance_recovery_rate) AS recovery_rate,
+                  MEASURE(cost_to_collect) AS cost_to_collect, MEASURE(ptp_conversion_rate) AS ptp_conversion
+             FROM ${MV} GROUP BY Treatment_Strategy ORDER BY recovery_rate DESC`),
+        q(`SELECT Region, MEASURE(account_count) AS accounts, MEASURE(outstanding_balance) AS outstanding,
+                  MEASURE(balance_recovery_rate) AS recovery_rate
+             FROM ${MV} GROUP BY Region ORDER BY recovery_rate DESC`),
+        q(`SELECT COALESCE(Vulnerability_Type, 'None') AS vulnerability, MEASURE(account_count) AS accounts,
+                  MEASURE(balance_recovery_rate) AS recovery_rate
+             FROM ${MV} GROUP BY 1 ORDER BY accounts DESC`),
+        q(`SELECT Collector_ID, Team, Specialization, Assigned_Accounts, Balance_Recovery_Rate, Recovery_MTD, RPC_Rate, PTP_Conversion_Rate
+             FROM ${GOLD}.qry_collector_scorecard ORDER BY Balance_Recovery_Rate DESC`),
+        q(`SELECT COUNT(*) AS segments, SUM(Account_Count) AS accounts, MAX(Average_Attempts) AS max_attempts
+             FROM ${GOLD}.qry_over_contact_risk`),
+        q(`SELECT Product, SUM(Intervention_Accounts) AS accounts, SUM(Incremental_Recovery_Opportunity) AS opportunity
+             FROM ${GOLD}.qry_recovery_opportunity_sizing GROUP BY Product ORDER BY opportunity DESC`),
+      ]);
+      const top = collectors.slice(0, 5);
+      const bottom = collectors.slice(-5).reverse();
+      return {
+        asOf: '2026-09-15',
+        portfolio: portfolio[0] ?? null, funnel: funnel[0] ?? null, rates: rates[0] ?? null,
+        products, shortfall, buckets, heat, channels, actions, topAccounts, drivers, strategies, regions, vulnerability,
+        collectors: { count: collectors.length, top, bottom, best: collectors[0] ?? null, worst: collectors[collectors.length - 1] ?? null },
+        overContact: overContact[0] ?? null, opportunity,
+      };
+    }));
+
   router.get('/api/dashboard/funnel-rates', (_req, res) =>
     cached('funnel-rates', res, async () => (await runSql(`SELECT * FROM ${GOLD}.qry_funnel_rates`))[0]));
 

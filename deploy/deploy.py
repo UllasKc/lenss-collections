@@ -51,6 +51,11 @@ SHEETS = {  # sheet name -> (layer, table)
 }
 
 
+# Windows consoles often can't print characters such as ₹; replace them rather than crash the deploy.
+if hasattr(sys.stdout, "reconfigure"):
+    sys.stdout.reconfigure(errors="replace")
+
+
 def log(msg: str) -> None:
     print(f"[{time.strftime('%H:%M:%S')}] {msg}", flush=True)
 
@@ -315,7 +320,8 @@ def step_transform(sql: Sql, cfg: dict) -> None:
 
 def money(v) -> str:
     v = float(v or 0)
-    return f"${v / 1e6:.1f}M" if abs(v) >= 1e6 else f"${v / 1e3:.0f}K" if abs(v) >= 1e3 else f"${v:,.0f}"
+    # The portfolio is in Indian rupees (Currency_Code INR in the data model).
+    return f"₹{v / 1e6:.1f}M" if abs(v) >= 1e6 else f"₹{v / 1e3:.0f}K" if abs(v) >= 1e3 else f"₹{v:,.0f}"
 
 
 def pct(v) -> str:

@@ -12,7 +12,7 @@ This guide takes you from a fresh laptop to a running app in any Databricks work
 | The source workbook | Unity Catalog volume `<catalog>.lenss_collections_bronze.raw_files` |
 | Genie space "LensS Collections Analytics" (instructions, 19 examples, 7 benchmarks) | Genie |
 | Chat-history and usage database | Lakebase Postgres project `lenss-collections-app` |
-| The web app (Command Center, Chat + Agent, Monitoring) | Databricks Apps |
+| The web app (Command Center, Assistant, Monitoring, Evals, Responsible AI) | Databricks Apps |
 
 ---
 
@@ -317,8 +317,20 @@ It ends with `23/23 checks passed`. It covers the UI, the dashboard and executiv
 ### 9.3 Things to try in the app
 
 - **Command Center:** portfolio KPIs, achievement by product, segment table.
-- **Chat + Agent:** choose **Chat** under the question box for quick answers (~20 s), or **Agent** for "why / what should we do" analysis (1–3 min). You can switch modes within one conversation. Answers include charts with **Chart / Table / SQL** tabs. **Download PDF** (top right of the conversation) saves the whole conversation as it looks on screen, charts included, with page numbers.
-- **Monitoring:** questions, success rate, latency by mode, cache hits, quality scores, AI usage and cost, the feedback review queue, per-user activity, the answer cache, and a per-question audit trail with the request trace.
+- **Command Center:**
+  - **Hero:** a greeting with progress to target, plus recoverable amount, arrears, high-risk accounts and over-contacted segments.
+  - **Today's priorities:** four action cards.
+  - **Metrics:** 10 key metrics with plain-English context.
+  - **Panels:** 12 insight panels (target, shortfall, heatmap, funnel, channels, top accounts, next steps, opportunity, drivers, strategies, regions, collectors).
+  - **Ask AI:** every card and panel has an **Ask AI** button that opens the Assistant and asks the right question.
+- **Assistant:**
+  - **Layout:** a full-screen chat in the style of Microsoft Copilot. The chat list (New chat, Search, Chats) is on the left and can be collapsed. The lightbulb (top right) opens suggested questions.
+  - **Modes:** the picker at the top-left offers **Auto** (the default; it chooses for each question), **Quick answer** (~20 s) or **Deep analysis** (step by step with charts and recommendations, 1–3 min).
+  - **Under each answer:** copy, 👍/👎, regenerate and **Details**. Details holds the quality score, sources, safety checks and how the answer was made.
+  - **Charts:** answers include charts with **Chart / Table / SQL** tabs.
+  - **PDF:** **PDF** (top right) saves the whole conversation as it looks on screen, charts included, with page numbers.
+- **Currency:** all amounts are in Indian rupees (₹), matching the data model. The query engine is instructed to use ₹ too.
+- **Observability** (formerly Monitoring): questions, success rate, latency by mode, cache hits, quality scores, AI usage and cost, the feedback review queue, per-user activity, the answer cache, and a per-question audit trail with the request trace.
 - **Under each answer:** the quality badge, data sources and safety checks; click **How this answer was made** for the full breakdown. See 9.6.
 - **Evals:** run the evaluation suite and compare runs. **Responsible AI:** what the AI does, with which models, and its limits. See 9.6.
 - **Answer cache:** within about 10 minutes of a deploy, the app answers the 10 suggested questions in the background. From then on, clicking one shows the answer at once, marked **⚡ Answered from cache · generated &lt;time&gt;**, with a **↻ Refresh** button that asks Genie live. The first question of any chat is cached for 24 hours the same way. Loading new data (`ingest`, `transform` or `summary`) or changing Genie (`genie`) invalidates every cached answer automatically. See section 9.4.
@@ -557,7 +569,7 @@ See [README.md](README.md) for the repository layout, and [DATABRICKS_IMPLEMENTA
 |---|---|---|
 | **Genie space** | 19 data sources, instructions, 19 example SQLs, sample questions, 7 benchmarks | Turns plain-English questions into governed SQL; the benchmarks measure answer accuracy |
 | **Genie space as code** | `deploy/genie/space.py` produces the space definition, which the Genie API creates or updates | The Genie setup is recreated identically in any workspace instead of rebuilt by hand |
-| **Genie Chat mode** (Conversation API) | The app's **Chat** answers: text, the SQL used, and result rows, which become the charts | Fast answers of about 20 seconds |
+| **Genie Chat mode** (Conversation API) | The app's **Quick answer** mode: text, the SQL used, and result rows, which become the charts | Fast answers of about 20 seconds |
 | **Genie Agent mode** | The app's **Agent** answers: several SQL steps, generated charts, a written report | "Why is this happening / what should we do" questions, in 1–3 minutes |
 | **Model Serving** (foundation model, e.g. Llama 3.3 70B) | Can give each chat session a short title | **Off by default** (`title_endpoint`); sessions are named from their first question |
 | **Model Serving** (Foundation Model APIs) | Guardrail classifier, embeddings for the semantic cache, the answer-quality judge, follow-up suggestions | Each is optional and set per workspace; the deploy binds each endpoint to the app with Can query |
@@ -567,7 +579,7 @@ See [README.md](README.md) for the repository layout, and [DATABRICKS_IMPLEMENTA
 
 | Feature | What it's used for | Why |
 |---|---|---|
-| **Databricks Apps** | Hosts the web app (Command Center, Chat + Agent, Monitoring) | Company sign-in (SSO) built in and no servers to run; Databricks builds the Node app on each deploy |
+| **Databricks Apps** | Hosts the web app (Command Center, Assistant, Monitoring, Evals, Responsible AI) | Company sign-in (SSO) built in and no servers to run; Databricks builds the Node app on each deploy |
 | **App resources** | The app is linked to the Genie space (Can run), the SQL warehouse (Can use), the Lakebase database `chatapp` (Can connect and create) and, if enabled, the title model (Can query) | Grants these permissions to the app's identity automatically, with no secrets in code |
 | **App service principal** | The identity the app uses to call Genie, SQL and Lakebase | Users only need **Can use** on the app, not their own data permissions |
 | **User identity header** | `x-forwarded-email` identifies the signed-in user | Keeps each person's chat history private to them |

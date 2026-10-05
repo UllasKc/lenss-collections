@@ -11,7 +11,159 @@ Versions match git tags where one exists. Dates are when the change was committe
 
 ---
 
-## v1.5.1 — Agent citation markers, deploy name checks (2026-10-01)
+## v1.6.0 — Leadership-ready UX: Command Center, Copilot-style Assistant, Observability (2026-10-05)
+
+Leadership feedback on the first demo was that the UI was not end-user friendly; the demo stopped at the Command Center and Chat + Agent. This release rebuilds both for a CEO/director audience, enriches Monitoring (now Observability), and fixes the issues found in four review rounds and a senior-QA pass. Deployed to the personal workspace.
+
+For the org v2 app: `git pull`, then `python deploy\deploy.py --config deploy\config\org2-v2.json --only genie,summary,app`. The `genie` step adds the rupee rule to v2's space. The `summary` step rewrites the shared executive summary in ₹, which v1 shows too.
+
+The updated demo guide (with Appendix C, the feature catalogue) is not in this commit: the original was open in Word. It is waiting as `docs/LensS_Collections_Demo_Guide (with feature catalogue).docx`.
+
+### Added
+- **Command Center rebuilt for a collections leader.**
+  - **Hero:** a greeting by first name, progress to target ($53.4M of $59.2M, 90.2%), and four headline stats: recoverable now ($6.4M, 604 accounts), accounts in arrears, high-risk accounts, over-contacted segments.
+  - **Today's priorities:** four action cards worked out from the data. Personal Loan is $2.1M behind; 604 accounts need action; 65% of promises due were broken; 83 segments are over-contacted. Each runs the right AI analysis on click.
+  - **10 metrics** with plain-English context: collected, achievement, recovery rate, right-party contact, promise-to-pay conversion, promises kept, cost to collect, amount promised, roll-forward, average attempts.
+  - **12 insight panels:**
+    - achievement by product (with a 100% marker);
+    - where the shortfall comes from;
+    - a product × DPD-bucket heatmap;
+    - the collections funnel;
+    - the best channel per arrears stage;
+    - the top 8 accounts to act on, with the next best action;
+    - recommended next steps;
+    - recovery opportunity by product;
+    - why customers aren't paying;
+    - treatment strategy results;
+    - recovery by region;
+    - top and bottom collectors.
+  - **"Ask AI" on every card and panel** opens the Assistant with the right question in the right mode.
+  - **New endpoint:** `GET /api/dashboard/overview` (16 parallel queries, cached per data version, gold and metric views only).
+- **Monitoring insights.**
+  - **Time range:** 24 hours, 7 days, 30 days or all time.
+  - **Health banner** with a plain verdict.
+  - **Seven tiles:** answer rate, quality, typical and p90 speed per mode, cache use, satisfaction, safety actions.
+  - **Trends:** questions per day by mode, answer time, quality and cache use, hour of day.
+  - **Breakdowns:** most-asked questions, answer-time percentiles, 👎 reasons.
+  - **New endpoint:** `GET /api/admin/insights`.
+- **Feature catalogue: what was built and why.** One line per capability, now 76 rows in 12 areas: data, query engine, app, speed and cost, safety, quality and trust, evaluation and oversight, monitoring, branding, security, deployment, documentation.
+  - **In the implementation guide:** a section near the top of `DATABRICKS_IMPLEMENTATION_GUIDE.md`.
+  - **In the demo guide:** a new **Appendix C** in `docs/LensS_Collections_Demo_Guide.docx`, styled like the document's other tables. The contents page refreshes to list it when the file is opened.
+  - **One source:** both come from the same list, so they match.
+### Changed
+- **"Chat + Agent" is now "Assistant".**
+  - **Modes:** **Deep analysis** (the default) and **Quick answer**, chosen from a dropdown with plain descriptions, replacing the Chat/Agent pills. The labels are used everywhere: message tags, suggestions, Monitoring, the answer panel.
+  - **Empty state:** a personal greeting, a "how it works" strip, and starter cards tagged by mode.
+  - **While it works:** Deep analysis shows a progress bar and a "keep working, we'll notify you" hint.
+- **Visual refresh.**
+  - **Palette:** Concentrix navy and aqua for the hero, tabs (now with icons) and the send button.
+  - **Components:** a user avatar, metric tiles, bar rows, a heatmap, a funnel, and loading skeletons.
+  - **Modes:** purple marks Deep analysis and blue marks Quick answer.
+  - **Phones:** the layout is responsive at phone width.
+- **Monitoring:** the old "questions by mode" and "latency by mode" charts are replaced by the trends.
+- **Segment table:** recovery-rate colours now use realistic thresholds (2.5% / 3.5%). The old ones (85% / 92%) made every row red.
+
+### Changed (fourth review)
+- **The low-confidence warning moved into Details.** Answers stay clean, and the red dot on the Details button still signals low confidence.
+- **The profile is at the bottom-left of the chat list,** like Copilot: initials ("UK" for ullas.kc@…), first name and email. On the collapsed rail only the initials show. The top-bar profile icon is removed.
+- **"Message LensS" is now "Ask LensS"** in the question box.
+- **The "Monitoring" tab is now "Observability",** along with its page heading and the Responsible AI page's mentions of it.
+
+### Fixed (fourth review)
+- **The numbers check flagged correct answers.**
+  - **"180":** read as an unsupported figure from the "180+" arrears bucket, because the bucket-name filter missed "180+" when a space followed it.
+  - **Business-rule thresholds** (0.70 high-risk, 0.25 propensity, 4.5 contacts, 30 accounts, ₹50,000, 0.80, 0.35, 0.90, 50) were treated as data claims. Quoting them is now accepted.
+  - **Example:** an answer citing "180+ days, 543 accounts, risk of 0.70 or more, ₹158M, 3.0%" with matching data now scores 100%, where it scored 60%.
+
+### Changed (third review: Copilot-style assistant)
+- **Mode picker like Microsoft Copilot,** at the top-left of the chat: **Auto** (the new default), **Quick answer** and **Deep analysis**, each with a one-line description and a checkmark on the selected one.
+  - **How Auto chooses:** "why", "what should we do", "how can we", "compare", "prioritise", "drivers", "recommend" and similar questions, or long multi-part questions, get a Deep analysis. Direct "what is / which / show" questions get a Quick answer.
+  - **Fixed modes:** suggested questions and Command Center cards still use their own mode without changing the picker.
+  - **Preference:** the stored choice is `lenss.mode.v3`, so everyone starts on Auto.
+- **No question title** at the top of the chat. The header has the mode picker plus two icon buttons: suggestions and PDF.
+- **Answers are clean, like Copilot.**
+  - **Action row:** the answer text and charts, then copy, 👍, 👎, regenerate and **Details ▾**.
+  - **What Details holds,** only when clicked: quality score and sources, safety checks, mode and timing, the cache note, "How the analysis worked it out" steps, and "How this answer was made". A coloured dot on the Details button gives the quality verdict at a glance.
+  - **Still visible:** the low-confidence warning and guardrail notes (such as removed personal details), because they change how the answer should be read.
+  - **Regenerate:** replaces a cached answer with a live one in place, or asks a live answer again.
+  - **PDF:** the export now shows just the conversation, without the action rows and Details.
+- **Copilot-like surfaces.**
+  - **Background and messages:** a warm off-white background, user messages as light grey bubbles, plain-text answers.
+  - **Follow-ups:** suggestions are right-aligned under the answer.
+  - **Question box:** one rounded row with mic and send, and the notice "AI-generated content may be incorrect".
+  - **Chat list:** New chat, Search and a **Chats** list, open by default on desktop (collapsible, and remembered).
+- **The profile icon no longer drops onto a second row.** The top bar stays on one row on desktop. The email is hidden below 1500 px, and the avatar stays.
+
+### Changed (second leadership review: full-screen assistant, executive language, rupees)
+- **The Assistant is a full-screen chat app, like ChatGPT or Microsoft 365 Copilot.**
+  - **Layout:** no page heading. The chat fills the screen below the top bar, and the page itself never scrolls.
+  - **Conversation list:** a slim rail by default (minimized; each person's choice is remembered), which opens to a panel with **search**. On phones it slides over the chat.
+  - **Suggested questions:** a drawer opened from the header, closed by default, which closes itself after a question is picked.
+  - **Reading layout:** messages and the question box sit in a centred reading column, answers read as plain text rather than in boxes, and the question box floats at the bottom.
+  - **Less text:** the welcome is a greeting and six starter cards. The mode hints are "1–3 min" and "~20 sec", and the notice reads "AI can make mistakes…".
+- **The Command Center speaks to leadership.**
+  - **Hero:** "We've collected ₹53.4M of this month's ₹59.2M target, with ₹5.8M still to close."
+  - **Plain terms:** "Customers reached" (was right-party contact), "Agreed to pay", "Promises honoured", "Accounts worsening" (was roll-forward), "Contacts per customer", "arrears stage" (was DPD bucket), "Largest recovery opportunities", "From arrears to payment".
+  - **Priority cards:** reworded as outcomes, for example "₹6.4M is recoverable from 604 accounts", "65% of payment promises are being broken" and "9,393 customers may be over-contacted".
+- **Money is shown in Indian rupees everywhere.**
+  - **Why:** the data model's `Currency_Code` is `INR`, but the app and the executive summary had been showing `$`, and the query engine mixed `$` and `₹` between answers.
+  - **App:** the Command Center and the segment table use ₹, as do the executive summary (`deploy.py summary`) and the PDF, which captures the page.
+  - **Query engine:** a new **CURRENCY AND FORMAT** rule in the Genie instructions requires ₹ with M/K.
+  - **Exception:** AI cost estimates in Monitoring stay in USD, because model price lists are in dollars.
+- **Deploy output is safe on Windows consoles.** Characters such as ₹ are replaced rather than crashing `deploy.py` on a non-UTF-8 console.
+
+### Fixed (found by a senior-QA pass: 25 scripted UI checks plus the end-to-end smoke test)
+- **The welcome screen stayed visible under an active conversation,** and the conversation panel wouldn't open. Higher-priority style rules overrode the hidden and open states.
+- **Two buttons for the same thing:** on desktop, the header and the rail both had a "show conversations" button. The header one now shows only on small screens.
+- **👍/👎 felt broken.** The button waited more than a second while the server forwarded the rating to the query engine. It now lights up at once (reverting only if saving fails), and the server replies first and forwards in the background.
+- **A 404 error appeared just after each answer,** because the quality badge asked for details before they were saved. The server now answers "pending", and the badge stops checking once its answer is closed or deleted.
+
+### Fixed
+- **Answers not coming back.** Deep analysis is now the default, so every question goes to the query engine's Agent service. On the personal workspace that service was often at capacity.
+  - **Symptoms:** `RESOURCE_EXHAUSTED: The service is temporarily at capacity` (2 failures in 6 minutes), plus `Self-suppression not permitted` at the same moments (2 more).
+  - **Retry:** a busy answer is retried twice (after about 3 s and 8 s) in a fresh conversation that carries the recent turns as context. The user sees "The analysis service is busy, retrying…".
+  - **Fall back:** if Deep analysis is still busy, the question is answered in Quick answer mode, with the note "Deep analysis was busy, so this is a quick answer…". A fallback answer is never cached as the Deep analysis answer.
+  - **Session state:** a failed run no longer becomes the session's engine conversation. Before, the next follow-up was sent into the failed conversation and failed too.
+  - **What the user sees:** a failed answer gives a plain explanation ("The analysis service is busy right now…") and a **Try again** button, instead of a generic apology.
+  - **Monitoring:** retries and fallbacks are recorded in the audit details (`retries`, `fallbackFrom`).
+- **Header spilled out at narrower window widths.** The product name wrapped onto three lines and overflowed the fixed-height header.
+  - **Text:** the header now grows with its content, the name never wraps, and the subtitle, divider and avatar drop off as the window narrows.
+  - **Tabs:** they scroll sideways instead of wrapping.
+- **Assistant welcome screen didn't scroll.** It was an overlay that ignored the mouse, and it ran behind the taller question box, which cut off the last row of question cards. It is now part of the chat column: it scrolls normally and stops above the question box.
+- **Greeting showed "Hi Ullaskc98".** Trailing digits are now dropped from the name taken from the email address.
+- **Verified in headless Chrome at 1440, 1100, 760 and 390 px:**
+  - **Header:** no element overflows (64 px tall at 1100 px and wider, 84 px when the tabs wrap), and the title stays on one line.
+  - **Welcome screen:** a real mouse-wheel event scrolls it at every width where it overflows, and it never overlaps the question box.
+
+### Verified (personal workspace)
+- **After the Copilot-style changes: 27 of 27 UI checks pass.** The two new checks cover Auto as the default with three options, clean answers with Details hidden until clicked, copy and regenerate present, no title, and the profile icon on the top-bar row at 1280 and 1440 px. The **smoke test against the deployed app passes 24 of 24.** One phone-layout defect (a 1 px border left on the closed chat list) was found and fixed.
+- **Senior-QA pass, 25 of 25 UI checks in headless Chrome:**
+  - **Command Center:** panels, executive wording, every Ask-AI control, no NaN or undefined values, rupees throughout.
+  - **Assistant layout:** fills the screen, conversation rail and panel, search, suggestions drawer, mode dropdown, Esc closes.
+  - **Asking and answers:** Enter sends and Shift+Enter makes a new line; answers show trust bar, follow-ups and feedback; the answer panel opens; PDF download.
+  - **Conversations:** rename, search, reopen, delete; Command Center to Assistant.
+  - **Other tabs:** Monitoring ranges and audit row; a policy-only eval run; Responsible AI.
+  - **Phone:** drawers over the chat and no sideways scroll.
+  - **Errors:** no failed requests and no console errors.
+- **Smoke test against the deployed app,** as the real non-admin service identity: **24 of 24 checks**. That includes the three new checks for the Command Center overview, Monitoring insights, and Evals plus Responsible AI.
+- **Command Center:**
+  - all 12 panels filled from live data with no empty or failed panel, in headless Chrome at 1440 px and 390 px;
+  - no horizontal scroll, and the header no longer overlaps the hero on phones;
+  - clicking the "604 accounts" priority opened the Assistant and asked the question in Quick answer mode; it was served from the cache with its trust bar.
+- **Assistant:** defaults to Deep analysis, and the dropdown switches modes.
+- **Monitoring:** the health banner, tiles, four trend charts and three breakdown panels render, and the 7-day range switch works.
+- **Fix for answers not coming back:** the question that had failed, "Which regions are underperforming on recovery and why?" (Deep analysis), answered in 93 s with 3 charts, 12 steps, follow-ups and judging.
+  - **Busy-error detection:** checked offline against the two logged errors (both caught) and a SQL error (correctly not retried).
+  - **Not exercised live:** the retry and fallback paths themselves, since the service can't be made busy on demand.
+- **Errors:** one script error was found and fixed (a duplicate helper name stopped `evals.js` from loading), with none after.
+- **Catalogue documents:** the regenerated demo-guide copy passes the document-format validation (Paragraphs 988 → 1190).
+- **Earlier catalogue check:**
+  - **Document check:** the rebuilt .docx passes the document-format validation (Paragraphs 988 → 1172).
+  - **Word export:** exported to PDF through Word, it is 42 pages, Appendix C starts on page 38, and the contents page (page 3) lists it.
+
+---
+
+## v1.5.1 — Agent citation markers, deploy name checks (2026-10-01, `9321f55`)
 
 ### Fixed
 - **`org-v2.json` used an invalid Lakebase database name.** `chatapp_v2` was rejected by Lakebase, whose database IDs allow only lowercase letters, digits and hyphens. It's now `chatappv2`.

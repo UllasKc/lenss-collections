@@ -2,6 +2,148 @@
 
 *The complete build procedure, start to finish. Companion to `PROJECT_UNDERSTANDING_AND_PLAN.md` (the "what and why"); this file is the "how, in order," using your actual environment.*
 
+## Feature catalogue: what was built and why
+
+Every capability in LensS Collections Intelligence, one line each: what it is and why it was built. The full history, with what was verified, is in CHANGELOG.md.
+
+### Data foundation
+
+| What | Why |
+|---|---|
+| Bronze → silver → gold layers in Unity Catalog | Raw data is kept as received, cleaned once, and served in a governed, reliable form |
+| Ingestion of all 11 workbook sheets, with row-count checks | The source data loads the same way every time, and a short load is caught |
+| Governance and context tables (business rules, definitions) | Rules from the Word specs live in the data, so answers follow them |
+| 2 metric views + 16 certified views | Each measure is defined once and correctly, and the AI answers from clean, approved sources only |
+| Forecast and cure-rate views removed as sources | They gave misleading answers; removing them worked better than adding instructions |
+| Executive summary written from the certified views (no AI) | The Command Center headline is accurate and costs nothing to generate |
+
+### AI query engine (Genie, presented as the "LensS query engine")
+
+| What | Why |
+|---|---|
+| Genie space defined as code: 19 sources, instructions, 19 examples, sample questions, 7 benchmarks | It can be rebuilt identically in any workspace, with no manual setup |
+| Instructions and guardrails in the space (MTD rules, scope, PII refusal, uplift caveat) | Answers follow the business rules and refuse what they must |
+| Fixes for the month-to-date (MTD) conflict and the uplift guardrail | Benchmark questions now return the correct SQL, and uplift answers carry the "observed, not causal" caveat |
+| Quick answer (the engine's Chat mode) | A fast, direct answer in about 20 seconds |
+| Deep analysis (the engine's Agent mode), the default | Multi-step "why / what should we do" analysis with charts and recommendations, in 1–3 minutes |
+| Both modes mixed in one conversation, with context carried across | Users can switch depth without starting over |
+
+### The app
+
+| What | Why |
+|---|---|
+| Command Center hero: greeting, progress to target, recoverable amount, arrears, high-risk and over-contact figures | A leader sees where the month stands in five seconds |
+| Today's priorities: four action cards worked out from the data | Turns numbers into what to do today, ranked by impact |
+| 10 key metrics with plain-English context (contact, promise, kept, cost to collect, roll-forward…) | The health of the operation, without jargon |
+| 12 insight panels: product bars, shortfall sources, heatmap, funnel, best channel, top accounts, next steps, opportunity, drivers, strategies, regions, collectors | Answers the questions a collections head asks, on one page |
+| "Ask AI" on every card and panel | One click from any insight to a full AI analysis of it, in the right mode |
+| AI Assistant tab: ChatGPT-style conversations with history, auto-naming, rename and delete | A familiar experience; people can return to past analyses |
+| Mode dropdown (Deep analysis by default, or Quick answer) with plain descriptions | People choose by what they get, not by technical names |
+| Progress bar and "keep working, we'll notify you" during deep analysis | Long answers feel managed, not stuck |
+| Charts with Chart / Table / SQL views | Answers can be checked visually and technically |
+| Suggested questions (6 tiles + side panel), tested against live data | A strong starting point and a reliable demo path |
+| PDF export of the whole conversation, charts included | Analyses can be shared with people who don't use the app |
+| Answer-ready notifications (large toast, browser alert, tab badge) | People can work elsewhere during long Agent answers |
+| Voice input (the browser's own speech recognition) | Hands-free questions, in the browser's language |
+| Workspace citation links and citation markers stripped; list numbering fixed | Clean answers, with no broken links or internal workspace addresses |
+
+### Speed and cost
+
+| What | Why |
+|---|---|
+| Command Center cache | The dashboard loads instantly until the data changes |
+| Exact answer cache, invalidated by version | Repeat questions are answered in under a second, and stale answers are never served after data or Genie changes |
+| Background answering of the 10 suggested questions after each data change | Demo questions are instant from the first click |
+| Semantic cache (98% similarity + matching key details) | Reworded questions reuse a correct answer without mixing up products or DPD buckets |
+| Exact cache hits skip the classifier wait | A safe 2.5 s → 0.8 s improvement, since the question was already screened when first answered |
+| Refresh button, and 👎 removes a cached answer | Users always have a way to get a fresh answer |
+
+### Safety (guardrails)
+
+| What | Why |
+|---|---|
+| Personal data in questions masked or blocked (email, phone, card, Aadhaar, PAN, SSN, IBAN) | Personal data never reaches the AI, the cache or the logs |
+| Profanity and abuse blocked (English and Hindi/Hinglish) | Keeps the tool professional |
+| Prompt-injection and jailbreak detection | Stops attempts to override the assistant's rules |
+| Off-topic detection (by an AI classifier) | Keeps the assistant on collections analytics |
+| Output checks: personal data and profanity removed; forecast, causal-uplift, cure-rate and probability wording flagged | Answers don't overstate what the data supports |
+| Blocked or redacted questions never name a session | No offensive or personal text in the sidebar or the PDF |
+| Every check can be switched on or off per workspace in the config | Each client can set its own risk level |
+
+### Answer quality and trust
+
+| What | Why |
+|---|---|
+| Faithfulness judge: every figure checked against the query results, plus an AI judge | Measures whether answers match the data |
+| Four quality scores: faithfulness, relevance, completeness, safety | The standard set of answer-quality measures |
+| Trust badge under each answer (Verified %, data sources, safety checks) | Users can see at a glance how far to trust an answer |
+| "How this answer was made" panel | Full transparency: scores, data, SQL, checks, timing and AI usage |
+| Low-confidence warning below 70% | Weak answers are flagged where they can't be missed |
+| Suggested follow-up questions (always three, any language) | Guides users to dig deeper |
+| AI-generated notice under the question box | Users know they're reading AI output |
+
+### Evaluation and oversight
+
+| What | Why |
+|---|---|
+| Evals tab with 29 cases (ground-truth accuracy, red-team, false-positive, policy) | Proves accuracy and safety with numbers, not anecdotes |
+| Run history with the change from the previous run | Shows whether a change helped or hurt quality |
+| Feedback review queue (👎 with reasons → Fixed, Dismiss, Add to evals) | Human-in-the-loop: complaints get reviewed and become permanent tests |
+| Responsible AI tab (purpose, models, data, protections, limits, NIST AI RMF / EU AI Act alignment) | Answers the risk and compliance questions clients ask |
+
+### Monitoring
+
+| What | Why |
+|---|---|
+| Health banner and time range (24 hours, 7 days, 30 days, all time) | A one-line verdict an owner reads first |
+| Trends per day: questions by mode, answer time, quality, cache use, hour of day | Shows adoption, speed and quality over time |
+| Most-asked questions, answer-time percentiles, 👎 reasons | What people want, how long they wait, and why they are unhappy |
+| All-time usage KPIs, success rate, ratings | The long-run picture |
+| Per-question audit trail (answer, SQL, rows, cache, checks, scores) | Every answer can be audited after the fact |
+| Request-trace waterfall | Shows exactly where the time went in each request |
+| AI usage and cost by feature and model | Cost visibility and control |
+| Answer cache and guardrail panels | Shows what's cached and what the guardrails stopped |
+| Tables capped at about 10 rows, scrolling inside the card | The page stays usable as usage grows |
+
+### Branding
+
+| What | Why |
+|---|---|
+| Concentrix wordmark in the header and the PDF; small mark as the chat avatar and browser-tab icon | Presents it as a Concentrix product, without overusing the logo |
+| No Genie or Databricks names in the UI; models shown by their own names | Promotes Concentrix LensS, not the platform |
+| PDF header and footer branded, with no session name | A clean, shareable, on-brand export |
+
+### Security and access
+
+| What | Why |
+|---|---|
+| App runs as its own service principal, with read-only gold access | Users need only "Can use"; there are no data permissions to manage per person |
+| Sign-in through the organisation's single sign-on, with each user seeing only their own chats | Secure, private chat history |
+| Models called through endpoint permissions, with no API keys | Nothing secret to leak |
+
+### Deployment and operations
+
+| What | Why |
+|---|---|
+| One-command deploy (schemas, ingest, transform, summary, Genie, Lakebase, app, smoke test) | Any workspace is set up the same way, repeatably |
+| Separate configs per workspace (personal, org, org2) | The same code deploys to every environment |
+| Optional AI features: a missing config section means off, and missing models give a warning | Safe to deploy anywhere, with features chosen per client |
+| Parallel version deploy (v2 with its own app, Genie space and database) | New versions can be tried without disturbing the live one |
+| Early config validation (Lakebase and app names) | Bad names fail at once, not halfway through a deploy |
+| Shared-catalog handling (USE CATALOG check, admin warning) | Deploys into catalogs you don't own don't fail |
+| End-to-end smoke test, run as a non-admin identity | Catches missing permissions before users do |
+| Lakebase Postgres for chats, cache, logs and evals (schema v6) | Fast, durable app data inside the same platform |
+
+### Documentation
+
+| What | Why |
+|---|---|
+| CHANGELOG.md, updated with every change | A full history of what changed, why, and what was verified |
+| SETUP_GUIDE.md and DATABRICKS_IMPLEMENTATION_GUIDE.md | Anyone can deploy, operate and understand the design |
+| This demo guide (Word document) | A ready-made walkthrough for presenters |
+
+---
+
 ## Your real environment (confirmed 2026-09-24)
 
 - **Catalog**: `cnx_automl_dev` (existing, shared — not dedicated to this project; other schemas in it belong to other teams/users and are never touched by anything below)
@@ -1332,6 +1474,49 @@ The AI features from Step 8f mostly lived in Monitoring. This step puts them in 
 
 ### Verified
 See `CHANGELOG.md` (Unreleased / v1.5.0): one live question end to end; a blocked question; two eval runs (the second after fixing a classifier false positive the first one found); and the UI and PDF in headless Chrome.
+
+---
+
+## Step 8h — UX redesign after the leadership demo
+
+Leadership found the first demo too analyst-oriented: the Command Center was thin, and "Chat + Agent" meant nothing to an end user. This step rebuilt both screens and Monitoring around what a collections leader needs.
+
+### Command Center (`public/js/home.js`, `GET /api/dashboard/overview`)
+- **One API call,** 16 certified-view or metric-view queries run in parallel and cached per data version like the other dashboard panels. A failing panel returns empty instead of breaking the page. The app still reads **gold only**: account-level cuts (strategy, region, vulnerability, totals) come from `mv_collections_funnel` with `MEASURE()`, not from silver.
+- **Layout, top to bottom:**
+  - hero (greeting, progress to target, 4 headline stats);
+  - executive summary;
+  - **Today's priorities** (4 cards worked out from the data: biggest product gap, accounts to act on, broken promises, over-contact);
+  - 10 metrics;
+  - panels for performance against target (product bars with a 100% marker, shortfall sources, product × bucket heatmap), customer engagement (funnel, best channel per bucket), where to act (top 8 accounts with next best action, action mix, opportunity by product), and drivers (non-payment reasons, strategies, regions, collectors).
+- **Ask AI everywhere:** `data-ask` / `data-mode` on any element opens the Assistant (`window.askAssistant`), starts a new conversation and asks the question in that mode.
+- **No AI computes these figures,** which the page footer states.
+
+### Assistant (`public/js/chat.js`)
+- **Tab and modes:** the tab is **Assistant**. The modes are **Deep analysis** (Agent, the default) and **Quick answer** (Chat), chosen from a dropdown with plain descriptions. The preference key is `lenss.mode.v2`, so everyone starts on Deep analysis.
+- **Empty state:** a personal greeting, a three-step "how it works" strip and starter cards tagged by mode.
+- **While it works:** Deep analysis shows a progress bar and tells the user they can keep working; the existing notifications fire when it's ready.
+
+### Monitoring (`public/js/monitoring.js`, `GET /api/admin/insights?days=`)
+- **Time range:** 24 hours, 7 days, 30 days or all time.
+- **Health banner:** healthy, needs attention (with the reasons) or idle.
+- **Seven insight tiles:** answer rate, quality, p50/p90 speed per mode, served from cache, satisfaction, safety actions.
+- **Trend charts:** questions per day by mode with failures, answer time per mode, quality and cache use per day, and questions by hour.
+- **Breakdowns:** most-asked questions, latency percentiles and 👎 reasons.
+- The existing sections follow, with the old mode and latency charts removed.
+
+### Second review: full-screen assistant, executive language, one currency
+- **Assistant layout:** the Assistant is a full-screen chat app.
+  - **Screen space:** `body.assistant-on` removes the page padding, and the chat column is `100vh − --nav-h`, measured from the top bar with a `ResizeObserver`.
+  - **Conversation list:** a 60 px rail that opens to 280 px with search (`lenss.sideOpen`, closed by default; an overlay with a backdrop below 900 px).
+  - **Suggestions:** a drawer, closed by default.
+  - **Messages:** a 860 px centred reading column with a floating question box.
+- **Command Center copy:** it speaks as "we" and uses plain terms for leadership.
+- **Rupees:** money is ₹ everywhere. The data model's `Currency_Code` is `INR`, and a CURRENCY AND FORMAT rule in the Genie instructions keeps the query engine consistent.
+- **Senior-QA pass:** found four defects, two of them style-priority overrides that hid or blocked the welcome screen and the conversation panel. Both scripts are kept as regression checks: the 25-check UI script and the extended smoke test (24 checks, now including `/api/dashboard/overview`, `/api/admin/insights`, `/api/evals` and `/api/ai/transparency`).
+
+### Visual system
+The Concentrix palette (navy `#003B5C`, aqua `#25E2CC`) carries the hero, tabs with icons and the send button. Purple marks Deep analysis and blue marks Quick answer throughout. Bars, heatmap, funnel, skeleton loading states and responsive layouts were checked at phone width.
 
 ---
 

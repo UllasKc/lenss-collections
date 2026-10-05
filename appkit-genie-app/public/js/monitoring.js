@@ -1,6 +1,6 @@
 let obsLoaded = false;
-let obsModeChartInstance = null;
-let obsLatencyChartInstance = null;
+const obsCharts = {};
+let obsDays = 30;
 let obsRecent = [];
 let obsFeedback = [];
 
@@ -106,7 +106,7 @@ function renderAuditTrail() {
       : `<span class="chip bad" title="${esc(e.error_message || '')}">failed</span>`;
     tr.innerHTML = `<td>${new Date(e.created_at).toLocaleString()}</td>
       <td style="max-width:180px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${esc(e.user_email)}</td>
-      <td><span class="badge ${e.mode === 'agent' ? 'amber' : 'green'}">${esc(e.mode)}</span></td>
+      <td><span class="badge ${e.mode === 'agent' ? 'amber' : 'green'}">${esc(modeName(e.mode))}</span></td>
       <td style="max-width:320px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap" title="${esc(e.question)}">${esc(e.question)}</td>
       <td>${resultChip}</td><td>${ratingChip(e.feedback)}</td><td>${faithChip(e.faithfulness)}</td>
       <td>${e.from_cache ? `<span class="chip cache" title="Answered from the answer cache">⚡ ${fmtMs(e.latency_ms)}</span>` : fmtMs(e.latency_ms)}</td><td>▸</td>`;
@@ -171,7 +171,123 @@ function renderAuditTrail() {
 }
 document.getElementById('obsUserFilter').addEventListener('change', renderAuditTrail);
 
+// ---------------------------------------------------------------- trends and insights (time range)
+
+const OBS_COLORS = { deep: '#7C3AED', quick: '#1D4ED8', failed: '#DC2626', blocked: '#D97706', quality: '#059669', cache: '#0E9384' };
+
+function obsChart(id, config) {
+  if (obsCharts[id]) obsCharts[id].destroy();
+  const el = document.getElementById(id);
+  if (!el || typeof Chart === 'undefined') return;
+  obsCharts[id] = new Chart(el, config);
+}
+
+const dayLabel = d => new Date(d + 'T00:00:00').toLocaleDateString(undefined, { day: 'numeric', month: 'short' });
+const obsPct = v => (v === null || v === undefined || v === '' ? '—' : Math.round(Number(v) * 100) + '%');
+const REASON_TEXT = { wrong_numbers: 'Wrong numbers', wrong_data: 'Wrong products, buckets or filters', not_answered: "Didn't answer the question", unclear: 'Hard to understand', other: 'Something else', none: 'No reason given' };
+
+async function loadInsights() {
+  let d;
+  try { d = await fetch(`/api/admin/insights?days=${obsDays}`).then(r => r.json()); } catch { return; }
+  const s = d.summary || {};
+  const pe = d.people || {};
+  const range = obsDays === 1 ? 'the last 24 hours' : obsDays ? `the last ${obsDays} days` : 'all time';
+
+  // Health banner: the one-line verdict an owner reads first.
+  const h = d.health || {};
+  const verdict = h.status === 'healthy' ? ['ok', '✓', 'All healthy', `Answers are succeeding and quality is good over ${range}.`]
+    : h.status === 'idle' ? ['idle', '•', 'No activity', `Nobody asked anything in ${range}.`]
+    : ['warn', '!', 'Needs attention', `Over ${range}: ${h.issues.join('; ')}.`];
+  document.getElementById('obsHealth').innerHTML = `<div class="health h-${verdict[0]}"><span class="health-ico">${verdict[1]}</span>
+    <div><b>${verdict[2]}</b><span>${esc(verdict[3])}</span></div>
+    <div class="health-chips"><span>${fmtNum(s.questions)} questions</span><span>${fmtNum(pe.users)} people</span><span>${fmtNum(pe.sessions)} conversations</span><span>${fmtNum(pe.active_today)} active today</span></div></div>`;
+
+  const lat = Object.fromEntries((d.latency || []).map(r => [r.mode, r]));
+  const rated = Number(s.up || 0) + Number(s.down || 0);
+  const tiles = [
+    ['Questions answered', obsPct(s.success_rate), `${fmtNum(s.questions)} asked in ${range}`, Number(s.success_rate) < 0.9 ? 'warn' : 'good'],
+    ['Answer quality', obsPct(s.faithfulness), 'average faithfulness to the data', Number(s.faithfulness) && Number(s.faithfulness) < 0.8 ? 'warn' : null],
+    ['Quick answer speed', lat.chat ? fmtMs(Number(lat.chat.p50)) : '—', lat.chat ? `typical · 90% within ${fmtMs(Number(lat.chat.p90))}` : 'no live quick answers', null],
+    ['Deep analysis speed', lat.agent ? fmtMs(Number(lat.agent.p50)) : '—', lat.agent ? `typical · 90% within ${fmtMs(Number(lat.agent.p90))}` : 'no live deep analyses', null],
+    ['Served instantly', obsPct(s.cache_rate), 'answered from the cache', null],
+    ['Satisfaction', rated ? Math.round(100 * Number(s.up) / rated) + '%' : '—', `👍 ${fmtNum(s.up)} · 👎 ${fmtNum(s.down)}`, rated && Number(s.down) > Number(s.up) ? 'warn' : null],
+    ['Safety checks acted', fmtNum(s.guarded), 'questions blocked, cleaned or flagged', null],
+  ];
+  document.getElementById('obsInsightKpis').innerHTML = tiles.map(([l, v, sub, t]) =>
+    `<div class="metric${t ? ' m-' + t : ''}"><div class="metric-top"><span>${l}</span></div><div class="metric-v">${v}</div><div class="metric-s">${sub}</div></div>`).join('');
+
+  const days = d.daily || [];
+  const labels = days.map(r => dayLabel(r.day));
+  const base = { responsive: true, maintainAspectRatio: false, interaction: { mode: 'index', intersect: false },
+    plugins: { legend: { labels: { boxWidth: 10, font: { size: 11 } } } } };
+  obsChart('obsDailyChart', {
+    type: 'bar',
+    data: { labels, datasets: [
+      { label: 'Deep analysis', data: days.map(r => r.deep), backgroundColor: OBS_COLORS.deep, stack: 'q', borderRadius: 3 },
+      { label: 'Quick answer', data: days.map(r => r.quick), backgroundColor: OBS_COLORS.quick, stack: 'q', borderRadius: 3 },
+      { label: 'Failed', data: days.map(r => r.failed), type: 'line', borderColor: OBS_COLORS.failed, backgroundColor: OBS_COLORS.failed, pointRadius: 2, tension: .3 },
+    ] },
+    options: { ...base, scales: { x: { stacked: true, grid: { display: false } }, y: { stacked: true, beginAtZero: true, ticks: { precision: 0 } } } },
+  });
+  obsChart('obsSpeedChart', {
+    type: 'line',
+    data: { labels, datasets: [
+      { label: 'Deep analysis (s)', data: days.map(r => (r.deep_ms === null ? null : Number(r.deep_ms) / 1000)), borderColor: OBS_COLORS.deep, backgroundColor: OBS_COLORS.deep + '22', fill: true, tension: .3, spanGaps: true },
+      { label: 'Quick answer (s)', data: days.map(r => (r.quick_ms === null ? null : Number(r.quick_ms) / 1000)), borderColor: OBS_COLORS.quick, backgroundColor: OBS_COLORS.quick + '22', fill: true, tension: .3, spanGaps: true },
+    ] },
+    options: { ...base, scales: { y: { beginAtZero: true, ticks: { callback: v => v + 's' } }, x: { grid: { display: false } } } },
+  });
+  obsChart('obsQualityChart', {
+    type: 'line',
+    data: { labels, datasets: [
+      { label: 'Faithfulness', data: days.map(r => (r.faithfulness === null ? null : Number(r.faithfulness) * 100)), borderColor: OBS_COLORS.quality, backgroundColor: OBS_COLORS.quality + '22', fill: true, tension: .3, spanGaps: true },
+      { label: 'Served from cache', data: days.map(r => Number(r.cache_rate) * 100), borderColor: OBS_COLORS.cache, borderDash: [4, 4], pointRadius: 2, tension: .3 },
+    ] },
+    options: { ...base, scales: { y: { min: 0, max: 100, ticks: { callback: v => v + '%' } }, x: { grid: { display: false } } } },
+  });
+  const hours = Array.from({ length: 24 }, (_, i) => (d.hourly || []).find(r => Number(r.hour) === i)?.n || 0);
+  obsChart('obsHourChart', {
+    type: 'bar',
+    data: { labels: hours.map((_, i) => String(i).padStart(2, '0')), datasets: [{ label: 'Questions', data: hours, backgroundColor: '#0B6E99', borderRadius: 3 }] },
+    options: { ...base, plugins: { legend: { display: false } }, scales: { y: { beginAtZero: true, ticks: { precision: 0 } }, x: { grid: { display: false }, title: { display: true, text: 'Hour of day (UTC)', font: { size: 10 } } } } },
+  });
+
+  const top = d.topQuestions || [];
+  document.getElementById('obsTopQuestions').innerHTML = `<div class="panel-head"><div><h3>Most-asked questions</h3><div class="panel-sub">What people want to know (${range})</div></div></div>
+    <div class="panel-body">${top.map((q, i) => `<div class="tq"><span class="tq-n">${i + 1}</span><span class="tq-q" title="${esc(q.question)}">${esc(q.question)}</span>
+      <span class="tq-m">${fmtNum(q.times)}×${q.people > 1 ? ` · ${q.people} people` : ''}${q.from_cache ? ` · ⚡${q.from_cache}` : ''}</span></div>`).join('') || '<div class="empty-note">No questions yet.</div>'}</div>`;
+
+  document.getElementById('obsLatency').innerHTML = `<div class="panel-head"><div><h3>How long answers take</h3><div class="panel-sub">Live answers; half finish within the typical time</div></div></div>
+    <div class="panel-body">${['agent', 'chat'].map(m => {
+      const r = lat[m];
+      if (!r) return `<div class="lat"><b>${modeName(m)}</b><span class="muted">No live answers in ${range}.</span></div>`;
+      const max = Number(r.p95) || 1;
+      return `<div class="lat"><b>${modeName(m)}</b> <span class="muted">${fmtNum(r.n)} answers</span>
+        ${[['Typical (p50)', r.p50], ['Most (p90)', r.p90], ['Almost all (p95)', r.p95]].map(([l, v]) =>
+          `<div class="lat-row"><span>${l}</span><span class="lat-track"><span class="t-${m === 'agent' ? 'deep' : 'quick'}" style="width:${(100 * Number(v) / max).toFixed(0)}%"></span></span><span class="mono">${fmtMs(Number(v))}</span></div>`).join('')}</div>`;
+    }).join('')}</div>`;
+
+  const reasons = d.reasons || [];
+  const totalDown = reasons.reduce((a, r) => a + r.n, 0);
+  document.getElementById('obsReasons').innerHTML = `<div class="panel-head"><div><h3>Why answers got a 👎</h3><div class="panel-sub">${totalDown ? `${totalDown} in ${range}` : `None in ${range}`}</div></div><button class="ask-link" data-tab-scroll="feedbackTable">Review queue ›</button></div>
+    <div class="panel-body">${reasons.map(r => `<div class="hbar"><div class="hbar-top"><span class="hbar-label">${esc(REASON_TEXT[r.reason] || r.reason)}</span><span class="hbar-val">${r.n}</span></div>
+      <div class="hbar-track"><span class="hbar-fill t-bad" style="width:${(100 * r.n / Math.max(1, totalDown)).toFixed(0)}%"></span></div></div>`).join('') || '<div class="empty-note">No 👎 feedback. 🎉</div>'}</div>`;
+}
+
+document.getElementById('obsRange').addEventListener('click', (e) => {
+  const b = e.target.closest('button[data-days]');
+  if (!b) return;
+  obsDays = Number(b.dataset.days);
+  document.querySelectorAll('#obsRange button').forEach(x => x.classList.toggle('on', x === b));
+  loadInsights();
+});
+document.addEventListener('click', (e) => {
+  const b = e.target.closest('[data-tab-scroll]');
+  if (b) document.getElementById(b.dataset.tabScroll)?.scrollIntoView({ behavior: 'smooth', block: 'center' });
+});
+
 window.loadMonitoring = async function loadMonitoring() {
+  loadInsights();
   const data = await fetch('/api/admin/usage').then(r => r.json());
 
   const kpis = document.getElementById('obsKpis');
@@ -203,25 +319,6 @@ window.loadMonitoring = async function loadMonitoring() {
     `👍 ${fmtNum(data.totals.helpful)}  ·  👎 ${fmtNum(data.totals.not_helpful)}`,
     rated && data.totals.not_helpful > data.totals.helpful ? 'warn' : null));
 
-  if (obsModeChartInstance) obsModeChartInstance.destroy();
-  obsModeChartInstance = new Chart(document.getElementById('obsModeChart'), {
-    type: 'doughnut',
-    data: {
-      labels: data.byMode.map(m => m.mode),
-      datasets: [{ data: data.byMode.map(m => m.questions), backgroundColor: ['#1D4ED8', '#9333EA'] }],
-    },
-    options: { responsive: true, maintainAspectRatio: false },
-  });
-
-  if (obsLatencyChartInstance) obsLatencyChartInstance.destroy();
-  obsLatencyChartInstance = new Chart(document.getElementById('obsLatencyChart'), {
-    type: 'bar',
-    data: {
-      labels: data.byMode.map(m => m.mode),
-      datasets: [{ label: 'Avg latency (ms)', data: data.byMode.map(m => m.avg_latency_ms), backgroundColor: '#0E9384' }],
-    },
-    options: { responsive: true, maintainAspectRatio: false, plugins: { legend: { display: false } } },
-  });
 
   const userBody = document.querySelector('#userTable tbody');
   userBody.innerHTML = '';
@@ -322,7 +419,7 @@ function renderCache(cache) {
   cache.entries.forEach(e => {
     const tr = document.createElement('tr');
     tr.innerHTML = `<td style="max-width:420px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap" title="${esc(e.question)}">${esc(e.question)}</td>
-      <td><span class="badge ${e.mode === 'agent' ? 'amber' : 'green'}">${esc(e.mode)}</span></td>
+      <td><span class="badge ${e.mode === 'agent' ? 'amber' : 'green'}">${esc(modeName(e.mode))}</span></td>
       <td>${e.source === 'prewarm' ? 'Pre-warmed' : 'Earlier answer'}</td><td>${fmtNum(e.hits)}</td>
       <td>${new Date(e.created_at).toLocaleString()}</td>
       <td>${e.expires_at ? new Date(e.expires_at).toLocaleString() : 'When the data or semantic model changes'}</td>`;

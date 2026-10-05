@@ -1,8 +1,23 @@
-// Chat + Agent: ChatGPT-style sessions, per-question mode, rendered markdown and charts.
+// AI Assistant: Copilot-style conversations, per-question mode, rendered markdown and charts.
+// Modes, named for what the user gets: Auto (the default: picks per question), Quick answer
+// (the engine's Chat mode) and Deep analysis (its Agent mode). Answers are only ever 'chat' or 'agent'.
 
-const MODE_HINT = { chat: 'Quick answer · ~20s', agent: 'Deep multi-step analysis · 1–3 min' };
+const MODE_NAMES = { agent: 'Deep analysis', chat: 'Quick answer', auto: 'Auto' };
+const modeName = m => MODE_NAMES[m] || MODE_NAMES.chat;
 
-let currentMode = readPref('lenss.mode', 'chat');
+/**
+ * Auto: "why / what should we do / compare / prioritise" questions and long, multi-part
+ * questions get a Deep analysis; direct "what is / which / show" questions a Quick answer.
+ */
+function autoMode(question) {
+  const t = String(question).toLowerCase();
+  const deep = /\b(why|how (can|could|should|do|would) we|what should|recommend|strateg(y|ies)|improve|root cause|driv(er|ers|ing)|compare|comparison|analy[sz]e|analysis|investigat|prioriti[sz]e|opportunit|plan|explain|aggressive|impact|trade-?off|what (is|are) (causing|behind))\b/;
+  return deep.test(t) || t.split(/\s+/).length > 22 ? 'agent' : 'chat';
+}
+const resolveMode = (question, explicit) => explicit || (currentMode === 'auto' ? autoMode(question) : currentMode);
+
+// Auto is the default; a person's own choice is remembered (new key, so everyone starts on Auto).
+let currentMode = readPref('lenss.mode.v3', 'auto');
 let activeSessionId = null;
 let sessions = [];
 let sending = false;
@@ -23,17 +38,24 @@ function esc(s) {
 
 // ---------------------------------------------------------------- mode switch
 
+const modeBtn = document.getElementById('modeBtn');
+const modeMenu = document.getElementById('modeMenu');
+
 function setMode(mode) {
-  currentMode = mode === 'agent' ? 'agent' : 'chat';
-  writePref('lenss.mode', currentMode);
-  document.querySelectorAll('.mode-pill').forEach(b => {
-    const on = b.dataset.mode === currentMode;
-    b.classList.toggle('on', on);
-    b.setAttribute('aria-checked', String(on));
-  });
-  document.getElementById('modeHint').textContent = MODE_HINT[currentMode];
+  currentMode = ['chat', 'agent', 'auto'].includes(mode) ? mode : 'auto';
+  writePref('lenss.mode.v3', currentMode);
+  document.getElementById('modeLabel').textContent = modeName(currentMode);
+  document.getElementById('modeSelect').dataset.mode = currentMode;
+  modeMenu.querySelectorAll('.mode-opt').forEach(o => o.setAttribute('aria-selected', String(o.dataset.mode === currentMode)));
 }
-document.querySelectorAll('.mode-pill').forEach(b => b.addEventListener('click', () => { setMode(b.dataset.mode); inputEl.focus(); }));
+function openModeMenu(open) {
+  modeMenu.hidden = !open;
+  modeBtn.setAttribute('aria-expanded', String(open));
+}
+modeBtn.addEventListener('click', (e) => { e.stopPropagation(); openModeMenu(modeMenu.hidden); });
+modeMenu.querySelectorAll('.mode-opt').forEach(o => o.addEventListener('click', () => { setMode(o.dataset.mode); openModeMenu(false); inputEl.focus(); }));
+document.addEventListener('click', (e) => { if (!e.target.closest('#modeSelect')) openModeMenu(false); });
+document.addEventListener('keydown', (e) => { if (e.key === 'Escape') openModeMenu(false); });
 setMode(currentMode);
 
 // ---------------------------------------------------------------- composer
@@ -64,12 +86,13 @@ function starterButton(s, cls) {
   const b = document.createElement('button');
   b.className = cls;
   b.title = s.q;
-  b.innerHTML = `<span class="tag ${s.mode}">${s.mode === 'agent' ? 'Agent' : 'Chat'}</span><span class="starter-text">${esc(s.label)}</span>`;
+  b.innerHTML = `<span class="tag ${s.mode}">${s.mode === 'agent' ? '✦ ' : '⚡ '}${modeName(s.mode)}</span><span class="starter-text">${esc(s.label)}</span>` +
+    (cls === 'starter' ? `<span class="starter-go" aria-hidden="true">→</span>` : '');
   b.addEventListener('click', () => {
     if (sending) return;
-    setMode(s.mode);
-    // A suggested question stands on its own, so it can be answered from the cache.
-    sendMessage(s.q, { standalone: true });
+    setSuggestOpen(false);
+    // A suggested question stands on its own, so it can be answered from the cache; it keeps its own mode.
+    sendMessage(s.q, { standalone: true, mode: s.mode });
   });
   return b;
 }
@@ -89,7 +112,7 @@ function renderSuggestions() {
   list.innerHTML = '';
   STARTERS.forEach(s => grid.appendChild(starterButton(s, 'starter')));
   const all = STARTERS.concat(MORE_SUGGESTIONS);
-  [['chat', 'Chat · quick answers'], ['agent', 'Agent · deep analysis']].forEach(([mode, title]) => {
+  [['agent', 'Deep analysis · 1–3 min'], ['chat', 'Quick answers · ~20 s']].forEach(([mode, title]) => {
     const h = document.createElement('div');
     h.className = 'suggest-group';
     h.textContent = title;
@@ -105,25 +128,62 @@ fetch('/api/chat/suggestions').then(r => r.ok ? r.json() : null).then(d => {
   renderSuggestions();
 }).catch(() => {});
 
-// The side panel can be collapsed to a slim rail; the choice is remembered.
-const chatWrapEl = document.querySelector('#tab-assistant .chatwrap');
+// Layout like ChatGPT / Copilot: the conversation list folds away (minimized by default,
+// remembered per person; an overlay on small screens) and suggested questions open on demand.
+const chatWrapEl = document.getElementById('chatWrap');
 const suggestPanel = document.getElementById('suggestPanel');
-const suggestToggle = document.getElementById('suggestToggle');
-function setSuggestOpen(open) {
-  chatWrapEl.classList.toggle('suggest-collapsed', !open);
-  suggestToggle.setAttribute('aria-expanded', String(open));
-  suggestToggle.title = open ? 'Hide suggested questions' : 'Show suggested questions';
-  writePref('lenss.suggestOpen', open ? '1' : '0');
-}
-suggestToggle.addEventListener('click', () => setSuggestOpen(suggestToggle.getAttribute('aria-expanded') !== 'true'));
-setSuggestOpen(readPref('lenss.suggestOpen', '1') === '1');
+const suggestBtn = document.getElementById('suggestBtn');
+const sideScrim = document.getElementById('sideScrim');
+const narrow = () => window.matchMedia('(max-width: 900px)').matches;
 
-document.getElementById('newSessionBtn').addEventListener('click', newChat);
+function setSideOpen(open, remember = true) {
+  chatWrapEl.classList.toggle('side-open', open);
+  document.getElementById('sideToggle').setAttribute('aria-expanded', String(open));
+  document.getElementById('sideOpen').hidden = open;
+  sideScrim.hidden = !(open && narrow());
+  if (remember && !narrow()) writePref('lenss.sideOpen', open ? '1' : '0');
+}
+document.getElementById('sideToggle').addEventListener('click', () => setSideOpen(!chatWrapEl.classList.contains('side-open')));
+document.getElementById('sideOpen').addEventListener('click', () => setSideOpen(true));
+sideScrim.addEventListener('click', () => { setSideOpen(false, false); setSuggestOpen(false); });
+setSideOpen(!narrow() && readPref('lenss.sideOpen', '1') === '1', false);   // open by default on desktop, like Copilot
+
+function setSuggestOpen(open) {
+  suggestPanel.hidden = !open;
+  chatWrapEl.classList.toggle('suggest-open', open);
+  suggestBtn.setAttribute('aria-expanded', String(open));
+  suggestBtn.classList.toggle('on', open);
+  if (narrow()) sideScrim.hidden = !open;
+}
+suggestBtn.addEventListener('click', () => setSuggestOpen(suggestPanel.hidden));
+document.getElementById('suggestClose').addEventListener('click', () => setSuggestOpen(false));
+document.addEventListener('keydown', (e) => { if (e.key === 'Escape' && !suggestPanel.hidden) setSuggestOpen(false); });
+
+// Conversation search: filters the list as you type.
+document.getElementById('sessionSearch').addEventListener('input', () => renderSessionList());
+
+document.getElementById('newSessionBtn').addEventListener('click', () => { newChat(); if (narrow()) setSideOpen(false, false); });
+document.getElementById('newSessionMini').addEventListener('click', newChat);
+
+window.askAssistant = function askAssistant(question, mode) {
+  if (window.showTab) window.showTab('assistant');
+  if (sending) { inputEl.value = question; autosize(); return; }   // don't interrupt a running answer
+  newChat();
+  sendMessage(question, { standalone: true, mode: mode === 'chat' ? 'chat' : 'agent' });
+};
+
+// The welcome line uses the person's first name once it's known.
+function paintGreeting() {
+  const g = document.getElementById('emptyGreeting');
+  if (g) g.textContent = window.userFirstName ? `Hi ${window.userFirstName}, what would you like to know?` : 'What would you like to know?';
+}
+document.addEventListener('lenss:user', paintGreeting);
+paintGreeting();
 
 function newChat() {
   activeSessionId = null;
   msgsEl.innerHTML = '';
-  titleEl.textContent = 'New chat';
+  titleEl.textContent = 'New conversation';
   updateEmpty();
   renderSessionList();
   inputEl.focus();
@@ -134,8 +194,7 @@ function newChat() {
 function updateEmpty() {
   const started = msgsEl.children.length > 0;
   emptyEl.classList.toggle('hidden', started);
-  suggestPanel.hidden = !started;
-  chatWrapEl.classList.toggle('has-suggest', started);
+  document.querySelector('#tab-assistant .chat').classList.toggle('is-empty', !started);
   document.getElementById('pdfBtn').hidden = !started;
 }
 
@@ -159,12 +218,14 @@ function dayGroup(ts) {
 
 function renderSessionList() {
   sessionListEl.innerHTML = '';
-  if (!sessions.length) {
-    sessionListEl.innerHTML = '<div class="sessions-empty">Your conversations will appear here.</div>';
+  const term = (document.getElementById('sessionSearch').value || '').trim().toLowerCase();
+  const list = term ? sessions.filter(s => (s.title || '').toLowerCase().includes(term)) : sessions;
+  if (!list.length) {
+    sessionListEl.innerHTML = `<div class="sessions-empty">${term ? 'No conversations match.' : 'Your conversations will appear here.'}</div>`;
     return;
   }
   let lastGroup = null;
-  sessions.forEach(s => {
+  list.forEach(s => {
     const g = dayGroup(s.updated_at);
     if (g !== lastGroup) {
       const h = document.createElement('div');
@@ -175,15 +236,15 @@ function renderSessionList() {
     }
     const div = document.createElement('div');
     div.className = 'session-item' + (s.session_id === activeSessionId ? ' on' : '');
-    div.title = s.title || 'Untitled chat';
-    div.innerHTML = `<span class="stitle">${esc(s.title || 'Untitled chat')}</span>
+    div.title = s.title || 'Untitled conversation';
+    div.innerHTML = `<span class="stitle">${esc(s.title || 'Untitled conversation')}</span>
       <button class="sact" data-act="rename" title="Rename">✎</button>
       <button class="sact" data-act="delete" title="Delete">🗑</button>`;
     div.addEventListener('click', (e) => {
       const act = e.target.dataset && e.target.dataset.act;
       if (act === 'rename') { e.stopPropagation(); startRename(div, s); }
       else if (act === 'delete') { e.stopPropagation(); deleteSession(s); }
-      else if (!div.querySelector('input')) openSession(s.session_id);
+      else if (!div.querySelector('input')) { openSession(s.session_id); if (narrow()) setSideOpen(false, false); }
     });
     sessionListEl.appendChild(div);
   });
@@ -218,7 +279,7 @@ function startRename(div, s) {
 }
 
 async function deleteSession(s) {
-  if (!confirm(`Delete "${s.title || 'Untitled chat'}"? This can't be undone.`)) return;
+  if (!confirm(`Delete "${s.title || 'Untitled conversation'}"? This can't be undone.`)) return;
   const r = await fetch(`/api/chat/sessions/${s.session_id}`, { method: 'DELETE' });
   if (!r.ok) return;
   sessions = sessions.filter(x => x.session_id !== s.session_id);
@@ -230,7 +291,7 @@ async function openSession(id) {
   if (sending) return;
   activeSessionId = id;
   const session = sessions.find(s => s.session_id === id);
-  titleEl.textContent = (session && session.title) || 'Untitled chat';
+  titleEl.textContent = (session && session.title) || 'Untitled conversation';
   renderSessionList();
   msgsEl.innerHTML = '';
   const messages = await fetch(`/api/chat/sessions/${id}/messages`).then(r => r.json());
@@ -283,7 +344,7 @@ function addUserBubble(text) {
 }
 
 function metaLine(mode, extra) {
-  return `<div class="meta"><span class="tag ${mode}">${mode === 'agent' ? 'Agent' : 'Chat'}</span>${extra ? `<span>${esc(extra)}</span>` : ''}</div>`;
+  return `<div class="meta"><span class="tag ${mode}">${modeName(mode)}</span>${extra ? `<span>${esc(extra)}</span>` : ''}</div>`;
 }
 
 function addAnswer(answer, opts) {
@@ -307,30 +368,76 @@ function renderAnswer(msg, answer, opts) {
   msg.innerHTML = '';
   msg.appendChild(body);
 
-  if (answer.steps && answer.steps.length) {
-    const d = document.createElement('details');
-    d.className = 'steps';
-    const n = answer.steps.filter(s => s.kind === 'sql').length;
-    d.innerHTML = `<summary>How the agent worked it out · ${answer.steps.length} steps, ${n} ${n === 1 ? 'query' : 'queries'}</summary>
-      <ol>${answer.steps.map(s => `<li>${s.kind === 'sql' ? '🔎 ' : s.kind === 'viz' ? '📊 ' : ''}${esc(s.text)}${s.sql ? `<br><code>${esc(s.sql.replace(/\s+/g, ' ').slice(0, 300))}</code>` : ''}</li>`).join('')}</ol>`;
-    msg.appendChild(d);
-  }
-
-  if (opts.live || opts.isLast) addFollowups(msg, answer.suggestions);
-
-  // Guardrails: a blocked question shows its reason as the answer; notes (e.g. removed PII) sit above the footer.
-  if (answer.guard && answer.guard.blocked) msg.classList.add('guard-blocked');
+  // Guardrails: a blocked question shows its reason as the answer; notes (e.g. removed PII) stay visible.
+  const blocked = Boolean(answer.guard && answer.guard.blocked);
+  if (blocked) msg.classList.add('guard-blocked');
   ((answer.guard && answer.guard.notices) || []).forEach(n => {
     msg.insertAdjacentHTML('beforeend', `<div class="guard-note"><span aria-hidden="true">🛡</span> ${esc(n)}</div>`);
   });
 
+  // One row of actions under the answer, like Copilot: copy, 👍, 👎, regenerate, details.
+  const actions = document.createElement('div');
+  actions.className = 'ans-actions';
+  msg.appendChild(actions);
+  const iconBtn = (cls, title, svg) => {
+    const b = document.createElement('button');
+    b.className = 'act ' + cls;
+    b.title = title;
+    b.setAttribute('aria-label', title);
+    b.innerHTML = svg;
+    actions.appendChild(b);
+    return b;
+  };
+  const copyBtn = iconBtn('act-copy', 'Copy', '<svg viewBox="0 0 24 24"><rect x="8" y="8" width="12" height="12" rx="2.5"/><path d="M16 8V6a2 2 0 0 0-2-2H6a2 2 0 0 0-2 2v8a2 2 0 0 0 2 2h2"/></svg>');
+  copyBtn.addEventListener('click', async () => {
+    const plain = (answer.text || '').replace(/\[\[chart:[^\]]+\]\]/g, '').replace(/\*\*/g, '').replace(/^#+\s*/gm, '').trim();
+    try { await navigator.clipboard.writeText(plain); } catch {
+      const ta = document.createElement('textarea'); ta.value = plain; document.body.appendChild(ta); ta.select(); document.execCommand('copy'); ta.remove();
+    }
+    copyBtn.classList.add('done'); copyBtn.title = 'Copied';
+    setTimeout(() => { copyBtn.classList.remove('done'); copyBtn.title = 'Copy'; }, 1500);
+  });
+  if (opts.messageId && !blocked) addFeedback(actions, opts.messageId, opts.feedback);
+  if (opts.question && (opts.live || opts.isLast) && !blocked) {
+    const regen = iconBtn('act-regen', 'Regenerate', '<svg viewBox="0 0 24 24"><path d="M20 11a8 8 0 1 0-2.3 5.7"/><path d="M20 5v6h-6"/></svg>');
+    regen.addEventListener('click', () => {
+      if (sending) return;
+      const answerMode = answer.mode === 'agent' ? 'agent' : 'chat';
+      // A cached answer is replaced in place by a live one; a live answer is asked again.
+      if (answer.cache && opts.messageId) sendMessage(opts.question, { refreshOf: opts.messageId, target: msg, mode: answerMode });
+      else sendMessage(opts.question, { mode: answerMode });
+    });
+  }
+  const detailsBtn = iconBtn('act-details', 'Details: quality, sources and how this answer was made',
+    '<span class="det-dot" aria-hidden="true"></span><span>Details</span><svg class="det-caret" viewBox="0 0 24 24"><polyline points="6 9 12 15 18 9"/></svg>');
+  detailsBtn.setAttribute('aria-expanded', 'false');
+
+  const details = document.createElement('div');
+  details.className = 'ans-details';
+  details.hidden = true;
+  msg.appendChild(details);
+  detailsBtn.addEventListener('click', () => {
+    details.hidden = !details.hidden;
+    detailsBtn.setAttribute('aria-expanded', String(!details.hidden));
+    detailsBtn.classList.toggle('on', !details.hidden);
+  });
+
   const when = opts.at ? new Date(opts.at).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }) : '';
   const took = opts.latencyMs && !answer.cache ? `${(opts.latencyMs / 1000).toFixed(0)}s` : '';
-  msg.insertAdjacentHTML('beforeend', metaLine(mode, [took, when].filter(Boolean).join(' · ')));
-  const metaEl = msg.lastElementChild;
-  if (answer.cache) addCacheNote(msg, metaEl, answer, opts);
-  if (opts.messageId) addFeedback(metaEl, opts.messageId, opts.feedback);
-  if (opts.messageId && !(answer.guard && answer.guard.blocked)) addTrustBar(msg, metaEl, opts);
+  details.insertAdjacentHTML('beforeend', metaLine(mode, [took, when].filter(Boolean).join(' · ')));
+  const metaEl = details.lastElementChild;
+  if (answer.cache) addCacheNote(msg, metaEl, answer, { ...opts, canRefresh: false });
+  if (answer.steps && answer.steps.length) {
+    const d = document.createElement('details');
+    d.className = 'steps';
+    const n = answer.steps.filter(s => s.kind === 'sql').length;
+    d.innerHTML = `<summary>How the analysis worked it out · ${answer.steps.length} steps, ${n} ${n === 1 ? 'query' : 'queries'}</summary>
+      <ol>${answer.steps.map(s => `<li>${s.kind === 'sql' ? '🔎 ' : s.kind === 'viz' ? '📊 ' : ''}${esc(s.text)}${s.sql ? `<br><code>${esc(s.sql.replace(/\s+/g, ' ').slice(0, 300))}</code>` : ''}</li>`).join('')}</ol>`;
+    details.appendChild(d);
+  }
+  if (opts.messageId && !blocked) addTrustBar(msg, metaEl, opts);
+
+  if (opts.live || opts.isLast) addFollowups(msg, answer.suggestions);
 }
 
 // ---------------------------------------------------------------- trust: quality, sources, checks
@@ -350,7 +457,7 @@ const CHECK_LABELS = {
 function addTrustBar(msg, metaEl, opts) {
   const bar = document.createElement('div');
   bar.className = 'trust';
-  msg.insertBefore(bar, metaEl);
+  metaEl.parentNode.insertBefore(bar, metaEl);
   const paint = (q) => {
     if (!q) { bar.remove(); return; }
     const chips = [];
@@ -372,6 +479,11 @@ function addTrustBar(msg, metaEl, opts) {
     chips.push('<button class="trust-link" data-open>How this answer was made ›</button>');
     bar.innerHTML = chips.join('');
     bar.querySelectorAll('[data-open]').forEach(b => b.addEventListener('click', () => openTrace(opts.messageId)));
+    const dot = msg.querySelector('.det-dot');
+    if (dot) {
+      dot.className = 'det-dot ' + (q.status === 'done' && q.score !== null ? (q.score >= 0.85 ? 'ok' : q.score >= q.warnBelow ? 'mid' : 'low') : q.status === 'pending' ? 'pending' : '');
+      dot.title = q.status === 'done' && q.score !== null ? `Verified ${Math.round(q.score * 100)}%` : q.status === 'pending' ? 'Checking accuracy…' : '';
+    }
 
     // Low confidence: say so where it can't be missed, with what couldn't be verified.
     msg.querySelectorAll('.lowconf').forEach(n => n.remove());
@@ -381,10 +493,12 @@ function addTrustBar(msg, metaEl, opts) {
       box.className = 'lowconf';
       box.innerHTML = `<b>⚠ Some of this answer couldn't be verified against the data</b> (${Math.round(q.score * 100)}%). Please double-check before acting.` +
         (items.length ? `<ul>${items.map(i => `<li>${esc(i)}</li>`).join('')}</ul>` : '');
-      msg.insertBefore(box, bar);
+      const det = msg.querySelector('.ans-details');
+      if (det) det.insertBefore(box, det.firstChild); else msg.appendChild(box);
     }
   };
   const load = async (tries) => {
+    if (!document.body.contains(bar)) return;   // the answer was closed or deleted
     try {
       const r = await fetch(`/api/chat/messages/${opts.messageId}/trace`);
       // Just after the answer appears its log entry may not be written yet; try again shortly.
@@ -422,6 +536,10 @@ async function openTrace(messageId) {
     body.innerHTML = '<div class="score-reason">Could not load the details for this answer.</div>';
     return;
   }
+  if (t.pending) {
+    body.innerHTML = '<div class="score-reason">This answer is still being recorded. Try again in a few seconds.</div>';
+    return;
+  }
   const q = t.quality;
   const pctOf = v => (v === null || v === undefined ? null : Math.round(v * 100));
   const meter = (label, v) => {
@@ -447,7 +565,7 @@ async function openTrace(messageId) {
        ${t.cost !== null ? `<div class="score-reason">Estimated cost: $${t.cost.toFixed(4)}</div>` : ''}`
     : '<div class="score-reason">No AI model calls were needed.</div>';
   body.innerHTML = `
-    <div class="trace-q">“${esc(t.question)}”<span>${t.mode === 'agent' ? 'Agent' : 'Chat'} · ${fmtMs(t.latencyMs)}${t.cache && t.cache.hit ? ' · answered from cache' : ''}</span></div>
+    <div class="trace-q">“${esc(t.question)}”<span>${modeName(t.mode)} · ${fmtMs(t.latencyMs)}${t.cache && t.cache.hit ? ' · answered from cache' : ''}</span></div>
     <section><h3>Answer quality</h3>${quality}</section>
     <section><h3>Data used</h3>${sources}${queries}</section>
     <section><h3>Safety checks</h3>${guard}</section>
@@ -468,8 +586,7 @@ function addFollowups(msg, list) {
     b.addEventListener('click', () => sendMessage(q));
     f.appendChild(b);
   });
-  const before = msg.querySelector(':scope > .trust, :scope > .lowconf, :scope > .guard-note, :scope > .meta');
-  msg.insertBefore(f, before);
+  msg.appendChild(f);
 }
 
 /** Cached answers say so, with when they were generated, and can be re-asked live. */
@@ -516,19 +633,21 @@ function addFeedback(metaEl, messageId, current) {
     b.setAttribute('aria-pressed', String(b.dataset.r === rating));
   });
   paintFb();
+  // Optimistic: the button lights up at once and only reverts if saving fails.
   const submit = async (next, extra = {}) => {
-    box.querySelectorAll('button').forEach(x => { x.disabled = true; });
+    const before = rating;
+    rating = next;
+    paintFb();
+    box.querySelector('.fb-note').textContent = next ? 'Thanks for the feedback' : '';
     try {
       const r = await fetch(`/api/chat/messages/${messageId}/feedback`, {
         method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ rating: next, ...extra }),
       });
-      if (r.ok) {
-        rating = next;
-        box.querySelector('.fb-note').textContent = next ? 'Thanks for the feedback' : '';
-      }
-    } finally {
-      box.querySelectorAll('button').forEach(x => { x.disabled = false; });
+      if (!r.ok) throw new Error('HTTP ' + r.status);
+    } catch {
+      rating = before;
       paintFb();
+      box.querySelector('.fb-note').textContent = "Couldn't save that, please try again";
     }
   };
   box.querySelectorAll('.fb-up,.fb-down').forEach(b => b.addEventListener('click', () => {
@@ -575,7 +694,7 @@ async function sendMessage(preset, opts = {}) {
   const text = (preset || inputEl.value).trim();
   if (!text || sending) return;
   if (window.offerNotifications) window.offerNotifications();
-  const mode = currentMode;
+  const mode = resolveMode(text, opts.mode);
   sending = true;
   sendBtn.disabled = true;
   if (!opts.refreshOf) inputEl.value = '';
@@ -592,11 +711,16 @@ async function sendMessage(preset, opts = {}) {
   const started = Date.now();
   const steps = [];
   let status = mode === 'agent' ? 'Planning the analysis…' : 'Understanding the question…';
+  // Deep analysis takes minutes: show progress against a typical run, and say they can carry on working.
+  const typical = mode === 'agent' ? 120 : 20;
   const paint = () => {
     const secs = Math.floor((Date.now() - started) / 1000);
     const clock = `${Math.floor(secs / 60)}:${String(secs % 60).padStart(2, '0')}`;
-    thinking.innerHTML = `<div class="tline"><span class="dot"></span><span>${esc(status)}</span><span style="margin-left:auto;font:11px var(--mono)">${clock}</span></div>` +
+    const prog = Math.min(95, Math.round(100 * (1 - Math.exp(-secs / (typical * 0.6)))));
+    thinking.innerHTML = `<div class="tline"><span class="dot"></span><span>${esc(status)}</span><span class="tclock">${clock}</span></div>` +
+      `<div class="tprog"><span style="width:${prog}%"></span></div>` +
       (steps.length ? `<div class="steps-live">${steps.slice(-5).map(s => `<div>${esc(s)}</div>`).join('')}</div>` : '') +
+      (mode === 'agent' ? `<div class="thint">Deep analysis usually takes 1–3 minutes. You can switch tabs; you'll get a notification when it's ready.</div>` : '') +
       metaLine(mode);
   };
   paint();
@@ -610,6 +734,7 @@ async function sendMessage(preset, opts = {}) {
   let sentSessionId = null;
   let judging = false;
   let rendered = false;
+  let errorBusy = false;
   try {
     const sessionId = await ensureSession();
     sentSessionId = sessionId;
@@ -644,6 +769,7 @@ async function sendMessage(preset, opts = {}) {
           else if (data.kind === 'viz') { status = 'Building a chart…'; steps.push('📊 ' + data.text); }
           else if (data.kind === 'reasoning') { status = 'Reasoning…'; if (data.text) steps.push('💭 ' + data.text.slice(0, 140)); }
           else if (data.kind === 'writing') status = 'Writing the answer…';
+          else if (data.kind === 'notice') { status = data.text; steps.push('⏳ ' + data.text); }
           paint();
           scrollToEnd();
         } else if (type === 'answer') {
@@ -663,6 +789,7 @@ async function sendMessage(preset, opts = {}) {
           if (rendered) { addFollowups(thinking, data.questions); scrollToEnd(); }
         } else if (type === 'error') {
           errorText = data.error;
+          errorBusy = Boolean(data.busy);
         } else if (type === 'session_title') {
           titleEl.textContent = data.title;
         } else if (type === 'done') {
@@ -684,8 +811,17 @@ async function sendMessage(preset, opts = {}) {
     renderAnswer(thinking, answer, { mode, latencyMs, at: new Date(), live: true, messageId: savedId, question: text, judging });
   } else {
     thinking.classList.add('failed');
-    thinking.innerHTML = `Sorry — that question couldn't be answered. Please try again${mode === 'chat' ? ', or switch to Agent for a deeper analysis' : ''}.` +
-      metaLine(mode, errorText ? 'error' : '');
+    // Say what went wrong in plain words, and offer a one-click retry.
+    thinking.innerHTML = `<div class="fail-h">${errorBusy ? 'The analysis service is busy right now.' : "Sorry, that question couldn't be answered."}</div>
+      <div class="fail-b">${errorBusy ? 'Too many analyses are running at once. Please try again in a minute.'
+        : mode === 'chat' ? 'Try rephrasing it, or choose Deep analysis for a fuller investigation.' : 'Try again, ask a narrower question, or choose Quick answer.'}</div>
+      <button class="fail-retry">↻ Try again</button>` + metaLine(mode, errorText ? 'error' : '');
+    thinking.querySelector('.fail-retry').addEventListener('click', () => {
+      if (sending) return;
+      thinking.closest('.turnrow').previousElementSibling?.remove();
+      thinking.closest('.turnrow').remove();
+      sendMessage(text, { mode });
+    });
     console.warn('Assistant error:', errorText);
   }
   scrollToEnd();

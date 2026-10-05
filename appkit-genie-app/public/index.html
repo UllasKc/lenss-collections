@@ -18,112 +18,216 @@
     <span class="brand-div" aria-hidden="true"></span>
     <div><div class="n">LensS <span>Collections Intelligence</span></div><small>Performance &amp; Recovery Analytics</small></div>
   </div>
-  <div class="tabs">
-    <button class="on" data-tab="home">Command Center</button>
-    <button data-tab="assistant">Chat + Agent</button>
-    <button data-tab="obs">Monitoring</button>
-    <button data-tab="evals">Evals</button>
-    <button data-tab="rai">Responsible AI</button>
+  <div class="tabs" role="tablist">
+    <button class="on" data-tab="home"><svg viewBox="0 0 24 24" aria-hidden="true"><rect x="3" y="3" width="7" height="9" rx="1.5"/><rect x="14" y="3" width="7" height="5" rx="1.5"/><rect x="14" y="12" width="7" height="9" rx="1.5"/><rect x="3" y="16" width="7" height="5" rx="1.5"/></svg>Command Center</button>
+    <button data-tab="assistant"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 3l1.9 4.6L18.5 9.5l-4.6 1.9L12 16l-1.9-4.6L5.5 9.5l4.6-1.9z"/><path d="M19 15l.8 1.9 1.9.8-1.9.8L19 20.4l-.8-1.9-1.9-.8 1.9-.8z"/></svg>Assistant</button>
+    <button data-tab="obs"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M3 12h4l3-8 4 16 3-8h4"/></svg>Observability</button>
+    <button data-tab="evals"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M9 11l3 3 8-8"/><path d="M20 12v7a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h9"/></svg>Evals</button>
+    <button data-tab="rai"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 3l8 3v6c0 4.5-3.4 8.3-8 9-4.6-.7-8-4.5-8-9V6z"/></svg>Responsible AI</button>
   </div>
-  <div class="user-bar"><span id="userNameDisplay"></span></div>
+  <div class="user-bar"><span class="avatar" id="userAvatar" aria-hidden="true"></span><span id="userNameDisplay"></span></div>
 </nav>
 
 <div class="wrap">
-  <!-- ============ HOME ============ -->
+  <!-- ============ COMMAND CENTER ============ -->
   <section class="tab on" id="tab-home">
-    <div class="hgroup">
-      <div><h1>Command Center</h1><div class="sub">Portfolio-wide performance snapshot — 2026-09-15</div></div>
+    <div class="hero" id="homeHero">
+      <div class="hero-main">
+        <div class="hero-eyebrow" id="heroDate">Portfolio snapshot</div>
+        <h1 class="hero-h" id="heroGreeting">Welcome back</h1>
+        <p class="hero-sub" id="heroSub">Loading your collections position…</p>
+        <div class="hero-progress" id="heroProgress"></div>
+        <div class="hero-actions">
+          <button class="btn hero-cta" data-ask="Why are collections lagging this month and what should we do about it?" data-mode="agent">
+            <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 3l1.9 4.6L18.5 9.5l-4.6 1.9L12 16l-1.9-4.6L5.5 9.5l4.6-1.9z"/></svg>Ask AI why we're behind
+          </button>
+          <button class="btn ghost hero-ghost" data-tab-jump="assistant">Open the assistant</button>
+        </div>
+      </div>
+      <div class="hero-stats" id="heroStats"></div>
     </div>
 
     <div class="card narr-card">
-      <div class="eyebrow">Executive Summary</div>
+      <div class="narr-head">
+        <div class="eyebrow">Executive summary</div>
+        <button class="ask-link" data-ask="Summarise our collections performance this month: where we are against target, the main reasons, and the top three actions." data-mode="agent">Explore with AI ›</button>
+      </div>
       <p class="narr" id="narrative">Loading executive summary…</p>
       <div class="narr-meta" id="narrativeMeta"></div>
     </div>
 
+    <h2 class="sect">Today's priorities <span class="sect-note">click any card to analyse it with AI</span></h2>
+    <div class="prio-grid" id="priorities"></div>
+
     <h2 class="sect">Key metrics</h2>
-    <div class="grid kpis" id="kpis"></div>
+    <div class="metric-grid" id="homeKpis"></div>
 
-    <h2 class="sect">MTD achievement by product</h2>
-    <div class="card chart-card"><div class="cv"><canvas id="productChart"></canvas></div></div>
-
-    <h2 class="sect">Per-segment KPI drivers</h2>
-    <div class="card table-scroll">
-      <table id="segmentTable">
-        <thead>
-          <tr>
-            <th>Product</th><th>DPD Bucket</th><th>Accounts</th><th>Outstanding Balance</th>
-            <th>MTD Collections</th><th>Recovery Rate</th><th>RPC Rate</th><th>PTP Conv.</th>
-          </tr>
-        </thead>
-        <tbody></tbody>
-      </table>
+    <h2 class="sect">Performance against target</h2>
+    <div class="grid two">
+      <div class="card panel" id="pnlProducts"></div>
+      <div class="card panel" id="pnlShortfall"></div>
     </div>
+    <div class="card panel" id="pnlHeat" style="margin-top:14px"></div>
+
+    <h2 class="sect">Customer engagement</h2>
+    <div class="grid two">
+      <div class="card panel" id="pnlFunnel"></div>
+      <div class="card panel" id="pnlChannels"></div>
+    </div>
+
+    <h2 class="sect">Where to act</h2>
+    <div class="card panel" id="pnlAccounts"></div>
+    <div class="grid two" style="margin-top:14px">
+      <div class="card panel" id="pnlActions"></div>
+      <div class="card panel" id="pnlOpportunity"></div>
+    </div>
+
+    <h2 class="sect">What's driving performance</h2>
+    <div class="grid two">
+      <div class="card panel" id="pnlDrivers"></div>
+      <div class="card panel" id="pnlStrategies"></div>
+    </div>
+    <div class="grid two" style="margin-top:14px">
+      <div class="card panel" id="pnlRegions"></div>
+      <div class="card panel" id="pnlCollectors"></div>
+    </div>
+
+    <details class="card seg-details">
+      <summary>Full segment detail <span class="sect-note">product × DPD bucket</span></summary>
+      <div class="table-scroll">
+        <table id="segmentTable">
+          <thead>
+            <tr>
+              <th>Product</th><th>DPD Bucket</th><th>Accounts</th><th>Outstanding Balance</th>
+              <th>MTD Collections</th><th>Recovery Rate</th><th>RPC Rate</th><th>PTP Conv.</th>
+            </tr>
+          </thead>
+          <tbody></tbody>
+        </table>
+      </div>
+    </details>
+    <div class="home-foot">All figures come from certified views of the governed data, as of the snapshot date. No AI is used to compute them.</div>
   </section>
 
-  <!-- ============ ASSISTANT ============ -->
+  <!-- ============ ASSISTANT (full-screen chat, like ChatGPT / Copilot) ============ -->
   <section class="tab" id="tab-assistant">
-    <div class="hgroup"><div><h1>Chat + Agent</h1><div class="sub">Ask a quick question, or run a deep multi-step analysis</div></div></div>
-    <div class="chatwrap">
-      <aside class="card sidebar">
-        <button class="btn newchat" id="newSessionBtn">＋ New chat</button>
-        <div class="session-list" id="sessionList"></div>
-        <div class="whoami" id="assistantUserGreeting"></div>
+    <div class="chatwrap" id="chatWrap">
+      <aside class="sidebar" id="sidebar" aria-label="Conversations">
+        <div class="side-top">
+          <button class="icon-btn" id="sideToggle" title="Hide conversations" aria-label="Hide conversations" aria-expanded="true">
+            <svg viewBox="0 0 24 24" aria-hidden="true"><rect x="3" y="4" width="18" height="16" rx="2.5"/><path d="M9 4v16"/></svg>
+          </button>
+          <button class="icon-btn side-new-mini" id="newSessionMini" title="New conversation" aria-label="New conversation">
+            <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 20h9"/><path d="M16.5 3.5a2.1 2.1 0 0 1 3 3L7 19l-4 1 1-4z"/></svg>
+          </button>
+        </div>
+        <div class="side-body">
+          <button class="side-item" id="newSessionBtn">
+            <svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="9"/><path d="M12 8v8M8 12h8"/></svg>New chat
+          </button>
+          <label class="side-item side-search">
+            <svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="11" cy="11" r="7"/><path d="m20 20-3.5-3.5"/></svg>
+            <input id="sessionSearch" type="search" placeholder="Search" aria-label="Search chats">
+          </label>
+          <div class="side-label">Chats</div>
+          <div class="session-list" id="sessionList"></div>
+          <div class="whoami" id="assistantUserGreeting" hidden></div>
+        </div>
+        <div class="side-profile" title="Signed in">
+          <span class="avatar" id="sideAvatar" aria-hidden="true"></span>
+          <span class="side-profile-text"><b id="sideName"></b><small id="sideEmail"></small></span>
+        </div>
       </aside>
-      <div class="card chat">
+
+      <div class="chat" id="chatPane">
         <div class="chat-head">
-          <div class="chat-title" id="chatTitle">New chat</div>
-          <button class="head-btn" id="pdfBtn" hidden title="Download this conversation as a PDF, with its charts">
-            <svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 3v12"/><path d="m7 10 5 5 5-5"/><path d="M5 21h14"/></svg>
-            <span id="pdfBtnLabel">Download PDF</span>
+          <button class="icon-btn" id="sideOpen" title="Show chats" aria-label="Show chats" hidden>
+            <svg viewBox="0 0 24 24" aria-hidden="true"><rect x="3" y="4" width="18" height="16" rx="2.5"/><path d="M9 4v16"/></svg>
+          </button>
+          <div class="mode-select" id="modeSelect">
+            <button class="mode-btn" id="modeBtn" aria-haspopup="listbox" aria-expanded="false" title="Choose how the assistant answers">
+              <span id="modeLabel">Auto</span>
+              <svg class="mode-caret" viewBox="0 0 24 24" aria-hidden="true"><polyline points="6 9 12 15 18 9"/></svg>
+            </button>
+            <div class="mode-menu" id="modeMenu" role="listbox" hidden>
+              <button class="mode-opt" data-mode="auto" role="option"><span><b>Auto</b><small>Decides how deep to go for each question</small></span><span class="mode-check" aria-hidden="true">✓</span></button>
+              <button class="mode-opt" data-mode="chat" role="option"><span><b>Quick answer</b><small>Answers right away, in about 20 seconds</small></span><span class="mode-check" aria-hidden="true">✓</span></button>
+              <button class="mode-opt" data-mode="agent" role="option"><span><b>Deep analysis</b><small>Investigates step by step, with charts. 1–3 minutes</small></span><span class="mode-check" aria-hidden="true">✓</span></button>
+            </div>
+          </div>
+          <div class="chat-title" id="chatTitle" hidden></div>
+          <span class="head-spacer"></span>
+          <button class="icon-btn" id="suggestBtn" title="Suggested questions" aria-label="Suggested questions" aria-expanded="false" aria-controls="suggestPanel">
+            <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M9 18h6M10 22h4"/><path d="M12 2a7 7 0 0 0-4 12.7c.6.5 1 1.2 1 2.3h6c0-1.1.4-1.8 1-2.3A7 7 0 0 0 12 2z"/></svg>
+          </button>
+          <button class="icon-btn" id="pdfBtn" hidden title="Download this conversation as a PDF" aria-label="Download PDF">
+            <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 3v12"/><path d="m7 10 5 5 5-5"/><path d="M5 21h14"/></svg>
+            <span id="pdfBtnLabel" class="sr-only">Download PDF</span>
           </button>
         </div>
         <div class="msgs" id="chatMsgs"></div>
         <div class="empty" id="chatEmpty">
-          <div class="empty-h">What would you like to know?</div>
-          <div class="empty-sub">Use <b>Chat</b> for quick answers and <b>Agent</b> for multi-step "why / what should we do" analysis.</div>
-          <div class="starters" id="starterGrid"></div>
-        </div>
-        <div class="composer">
-          <textarea id="chatInput" rows="1" placeholder="Ask about targets, collections, strategies, or collectors…"></textarea>
-          <div class="composer-bar">
-            <div class="mode-pills" id="modeToggle" role="radiogroup" aria-label="Answer mode">
-              <button class="mode-pill on" data-mode="chat" role="radio" aria-checked="true" title="Fast single answer (~20s)">💬 Chat</button>
-              <button class="mode-pill" data-mode="agent" role="radio" aria-checked="false" title="Multi-step deep analysis (1–3 min)">✦ Agent</button>
-            </div>
-            <span class="mode-hint" id="modeHint">Quick answer · ~20s</span>
-            <button class="iconbtn mic" id="micBtn" hidden title="Ask by voice" aria-label="Ask by voice" aria-pressed="false">
-              <svg viewBox="0 0 24 24" width="17" height="17" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="9" y="2" width="6" height="12" rx="3"/><path d="M5 10a7 7 0 0 0 14 0"/><path d="M12 17v5"/><path d="M8 22h8"/></svg>
-            </button>
-            <button class="iconbtn send" id="chatSend" title="Send (Enter)">&#10148;</button>
+          <div class="empty-inner">
+            <img class="empty-mark" src="/img/cnx-mark.png" alt="" aria-hidden="true">
+            <div class="empty-h" id="emptyGreeting">What would you like to know?</div>
+            <div class="starters" id="starterGrid"></div>
           </div>
         </div>
-        <div class="ai-disclaimer">AI-generated answers can contain mistakes. Each answer shows its quality score and the data behind it.</div>
+        <div class="composer-wrap">
+          <div class="composer">
+            <textarea id="chatInput" rows="1" placeholder="Ask LensS"></textarea>
+            <button class="iconbtn mic" id="micBtn" hidden title="Ask by voice" aria-label="Ask by voice" aria-pressed="false">
+              <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="9" y="2" width="6" height="12" rx="3"/><path d="M5 10a7 7 0 0 0 14 0"/><path d="M12 17v5"/><path d="M8 22h8"/></svg>
+            </button>
+            <button class="iconbtn send" id="chatSend" title="Send (Enter)" aria-label="Send"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 19V5"/><path d="m5 12 7-7 7 7"/></svg></button>
+          </div>
+          <div class="ai-disclaimer">AI-generated content may be incorrect</div>
+        </div>
       </div>
-      <!-- Shown once a conversation has started: the same starter questions, collapsible. -->
-      <aside class="card suggest-panel" id="suggestPanel" hidden>
-        <button class="suggest-toggle" id="suggestToggle" aria-expanded="true" aria-controls="suggestList" title="Hide suggested questions">
-          <span class="suggest-icon" aria-hidden="true">💡</span>
-          <span class="suggest-label">Suggested questions</span>
-          <span class="suggest-rail-label" aria-hidden="true">Suggested questions</span>
-          <svg class="suggest-chevron" viewBox="0 0 24 24" width="16" height="16" aria-hidden="true"><polyline points="6 9 12 15 18 9" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg>
-        </button>
+
+      <!-- Suggested questions: opened on demand from the header -->
+      <aside class="suggest-panel" id="suggestPanel" hidden aria-label="Suggested questions">
+        <div class="suggest-head"><b>Suggested questions</b>
+          <button class="icon-btn" id="suggestClose" title="Close" aria-label="Close suggestions"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M6 6l12 12M18 6 6 18"/></svg></button>
+        </div>
         <div class="suggest-list" id="suggestList"></div>
       </aside>
+      <div class="side-scrim" id="sideScrim" hidden></div>
     </div>
   </section>
 
   <!-- ============ MONITORING ============ -->
   <section class="tab" id="tab-obs">
-    <div class="hgroup"><div><h1>Monitoring</h1><div class="sub">Usage, mode mix, and per-turn audit trail across all users</div></div></div>
-
-    <h2 class="sect">Usage summary</h2>
-    <div class="grid kpis" id="obsKpis"></div>
-
-    <div class="grid charts" style="margin-top:14px">
-      <div class="card chart-card"><h3>Questions by mode</h3><div class="cv"><canvas id="obsModeChart"></canvas></div></div>
-      <div class="card chart-card"><h3>Avg answer time by mode (ms, excluding cache hits)</h3><div class="cv"><canvas id="obsLatencyChart"></canvas></div></div>
+    <div class="hgroup">
+      <div><h1>Observability</h1><div class="sub">How the assistant is used, how well it answers, how fast, and what it costs</div></div>
+      <div class="seg-ctl" id="obsRange" role="radiogroup" aria-label="Time range">
+        <button data-days="1">24 hours</button><button data-days="7">7 days</button><button data-days="30" class="on">30 days</button><button data-days="0">All time</button>
+      </div>
     </div>
+
+    <div id="obsHealth"></div>
+
+    <div class="metric-grid" id="obsInsightKpis"></div>
+
+    <h2 class="sect">Trends</h2>
+    <div class="grid two">
+      <div class="card chart-card"><h3>Questions per day</h3><div class="cv"><canvas id="obsDailyChart"></canvas></div></div>
+      <div class="card chart-card"><h3>Average answer time per day (live answers)</h3><div class="cv"><canvas id="obsSpeedChart"></canvas></div></div>
+    </div>
+    <div class="grid two" style="margin-top:14px">
+      <div class="card chart-card"><h3>Answer quality per day</h3><div class="cv"><canvas id="obsQualityChart"></canvas></div></div>
+      <div class="card chart-card"><h3>When people ask (hour of day)</h3><div class="cv"><canvas id="obsHourChart"></canvas></div></div>
+    </div>
+
+    <h2 class="sect">What people ask, and how it goes</h2>
+    <div class="grid three">
+      <div class="card panel" id="obsTopQuestions"></div>
+      <div class="card panel" id="obsLatency"></div>
+      <div class="card panel" id="obsReasons"></div>
+    </div>
+
+    <h2 class="sect">All-time summary</h2>
+    <div class="grid kpis" id="obsKpis"></div>
 
     <h2 class="sect">Answer cache</h2>
     <div class="card" id="obsCacheStatus" style="margin-bottom:10px"></div>
@@ -250,6 +354,7 @@
 </dialog>
 
 <script src="/js/app.js"></script>
+<script src="/js/home.js"></script>
 <script src="/js/chat.js"></script>
 <script src="/js/monitoring.js"></script>
 <script src="/js/export.js"></script>

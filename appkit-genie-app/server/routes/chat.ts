@@ -15,6 +15,11 @@ import { STARTERS, MORE_SUGGESTIONS } from '../lib/suggestions.js';
 import { GUARDED_TITLES, generateTitle, isGuardedTitle } from '../lib/titles.js';
 import { Trace, sourcesFromSql } from '../lib/trace.js';
 
+/** The engine is at capacity or hit a transient fault: worth retrying. */
+function busy(message: string | null | undefined): boolean {
+  return Boolean(message) && /RESOURCE_EXHAUSTED|rate_limit|too_many_requests|temporarily at capacity|Self-suppression|\b(429|503)\b|UNAVAILABLE|ECONNRESET|socket hang up/i.test(String(message));
+}
+
 /** The strongest guardrail action on a question, for Monitoring's counts. */
 function strongestAction(events: GuardEvent[]): string | null {
   for (const [action, label] of [['block', 'blocked'], ['redact', 'redacted'], ['warn', 'warned'], ['flag', 'flagged']] as const) {
@@ -127,6 +132,17 @@ export function buildChatRouter(appkit: ChatAppKit): express.Router {
       .map((r) => `${r.role === 'user' ? 'Q' : 'A'}: ${String(r.content ?? '').slice(0, 700)}`)
       .join('\n');
     return `Context from earlier in this conversation:\n${turns}\n\nNew question: `;
+  };
+
+  /** The last few turns of a session (any mode), as context for a retry in a fresh conversation. */
+  const recentContext = async (sessionId: string, question: string): Promise<string> => {
+    const { rows } = await appkit.lakebase.query(
+      `SELECT role, content FROM chatapp.chat_messages WHERE session_id = $1 ORDER BY created_at DESC LIMIT 5`,
+      [sessionId],
+    );
+    const turns = rows.reverse().filter((r, i, all) => !(i === all.length - 1 && r.role === 'user' && r.content === question));
+    if (!turns.length) return '';
+    return `Context from earlier in this conversation:\n${turns.slice(-4).map((r) => `${r.role === 'user' ? 'Q' : 'A'}: ${String(r.content ?? '').slice(0, 700)}`).join('\n')}\n\nNew question: `;
   };
 
   router.get('/api/me', (req, res) => {
@@ -394,22 +410,52 @@ export function buildChatRouter(appkit: ChatAppKit): express.Router {
       };
       details = { queries: hit.details.queries ?? [], judge: hit.details.judge ? { ...(hit.details.judge as object), reused: true } : undefined };
     } else {
-      const engineName = mode === 'agent' ? 'LensS query engine (Agent)' : 'LensS query engine';
-      const engineStart = trace.now();
-      const run = await runGenie(appkit.genie, mode, preamble + question, priorConversation, (p) => send('progress', p));
-      trace.add(engineName, 'engine', engineStart, run.latencyMs);
-      trace.addStages(engineName, engineStart, run.timeline);
+      // The query engine can be briefly at capacity (RESOURCE_EXHAUSTED), which also surfaces as
+      // "Self-suppression not permitted". Retry twice in a fresh conversation (carrying the recent
+      // turns as context), then, for Deep analysis, fall back to a Quick answer rather than nothing.
+      const progress = (p: { kind: string; text: string }) => send('progress', p);
+      const attempt = async (m: Mode, text: string, conv: string | undefined) => {
+        const name = m === 'agent' ? 'LensS query engine (Agent)' : 'LensS query engine';
+        const start = trace.now();
+        const r = await runGenie(appkit.genie, m, text, conv, progress);
+        trace.add(r.success ? name : `${name}: ${busy(r.errorMessage) ? 'busy' : 'failed'}`, 'engine', start, r.latencyMs);
+        if (r.success) trace.addStages(name, start, r.timeline);
+        return r;
+      };
+      let usedMode: Mode = mode;
+      let run = await attempt(mode, preamble + question, priorConversation);
+      const retries: string[] = [];
+      for (const wait of [3000, 8000]) {
+        if (run.success || !busy(run.errorMessage)) break;
+        retries.push(String(run.errorMessage).slice(0, 160));
+        progress({ kind: 'notice', text: 'The analysis service is busy, retrying…' });
+        await new Promise((r) => setTimeout(r, wait));
+        run = await attempt(mode, (await recentContext(session.session_id as string, question)) + question, undefined);
+      }
+      if (!run.success && mode === 'agent' && busy(run.errorMessage)) {
+        retries.push(String(run.errorMessage).slice(0, 160));
+        progress({ kind: 'notice', text: 'Deep analysis is busy, getting you a quick answer instead…' });
+        usedMode = 'chat';
+        run = await attempt('chat', (await recentContext(session.session_id as string, question)) + question, undefined);
+        if (run.success && run.answer) {
+          run.answer.mode = 'chat';
+          notices.push('Deep analysis was busy, so this is a quick answer. Ask again in a minute for the full step-by-step analysis.');
+        }
+      }
       liveRun = run;
       answer = run.answer;
       success = run.success;
       errorMessage = run.errorMessage;
       genieConversationId = run.conversationId ?? null;
       genieMessageId = run.genieMessageId;
-      details = { timeline: run.timeline, queries: run.queries };
-      await appkit.lakebase.query(
-        `UPDATE chatapp.chat_sessions SET ${convColumn} = $1, updated_at = now() WHERE session_id = $2`,
-        [genieConversationId, session.session_id],
-      );
+      details = { timeline: run.timeline, queries: run.queries, ...(retries.length ? { retries, fallbackFrom: usedMode !== mode ? mode : undefined } : {}) };
+      // Only a conversation that produced an answer is kept for follow-ups; a failed one would poison them.
+      if (run.success) {
+        await appkit.lakebase.query(
+          `UPDATE chatapp.chat_sessions SET ${usedMode === 'agent' ? 'agent_conversation_id' : 'genie_conversation_id'} = $1, updated_at = now() WHERE session_id = $2`,
+          [genieConversationId, session.session_id],
+        );
+      }
       // Output guardrails before the answer is sent or cached.
       if (answer?.text) {
         const outStart = trace.now();
@@ -422,7 +468,7 @@ export function buildChatRouter(appkit: ChatAppKit): express.Router {
       // Cache it only if the engine saw the question on its own (no earlier turns),
       // otherwise the answer may lean on context a later asker won't have.
       let stored = false;
-      if (key && versions && !priorConversation && !preamble && run.success) {
+      if (key && versions && !priorConversation && !preamble && run.success && usedMode === mode) {
         stored = await store(appkit.lakebase, key, question, mode, versions, run, 'live', questionVector).then(() => true, () => false);
         if (stored) storedKey = key;
       }
@@ -475,7 +521,7 @@ export function buildChatRouter(appkit: ChatAppKit): express.Router {
         );
       }
     } else {
-      send('error', { error: errorMessage ?? 'No answer was returned' });
+      send('error', { error: errorMessage ?? 'No answer was returned', busy: busy(errorMessage) });
     }
 
     const reusedJudge = details.judge as { score?: number } | undefined;
@@ -543,7 +589,11 @@ export function buildChatRouter(appkit: ChatAppKit): express.Router {
     );
     const r = rows[0];
     if (!r) {
-      res.status(404).json({ error: 'answer not found' });
+      // Just after an answer is shown, its log entry may still be being written.
+      const { rows: own } = await appkit.lakebase.query(
+        `SELECT 1 FROM chatapp.chat_messages WHERE message_id = $1 AND user_email = $2`, [req.params.id, email]);
+      if (own.length) res.json({ pending: true, quality: { status: 'pending', guard: [], sources: [], warnBelow: aiConfig.judge?.warnBelow ?? 0.7 } });
+      else res.status(404).json({ error: 'answer not found' });
       return;
     }
     const d = (r.details ?? {}) as Row;
@@ -594,24 +644,19 @@ export function buildChatRouter(appkit: ChatAppKit): express.Router {
       [value, req.params.id, reason, comment],
     );
 
-    // Genie's feedback API accepts both Chat and Agent answers (verified).
-    let sentToGenie = false;
+    // Saved; reply now. The rating is also forwarded to the query engine's feedback API
+    // (it accepts Chat and Agent answers) in the background, so the user never waits on it.
+    res.json({ rating: raw ?? null });
     const { genie_conversation_id: conv, genie_message_id: msg } = rows[0] as Record<string, string | null>;
     if (GENIE_AGENT_ID && conv && msg) {
-      try {
-        await getExecutionContext().client.apiClient.request({
-          path: `/api/2.0/genie/spaces/${GENIE_AGENT_ID}/conversations/${conv}/messages/${msg}/feedback`,
-          method: 'POST',
-          headers: new Headers({ 'Content-Type': 'application/json' }),
-          raw: false,
-          payload: { rating: value === 1 ? 'POSITIVE' : value === -1 ? 'NEGATIVE' : 'NONE' },
-        } as never);
-        sentToGenie = true;
-      } catch (err) {
-        console.warn('Genie feedback not delivered:', err instanceof Error ? err.message : err);
-      }
+      getExecutionContext().client.apiClient.request({
+        path: `/api/2.0/genie/spaces/${GENIE_AGENT_ID}/conversations/${conv}/messages/${msg}/feedback`,
+        method: 'POST',
+        headers: new Headers({ 'Content-Type': 'application/json' }),
+        raw: false,
+        payload: { rating: value === 1 ? 'POSITIVE' : value === -1 ? 'NEGATIVE' : 'NONE' },
+      } as never).catch((err: unknown) => console.warn('Engine feedback not delivered:', err instanceof Error ? err.message : err));
     }
-    res.json({ rating: raw ?? null, sentToGenie });
   });
 
   // --- monitoring / observability --------------------------------------
@@ -717,6 +762,71 @@ export function buildChatRouter(appkit: ChatAppKit): express.Router {
       ai,
       cost: await costView(),
       feedbackQueue: await feedbackQueue(),
+    });
+  });
+
+  /**
+   * Monitoring's trend and breakdown view for a time window (?days=1|7|30|0 for all):
+   * daily volume, speed, quality and cache use; latency percentiles by mode; the
+   * most-asked questions; why people gave 👎; and a health verdict for the banner.
+   */
+  router.get('/api/admin/insights', async (req, res) => {
+    const days = Math.max(0, Math.min(365, Number(req.query.days ?? 30) || 0));
+    const since = days ? `created_at >= now() - interval '${days} days'` : 'TRUE';
+    const empty = { rows: [] as Row[] };
+    const run = (sql: string) => appkit.lakebase.query(sql).catch((err: unknown) => {
+      console.warn('[insights]', err instanceof Error ? err.message : err);
+      return empty;
+    });
+    const [daily, latency, topQuestions, reasons, people, summary, hourly] = await Promise.all([
+      run(`SELECT to_char(date_trunc('day', created_at), 'YYYY-MM-DD') AS day,
+                  COUNT(*) FILTER (WHERE mode = 'chat')::int AS quick,
+                  COUNT(*) FILTER (WHERE mode = 'agent')::int AS deep,
+                  COUNT(*) FILTER (WHERE NOT success AND guard_action IS DISTINCT FROM 'blocked')::int AS failed,
+                  COUNT(*) FILTER (WHERE guard_action = 'blocked')::int AS blocked,
+                  ROUND(AVG(latency_ms) FILTER (WHERE NOT from_cache AND mode = 'chat')) AS quick_ms,
+                  ROUND(AVG(latency_ms) FILTER (WHERE NOT from_cache AND mode = 'agent')) AS deep_ms,
+                  ROUND(AVG(faithfulness)::numeric, 3) AS faithfulness,
+                  ROUND(AVG(CASE WHEN from_cache THEN 1.0 ELSE 0 END), 3) AS cache_rate
+             FROM chatapp.usage_log WHERE ${since} GROUP BY 1 ORDER BY 1`),
+      run(`SELECT mode, COUNT(*)::int AS n,
+                  percentile_cont(0.5) WITHIN GROUP (ORDER BY latency_ms) AS p50,
+                  percentile_cont(0.9) WITHIN GROUP (ORDER BY latency_ms) AS p90,
+                  percentile_cont(0.95) WITHIN GROUP (ORDER BY latency_ms) AS p95
+             FROM chatapp.usage_log WHERE ${since} AND success AND NOT from_cache GROUP BY mode`),
+      run(`SELECT MIN(question) AS question, COUNT(*)::int AS times, COUNT(DISTINCT user_email)::int AS people,
+                  ROUND(AVG(faithfulness)::numeric, 3) AS faithfulness,
+                  COUNT(*) FILTER (WHERE from_cache)::int AS from_cache
+             FROM chatapp.usage_log WHERE ${since} AND COALESCE(guard_action, '') <> 'blocked'
+            GROUP BY lower(regexp_replace(trim(question), '[[:punct:][:space:]]+', ' ', 'g'))
+            ORDER BY times DESC, MAX(created_at) DESC LIMIT 8`),
+      run(`SELECT COALESCE(feedback_reason, 'none') AS reason, COUNT(*)::int AS n
+             FROM chatapp.usage_log WHERE ${since} AND feedback = -1 GROUP BY 1 ORDER BY n DESC`),
+      run(`SELECT COUNT(DISTINCT user_email)::int AS users, COUNT(DISTINCT session_id)::int AS sessions,
+                  COUNT(DISTINCT user_email) FILTER (WHERE created_at >= now() - interval '1 day')::int AS active_today
+             FROM chatapp.usage_log WHERE ${since}`),
+      run(`SELECT COUNT(*)::int AS questions,
+                  ROUND(AVG(CASE WHEN success OR guard_action = 'blocked' THEN 1.0 ELSE 0 END), 3) AS success_rate,
+                  ROUND(AVG(faithfulness)::numeric, 3) AS faithfulness,
+                  ROUND(AVG(CASE WHEN from_cache THEN 1.0 ELSE 0 END), 3) AS cache_rate,
+                  COUNT(*) FILTER (WHERE feedback = 1)::int AS up, COUNT(*) FILTER (WHERE feedback = -1)::int AS down,
+                  COUNT(*) FILTER (WHERE guard_action IS NOT NULL)::int AS guarded
+             FROM chatapp.usage_log WHERE ${since}`),
+      run(`SELECT EXTRACT(HOUR FROM created_at)::int AS hour, COUNT(*)::int AS n
+             FROM chatapp.usage_log WHERE ${since} GROUP BY 1 ORDER BY 1`),
+    ]);
+    // Health: what a non-technical owner should look at first.
+    const s = summary.rows[0] ?? {};
+    const issues: string[] = [];
+    if (Number(s.questions) && Number(s.success_rate) < 0.9) issues.push(`only ${Math.round(Number(s.success_rate) * 100)}% of questions answered`);
+    if (s.faithfulness !== null && s.faithfulness !== undefined && Number(s.faithfulness) < (aiConfig.judge?.warnBelow ?? 0.7) + 0.1) {
+      issues.push(`answer quality ${Math.round(Number(s.faithfulness) * 100)}%`);
+    }
+    if (Number(s.down) > Number(s.up) && Number(s.down) >= 3) issues.push('more 👎 than 👍');
+    res.json({
+      days, daily: daily.rows, latency: latency.rows, topQuestions: topQuestions.rows, reasons: reasons.rows,
+      people: people.rows[0] ?? {}, summary: s, hourly: hourly.rows,
+      health: { status: !Number(s.questions) ? 'idle' : issues.length ? 'attention' : 'healthy', issues },
     });
   });
 

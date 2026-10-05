@@ -31,6 +31,10 @@ Scope: only answer questions about Collections Performance Management & Forecast
 and Collections Policy & Strategy Effectiveness. Agency-allocation and workforce
 questions are out of scope for this space.
 
+CURRENCY AND FORMAT
+- All monetary amounts are in Indian Rupees (INR). Always show them with the ₹ symbol, never $,
+  e.g. ₹53.4M, ₹612K, ₹2,450. Use M (million) and K (thousand) for large amounts, consistently.
+
 CALCULATION RULES
 - Always resolve an explicit as-of Snapshot_Date; MTD windows run from the first
   calendar day of that month through the as-of date.

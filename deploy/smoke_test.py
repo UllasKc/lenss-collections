@@ -205,14 +205,12 @@ def main():
             raise RuntimeError("no saved answer id from the chat step")
         url = f"{base}/api/chat/messages/{mid}/feedback"
         up = requests.post(url, headers=headers, json={"rating": "up"}, timeout=60)
-        up.raise_for_status()
-        if not up.json().get("sentToGenie"):
-            raise RuntimeError(f"rating saved but not delivered to Genie: {up.text}")
+        up.raise_for_status()   # forwarding to the engine's feedback API now happens in the background
         stored = [m for m in get_ok(f"/api/chat/sessions/{convo['session_id']}/messages") if m["message_id"] == mid]
         if not stored or stored[0].get("feedback") != 1:
             raise RuntimeError(f"rating not stored: {stored[:1]}")
         requests.post(url, headers=headers, json={"rating": None}, timeout=60).raise_for_status()
-        return "👍 stored, delivered to Genie, then cleared"
+        return "👍 stored, then cleared"
 
     def audit_trail():
         recent = get_ok("/api/admin/usage")["recent"]
@@ -231,9 +229,33 @@ def main():
             raise RuntimeError("no narrative; run the deploy's summary step")
         return text[:120] + "…"
 
+    def overview():
+        o = get_ok("/api/dashboard/overview")
+        empty = [k for k in ("products", "shortfall", "heat", "channels", "actions", "topAccounts", "drivers",
+                             "strategies", "regions", "opportunity") if not o.get(k)]
+        if empty or not o.get("portfolio") or not o.get("funnel") or not (o.get("collectors") or {}).get("count"):
+            raise RuntimeError(f"empty Command Center panels: {empty or 'portfolio/funnel/collectors'}")
+        return f"{len(o['products'])} products, {o['collectors']['count']} collectors, {len(o['regions'])} regions"
+
+    def insights():
+        d = get_ok("/api/admin/insights?days=7")
+        if "health" not in d or "daily" not in d:
+            raise RuntimeError(f"unexpected insights payload: {list(d)[:8]}")
+        return f"health {d['health']['status']}, {len(d['daily'])} day(s), {len(d['topQuestions'])} top questions"
+
+    def evals_and_transparency():
+        e = get_ok("/api/evals")
+        t = get_ok("/api/ai/transparency")
+        if e.get("enabled") and not e.get("cases"):
+            raise RuntimeError("evals on but no cases (run the deploy's lakebase step)")
+        return f"evals {'on, ' + str(len(e['cases'])) + ' cases' if e.get('enabled') else 'off'}; {len(t.get('sources') or [])} data sources listed"
+
     check("GET /api/dashboard/summary has the executive summary", exec_summary)
+    check("GET /api/dashboard/overview fills every Command Center panel", overview)
+    check("GET /api/admin/insights (Monitoring trends)", insights)
+    check("GET /api/evals and /api/ai/transparency", evals_and_transparency)
     check("[session] chat question returns a chart + auto-named session", mixed_chat)
-    check("[session] 👍/👎 feedback is stored and sent to Genie", feedback)
+    check("[session] 👍/👎 feedback is stored", feedback)
     check("[monitoring] audit trail records the SQL and stage timings", audit_trail)
     if not args.skip_agent:
         check("[session] agent follow-up in the same session", mixed_agent)

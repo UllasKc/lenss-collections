@@ -43,7 +43,7 @@ export function extractClaims(text: string): Claim[] {
   const clean = text
     .replace(/\[\[chart:[^\]]+\]\]/g, ' ')
     .replace(/^\s*\d+[.)]\s+/gm, ' ')                                     // list numbering
-    .replace(/\b(1-30|31-60|61-90|91-180|180\+)\b/g, ' ')                 // DPD bucket names
+    .replace(/(?<![\w.])(1-30|31-60|61-90|91-180|180\+)(?!\d)/g, ' ')    // DPD bucket names ("180+ days" too)
     .replace(/\b\d{1,2}(:\d{2})?\s*(-|–|to)\s*\d{1,2}(:\d{2})?\s*(am|pm)\b/gi, ' ') // contact-time windows
     .replace(/\b\d{4}-\d{2}-\d{2}\b/g, ' ');                              // dates
   const re = /([$₹])?\s?(?<![\w.])(-?\d[\d,]*(?:\.\d+)?)\s?(%|percent\b|k\b|m\b|mn\b|b\b|bn\b|thousand\b|million\b|billion\b|cr\b|crore\b|l\b|lakh\b)?/gi;
@@ -77,7 +77,17 @@ function evidenceNumbers(evidence: Evidence[]): number[] {
   return nums;
 }
 
+/**
+ * Business-rule thresholds and policy constants (gold.business_rules_config and the
+ * certified views): quoting them, e.g. "non-payment risk of 0.70 or more", is not a data claim.
+ */
+const RULE_NUMBERS = [0.9, 0.7, 0.25, 30, 4.5, 50000, 0.8, 0.35, 50];
+
 function supported(c: Claim, nums: number[]): boolean {
+  if (!c.unit || c.percent) {
+    const asRatio = c.percent ? c.value / 100 : c.value;
+    if (RULE_NUMBERS.some((r) => Math.abs(r - asRatio) < 1e-9 || Math.abs(r - c.value) < 1e-9)) return true;
+  }
   const scale = SCALE[c.unit] ?? 1;
   const tol = (0.5 * 10 ** -c.decimals) * scale; // what the displayed rounding allows
   const candidates = c.percent ? [c.value, c.value / 100] : [c.value];
