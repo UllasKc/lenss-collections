@@ -185,6 +185,68 @@ export function buildDashboardRouter(db: Lakebase): express.Router {
   router.get('/api/dashboard/funnel-rates', (_req, res) =>
     cached('funnel-rates', res, async () => (await runSql(`SELECT * FROM ${GOLD}.qry_funnel_rates`))[0]));
 
+  /**
+   * The accounts behind a Command Center figure: every card can show its list. Each list
+   * uses the same rule as the card's number (qry_cc_kpis, qry_cc_actions, the intervention
+   * list), on the account-level view. Lists are fixed here; a request only picks one, plus a
+   * product, arrears stage or next step where the list needs it (checked against the data).
+   */
+  const SNAP = `DATE '2026-09-15'`;
+  const DUE_7D = `b.PTP_Flag = 1 AND b.PTP_Due_Date > ${SNAP} AND b.PTP_Due_Date <= DATE_ADD(${SNAP}, 7)`;
+  const LIKELY_TO_BREAK = `(b.Payment_Propensity < 0.35 OR b.Nonpayment_Risk >= 0.60)`;
+  const LISTS: Record<string, { where: (v: string) => string; order: string; needs?: 'product' | 'bucket' | 'action' }> = {
+    high_risk: { where: () => 'b.Nonpayment_Risk >= 0.70', order: 'b.Nonpayment_Risk DESC, b.Outstanding_Balance DESC' },
+    worsening: { where: () => 'b.Roll_Forward_Flag = 1', order: 'b.Bucket_Order DESC, b.Outstanding_Balance DESC' },
+    bucket: { where: (v) => `b.DPD_Bucket = ${v}`, order: 'b.Outstanding_Balance DESC', needs: 'bucket' },
+    broken_ptp: { where: () => 'b.Broken_PTP_Flag = 1', order: 'b.PTP_Amount DESC' },
+    product: { where: (v) => `b.Product = ${v}`, order: 'b.Incremental_Recovery_Opportunity DESC', needs: 'product' },
+    rolling_180: { where: () => 'b.DPD BETWEEN 150 AND 180', order: 'b.DPD DESC, b.Outstanding_Balance DESC' },
+    not_reached: { where: () => 'b.Attempted_Flag = 1 AND b.RPC_Flag = 0', order: 'b.Attempts_MTD DESC, b.Outstanding_Balance DESC' },
+    over_contact: {
+      where: () => `EXISTS (SELECT 1 FROM ${GOLD}.qry_over_contact_risk o WHERE o.Treatment_Strategy = b.Treatment_Strategy
+        AND o.Product = b.Product AND o.DPD_Bucket = b.DPD_Bucket AND COALESCE(o.Vulnerability_Type, 'None') = b.Vulnerability_Type)`,
+      order: 'b.Attempts_MTD DESC',
+    },
+    priority: { where: () => 'i.Account_ID IS NOT NULL', order: 'b.Incremental_Recovery_Opportunity DESC' },
+    priority_product: { where: (v) => `i.Account_ID IS NOT NULL AND b.Product = ${v}`, order: 'b.Incremental_Recovery_Opportunity DESC', needs: 'product' },
+    action: { where: (v) => `i.Recommended_Action = ${v}`, order: 'b.Incremental_Recovery_Opportunity DESC', needs: 'action' },
+    ptp_at_risk: { where: () => `${DUE_7D} AND ${LIKELY_TO_BREAK}`, order: 'b.PTP_Due_Date, b.PTP_Amount DESC' },
+    ptp_due_other: { where: () => `${DUE_7D} AND NOT ${LIKELY_TO_BREAK}`, order: 'b.PTP_Due_Date, b.PTP_Amount DESC' },
+    high_value: { where: () => 'b.Payment_Propensity >= 0.60 AND b.Outstanding_Balance >= 100000', order: 'b.Incremental_Recovery_Opportunity DESC' },
+  };
+  const FROM = `FROM ${GOLD}.qry_explorer_base b LEFT JOIN ${GOLD}.qry_immediate_intervention i ON i.Account_ID = b.Account_ID`;
+  /** The values a list may be narrowed to, from the data itself (so nothing else reaches the SQL). */
+  const allowed = (needs: 'product' | 'bucket' | 'action') => cache.get(`values:${needs}`, async () => {
+    const col = needs === 'product' ? 'Product' : needs === 'bucket' ? 'DPD_Bucket' : 'Recommended_Action';
+    const src = needs === 'action' ? `${GOLD}.qry_immediate_intervention` : `${GOLD}.qry_explorer_base`;
+    return (await runSql(`SELECT DISTINCT ${col} AS v FROM ${src} WHERE ${col} IS NOT NULL`)).map((r) => String(r.v));
+  }).then((r) => r.value as string[]);
+
+  router.get('/api/dashboard/accounts', async (req, res) => {
+    const name = String(req.query.list ?? '');
+    const list = LISTS[name];
+    if (!list) { res.status(400).json({ error: 'unknown list' }); return; }
+    let value = '';
+    if (list.needs) {
+      const v = String(req.query.value ?? '');
+      if (!(await allowed(list.needs).catch(() => [] as string[])).includes(v)) { res.status(400).json({ error: `unknown ${list.needs}` }); return; }
+      value = `'${v.replace(/'/g, "''")}'`;
+    }
+    const where = `WHERE ${list.where(value)}`;
+    await cached(`accounts:${name}:${value}`, res, async () => {
+      const [[totals], rows] = await Promise.all([
+        runSql(`SELECT COUNT(*) AS accounts, SUM(b.Outstanding_Balance) AS balance, SUM(b.Incremental_Recovery_Opportunity) AS recoverable,
+                       SUM(CASE WHEN ${DUE_7D} THEN b.PTP_Amount END) AS promised_7d ${FROM} ${where}`),
+        runSql(`SELECT b.Account_ID, b.Product, b.DPD, b.DPD_Bucket, b.Region, b.Outstanding_Balance, b.Incremental_Recovery_Opportunity,
+                       b.Payment_Propensity, b.Nonpayment_Risk, b.PTP_Amount, CAST(b.PTP_Due_Date AS STRING) AS PTP_Due_Date, b.Broken_PTP_Flag,
+                       b.Attempts_MTD, b.RPC_Flag, b.Primary_Nonpayment_Driver, b.Preferred_Channel, b.Vulnerability_Type, b.Collector_ID,
+                       i.Recommended_Action
+                  ${FROM} ${where} ORDER BY ${list.order} LIMIT 1000`),
+      ]);
+      return { totals, rows, truncated: Number(totals?.accounts ?? 0) > rows.length };
+    });
+  });
+
   // Have the Command Center ready before anyone asks: when the app starts, then whenever the
   // data version changes (a quick Lakebase read every few minutes; the warehouse is only
   // queried when something changed).

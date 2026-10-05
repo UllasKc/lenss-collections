@@ -183,6 +183,17 @@
     <div class="trace-body" id="kpiDictBody"></div>
   </dialog>
 
+  <!-- The accounts behind any Command Center figure -->
+  <dialog class="trace-dialog acct-dialog" id="acctDialog" aria-labelledby="acctTitle">
+    <div class="trace-head"><div><h2 id="acctTitle">Accounts</h2><div class="acct-rule" id="acctRule"></div></div>
+      <button class="trace-close" id="acctClose" aria-label="Close">×</button></div>
+    <div class="trace-body">
+      <div class="acct-bar"><div class="acct-sum" id="acctSum"></div>
+        <button class="btn ghost" id="acctCsv" disabled>Export CSV</button></div>
+      <div class="table-scroll acct-scroll" id="acctBody"></div>
+    </div>
+  </dialog>
+
   <!-- ============ ASSISTANT (full-screen chat, like ChatGPT / Copilot) ============ -->
   <section class="tab" id="tab-assistant">
     <div class="chatwrap" id="chatWrap">

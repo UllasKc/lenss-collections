@@ -13,6 +13,26 @@ Versions match git tags where one exists. Dates are when the change was committe
 
 ## Unreleased
 
+### Every Command Center figure shows the accounts behind it
+A card said "610 promises" or "999 accounts" with no way to see which. Every card now has a **View accounts** button that opens the accounts behind its number: same rule, same count. The list shows account, product and days overdue, region, balance, recoverable, likely to pay, risk, promise (amount, due date, broken), why not paying, next step (for priority accounts) and collector, with totals and **Export CSV**.
+- **Where:**
+  - chapter 2: high-risk accounts, accounts worsening, each arrears stage in the risk snapshot;
+  - chapter 3: each of the five issues (broken promises, the product behind target, accounts near 180+, customers not reached, over-contacted customers);
+  - chapter 4: all 604 priority accounts and each product's;
+  - chapter 5: each of the four queues and each next step.
+- **Server:** `GET /api/dashboard/accounts?list=…&value=…`.
+  - The lists are fixed in code. A request only picks one, plus a product, arrears stage or next step that is checked against the values in the data (anything else is rejected with a 400).
+  - It reads `qry_explorer_base` joined to `qry_immediate_intervention`, and caches per data version like the rest of the Command Center.
+  - Lists over 1,000 accounts show and export the first 1,000, ordered by what matters for that list (due date for promises, recoverable amount for opportunities).
+- **"Ask LensS"** on issue and queue cards is now a button next to "View accounts" (the whole card used to be the button).
+- **Verified (local, personal data):** all 14 lists match their card exactly, for example:
+  - 610 promises likely to break, 588 other promises due, 492 high-value, 999 near 180+;
+  - 879 high-risk, 1,234 broken promises, 9,393 over-contacted, 604 priority accounts;
+  - 24 specialist-collector, 5,993 in 1–30 days, 170 Credit Card priority accounts.
+  
+  An injected value and an unknown list return 400. 27 view buttons on the page, no console errors.
+- The story-only version (before this change) is commit `d45c299`, tagged `cc-story-only`.
+
 ### Command Center rebuilt as one story, top to bottom
 Presenters found the page hard to follow: the same figures appeared in several places (hero tiles, executive summary, priorities, watchouts, core metrics, brief, target panel), with no order to tell them in. It is now five numbered chapters, each answering one question and leading to the next. Each opens with a one-sentence answer written from the certified figures, and each figure appears once.
 

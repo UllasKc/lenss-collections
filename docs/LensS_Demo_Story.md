@@ -2,6 +2,8 @@
 
 The Command Center is now **one story in five chapters**, and the screen follows it. Each chapter opens with a sentence in bold-number text: **that sentence is your line.** Read the opening line, point at the evidence, then use the bridge to move to the next chapter.
 
+**Every number can be opened:** each card has a **View accounts** button that lists the exact accounts behind it (with Export CSV). Use it when someone asks "which ones?", for example on the Today queue: *"here are the 610, with each promise's amount and due date."*
+
 The story bar under the banner (**1 · On track? → 5 · What to do this week**) jumps between chapters and highlights where you are.
 
 Figures are from the 15 September 2026 snapshot. The time is about **8 minutes**.

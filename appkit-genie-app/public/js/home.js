@@ -184,19 +184,19 @@ function renderBookHealth(s, o, cc) {
   setTake('ch2Take', `<b>${money(k.Outstanding_Portfolio, 2)}</b> is overdue across <b>${count(k.Accounts_In_Collections)}</b> accounts. ` +
     `<b>${pct(k.Roll_Forward_Rate, 0)}</b> of them slipped into a later arrears stage this month` +
     (first && last ? `, and recovery falls from <b>${pct(first.Recovery_Rate)}</b> of the balance at ${hEsc(first.DPD_Bucket)} days to <b>${pct(last.Recovery_Rate)}</b> at ${hEsc(last.DPD_Bucket)}: the earlier we act, the more we recover.` : '.'));
-  const card = (ic, label, value, sub, why, t) => `
+  const card = (ic, label, value, sub, why, t, view = '') => `
     <div class="xkpi${t ? ' x-' + t : ''}" title="${hEsc(why)}">
       <div class="xkpi-top">${icon(ic, 'ico-sm')}<span>${label}</span></div>
       <div class="xkpi-v">${value}</div>
       <div class="xkpi-s">${sub}</div>
-      <div class="xkpi-why">${hEsc(why)}</div>
+      <div class="xkpi-why">${hEsc(why)}</div>${view}
     </div>`;
   const keptRate = num(r.Broken_Promise_Rate) === null ? null : 1 - num(r.Broken_Promise_Rate);
   document.getElementById('execKpis').innerHTML = [
     card('cash', 'Overdue balance', money(k.Outstanding_Portfolio, 2), `${count(k.Accounts_In_Collections)} accounts in collections`, 'Total balance currently under collections'),
     card('pulse', 'Recovery rate', pct(k.Recovery_Rate, 2), 'collected this month ÷ overdue balance', 'How much of the book we turn into cash'),
-    card('alert', 'High-risk accounts', count(k.High_Risk_Accounts), `risk ≥ 0.70 · ${count(s.immediate_intervention_accounts)} still likely to pay`, 'Non-payment risk threshold exceeded; the priority list is the subset still likely to pay', 'warn'),
-    card('slip', 'Accounts worsening', pct(k.Roll_Forward_Rate ?? p.roll_forward_rate), `moved to a later arrears stage · ${pct(p.roll_back_rate)} improved`, 'Deterioration indicator', 'warn'),
+    card('alert', 'High-risk accounts', count(k.High_Risk_Accounts), `risk ≥ 0.70 · ${count(s.immediate_intervention_accounts)} still likely to pay`, 'Non-payment risk threshold exceeded; the priority list is the subset still likely to pay', 'warn', viewBtn('high_risk', 'View accounts', '', 'High-risk accounts', true)),
+    card('slip', 'Accounts worsening', pct(k.Roll_Forward_Rate ?? p.roll_forward_rate), `moved to a later arrears stage · ${pct(p.roll_back_rate)} improved`, 'Deterioration indicator', 'warn', viewBtn('worsening', 'View accounts', '', 'Accounts worsening this month', true)),
     card('coin', 'Cost to collect', num(p.cost_to_collect) === null ? '—' : CUR + num(p.cost_to_collect).toFixed(3), `per ${CUR}1 collected · ${money(k.Collection_Cost)} spent`, 'Efficiency of collections'),
   ].join('');
   document.getElementById('execKpis2').innerHTML = [
@@ -213,9 +213,9 @@ function renderRisk(cc) {
   const colors = ['#0E8F80', '#0B6E99', '#D97706', '#EA580C', '#DC2626'];
   const total = rows.reduce((a, r) => a + num(r.Accounts), 0);
   const stack = `<div class="stack">${rows.map((r, i) => `<span style="width:${(100 * num(r.Account_Share)).toFixed(2)}%;background:${colors[i]}" title="${hEsc(r.DPD_Bucket)} days: ${count(r.Accounts)} accounts (${pct(r.Account_Share)})">${num(r.Account_Share) > 0.07 ? pct(r.Account_Share, 0) : ''}</span>`).join('')}</div>`;
-  const table = `<table class="mini risk-table"><thead><tr><th>Arrears stage</th><th>Accounts</th><th>Amount</th><th>Distribution</th><th>Recovery</th></tr></thead><tbody>
-    ${rows.map((r, i) => `<tr><td><span class="dot" style="background:${colors[i]}"></span>${hEsc(r.DPD_Bucket)} days</td><td>${count(r.Accounts)}</td><td>${money(r.Outstanding_Balance)}</td><td>${pct(r.Account_Share)}</td><td>${pct(r.Recovery_Rate, 2)}</td></tr>`).join('')}
-    <tr class="tot"><td>Total</td><td>${count(total)}</td><td>${money(rows.reduce((a, r) => a + num(r.Outstanding_Balance), 0), 2)}</td><td>100%</td><td></td></tr></tbody></table>`;
+  const table = `<table class="mini risk-table"><thead><tr><th>Arrears stage</th><th>Accounts</th><th>Amount</th><th>Distribution</th><th>Recovery</th><th></th></tr></thead><tbody>
+    ${rows.map((r, i) => `<tr><td><span class="dot" style="background:${colors[i]}"></span>${hEsc(r.DPD_Bucket)} days</td><td>${count(r.Accounts)}</td><td>${money(r.Outstanding_Balance)}</td><td>${pct(r.Account_Share)}</td><td>${pct(r.Recovery_Rate, 2)}</td><td>${viewBtn('bucket', 'View', r.DPD_Bucket, `${r.DPD_Bucket} days past due`, true)}</td></tr>`).join('')}
+    <tr class="tot"><td>Total</td><td>${count(total)}</td><td>${money(rows.reduce((a, r) => a + num(r.Outstanding_Balance), 0), 2)}</td><td>100%</td><td></td><td></td></tr></tbody></table>`;
   panel('pnlRisk', 'Portfolio risk snapshot', 'Accounts and balance by days past due',
     { q: 'How is our portfolio distributed across DPD buckets, and where is the risk concentrated?', mode: 'chat' }, stack + table);
 }
@@ -232,40 +232,40 @@ function renderIssues(s, o, cc) {
   setTake('ch3Take', `Broken promises are the biggest threat to the month: <b>${pct(k.Broken_Share_Of_Due_Promises, 0)}</b> of the promises already due were broken. ` +
     `Calling harder won't fix it: <b>${count(oc.accounts)}</b> customers are already contacted 4.5+ times a month.`);
   const issues = [
-    { sev: 'Critical', ic: 'promise', title: 'Customers are breaking their promises to pay',
+    { sev: 'Critical', ic: 'promise', view: ['broken_ptp', `View ${count(k.Broken_PTP_Accounts)} broken promises`], title: 'Customers are breaking their promises to pay',
       metric: pct(k.Broken_Share_Of_Due_Promises, 0),
       body: `${count(k.Broken_PTP_Accounts)} customers broke a promise that fell due, and ${count(a.PTP_Break_Risk_7d_Accounts)} more promises (${money(a.PTP_Break_Risk_7d_Amount)}) due this week are likely to break.`,
       driver: 'Promises taken from customers with low propensity or high non-payment risk.',
       q: 'Why are so many promises to pay being broken, and which segments should we prioritise to fix it?' },
-    worst && { sev: 'High', ic: 'gap', title: `${worst.Product} is furthest behind target`,
+    worst && { sev: 'High', ic: 'gap', view: ['product', `View ${worst.Product} accounts`, worst.Product], title: `${worst.Product} is furthest behind target`,
       metric: pct(worst.Achievement_Pct),
       body: `${money(worst.Target_Gap)} behind plan, the largest product gap.${seg ? ` The largest single gap is ${seg.Product} at ${seg.DPD_Bucket} days (${money(seg.Target_Gap)}).` : ''}`,
       driver: 'Every product and arrears stage is below target; the shortfall is concentrated in early-stage accounts.',
       q: `Why is ${worst.Product} behind target this month and what should we do about it?` },
-    { sev: 'High', ic: 'slip', title: 'Accounts are sliding into late arrears',
+    { sev: 'High', ic: 'slip', view: ['rolling_180', `View ${count(a.Rolling_To_180_Accounts)} accounts near 180+`], title: 'Accounts are sliding into late arrears',
       metric: pct(k.Roll_Forward_Rate, 0),
       body: `${pct(k.Roll_Forward_Rate, 0)} of accounts moved to a later stage this month; ${count(a.Rolling_To_180_Accounts)} accounts (${money(a.Rolling_To_180_Exposure)}) are 150–180 days overdue, about to reach 180+.`,
       driver: 'Late-stage accounts recover at a fraction of early-stage rates.',
       q: 'Which accounts are about to roll into 180+ days past due, and what should we do before they do?' },
-    { sev: 'Medium', ic: 'phone', title: 'Too few customers are reached',
+    { sev: 'Medium', ic: 'phone', view: ['not_reached', 'View customers not reached'], title: 'Too few customers are reached',
       metric: pct(r.RPC_Rate, 0),
       body: `Only ${pct(r.RPC_Rate)} of the customers we try to contact are reached, and ${pct(r.PTP_Conversion_Rate)} of those agree to pay.`,
       driver: 'Channel and contact-time mismatch for parts of the book.',
       q: 'Which channels and contact times work best for reaching customers, and how should we change our contact strategy?' },
-    { sev: 'Medium', ic: 'users', title: 'Some customers are over-contacted',
+    { sev: 'Medium', ic: 'users', view: ['over_contact', `View ${count(oc.accounts)} customers`], title: 'Some customers are over-contacted',
       metric: count(oc.accounts),
       body: `${count(oc.accounts)} customers in ${count(oc.segments ?? s.over_contact_segments)} groups are contacted 4.5+ times a month: a complaint and regulatory risk.`,
       driver: 'Contact strategies with high attempt counts and low right-party contact.',
       q: 'Are our current collections policies too aggressive? Look at over-contact risk, complaints and vulnerable customers.' },
   ].filter(Boolean);
   document.getElementById('issues').innerHTML = issues.map((c, i) => `
-    <button class="prio issue sev-${c.sev.toLowerCase()}" data-ask="${hEsc(c.q)}" data-mode="agent">
+    <div class="prio issue sev-${c.sev.toLowerCase()}">
       <div class="prio-top"><span class="prio-rank">${i + 1}</span><span class="sev-tag">${c.sev}</span><span class="prio-metric">${c.metric}</span></div>
       <div class="prio-title">${icon(c.ic, 'ico-sm')} ${hEsc(c.title)}</div>
       <div class="prio-body">${hEsc(c.body)}</div>
       <div class="issue-driver"><b>Likely driver:</b> ${hEsc(c.driver)}</div>
-      <div class="prio-cta">${icon('spark', 'ico-xs')}Ask LensS why · deep analysis <span aria-hidden="true">→</span></div>
-    </button>`).join('');
+      <div class="card-btns">${viewBtn(c.view[0], c.view[1], c.view[2] || '', c.title)}${askBtn(c.q, 'agent', 'Ask LensS why')}</div>
+    </div>`).join('');
 }
 
 /** 4. Where is the money? The priority accounts: high-risk customers who are still likely to pay. */
@@ -284,27 +284,27 @@ function renderActionCenter(cc, o) {
     `then work the <b>${count(a.HighProp_HighBal_Accounts)}</b> high-value accounts likely to pay (${money(a.HighProp_HighBal_Recoverable)}), ` +
     `and stop <b>${count(a.Rolling_To_180_Accounts)}</b> accounts reaching 180+ days. Every priority customer gets one next step, with vulnerable and disputing customers supported first.`);
   const cards = [
-    { ic: 'alert', when: 'Today', t: 'Save promises likely to break', v: count(a.PTP_Break_Risk_7d_Accounts), unit: 'promises',
+    { ic: 'alert', when: 'Today', list: 'ptp_at_risk', t: 'Save promises likely to break', v: count(a.PTP_Break_Risk_7d_Accounts), unit: 'promises',
       d: `${money(a.PTP_Break_Risk_7d_Amount)} due in the next 7 days from customers with low propensity (< 0.35) or high risk (≥ 0.60). Call before the due date.`,
       q: 'Which customers with promises due in the next 7 days are likely to break them, and what follow-up should we do?', mode: 'agent', tone: 'bad' },
-    { ic: 'promise', when: 'This week', t: 'Remind the other promises due', v: count(otherDue), unit: 'promises',
+    { ic: 'promise', when: 'This week', list: 'ptp_due_other', t: 'Remind the other promises due', v: count(otherDue), unit: 'promises',
       d: `${money(otherAmt)} due in the next 7 days from customers likely to pay: a reminder on their preferred channel.`,
       q: 'Which promises to pay are due in the next 7 days, and how much is at stake?', mode: 'chat', tone: 'brand' },
-    { ic: 'cash', when: 'This week', t: 'Work high-value accounts likely to pay', v: money(a.HighProp_HighBal_Recoverable), unit: 'recoverable',
+    { ic: 'cash', when: 'This week', list: 'high_value', t: 'Work high-value accounts likely to pay', v: money(a.HighProp_HighBal_Recoverable), unit: 'recoverable',
       d: `${count(a.HighProp_HighBal_Accounts)} accounts with propensity ≥ 60% and balance ≥ ₹100K (${money(a.HighProp_HighBal_Balance)} balance).`,
       q: 'Which accounts have both high payment propensity and high balance, and how should we work them?', mode: 'chat', tone: 'good' },
-    { ic: 'slip', when: 'This month', t: 'Stop accounts reaching 180+', v: money(a.Rolling_To_180_Exposure), unit: 'exposure',
+    { ic: 'slip', when: 'This month', list: 'rolling_180', t: 'Stop accounts reaching 180+', v: money(a.Rolling_To_180_Exposure), unit: 'exposure',
       d: `${count(a.Rolling_To_180_Accounts)} accounts at 150–180 days past due, about to enter the lowest-recovery stage.`,
       q: 'Which accounts are about to roll into 180+ days past due, and what should we do before they do?', mode: 'agent', tone: 'warn' },
   ];
   document.getElementById('actionCenter').innerHTML = cards.map((c, i) => `
-    <button class="act-card t-${c.tone}" data-ask="${hEsc(c.q)}" data-mode="${c.mode}">
+    <div class="act-card t-${c.tone}">
       <div class="act-step"><span class="prio-rank">${i + 1}</span><span class="act-when">${c.when}</span></div>
       <div class="act-top">${icon(c.ic, 'ico-sm')}<span>${hEsc(c.t)}</span></div>
       <div class="act-v">${c.v} <small>${hEsc(c.unit)}</small></div>
       <div class="act-d">${hEsc(c.d)}</div>
-      <div class="prio-cta">${icon('spark', 'ico-xs')}Ask LensS · ${c.mode === 'agent' ? 'deep analysis' : 'quick answer'} →</div>
-    </button>`).join('');
+      <div class="card-btns">${viewBtn(c.list, 'View accounts', '', c.t)}${askBtn(c.q, c.mode)}</div>
+    </div>`).join('');
 }
 
 const CHANNEL_ICON = { Voice: '📞', SMS: '💬', Email: '✉️', WhatsApp: '🟢', Field: '🚗', 'Digital Self-Cure': '📱' };
@@ -322,7 +322,7 @@ function renderAccounts(s, o) {
       <td><span class="pill-bar"><span style="width:${(num(r.Payment_Propensity) * 100).toFixed(0)}%"></span></span>${pct(r.Payment_Propensity, 0)}</td>
       <td>${hEsc(r.Primary_Nonpayment_Driver)}</td>
       <td><span class="action-chip a-${ACTION_TONE[r.Recommended_Action] || 'standard'}">${hEsc(r.Recommended_Action)}</span></td></tr>`).join('')}</tbody></table></div>`;
-  panel('pnlAccounts', 'The priority accounts worth the most', `The 8 of ${count(s.immediate_intervention_accounts)} priority accounts with the most to recover, and the next step for each.`,
+  panel('pnlAccounts', 'The priority accounts worth the most', `The 8 of ${count(s.immediate_intervention_accounts)} priority accounts with the most to recover, and the next step for each. ${viewBtn('priority', `View all ${count(s.immediate_intervention_accounts)}`, '', 'Priority accounts', true)}`,
     { q: 'Which accounts require immediate intervention?', mode: 'chat' }, body);
 }
 
@@ -334,7 +334,7 @@ function renderActions(o) {
     { q: 'Which accounts should go to hardship support or dispute resolution, and how should we handle them?', mode: 'agent' },
     rows.map(r => bar(hEsc(r.Recommended_Action), num(r.accounts), max, `${count(r.accounts)} <span class="muted">accounts</span>`,
       ACTION_TONE[r.Recommended_Action] === 'care' || ACTION_TONE[r.Recommended_Action] === 'dispute' ? 'warn' : 'brand',
-      `${money(r.opportunity)} recoverable`)).join('') || '<div class="empty-note">No data.</div>');
+      `${money(r.opportunity)} recoverable ${viewBtn('action', 'View accounts', r.Recommended_Action, r.Recommended_Action, true)}`)).join('') || '<div class="empty-note">No data.</div>');
 }
 
 /** Recovery opportunity by product (v1.6). */
@@ -343,8 +343,85 @@ function renderOpportunity(o) {
   const max = Math.max(...rows.map(r => num(r.opportunity) || 0), 1);
   panel('pnlOpportunity', 'Recoverable now, by product', 'From the priority accounts: high-risk customers who are still likely to pay.',
     { q: 'Where is the biggest recovery opportunity and which channel should we use for each segment?', mode: 'agent' },
-    rows.map(r => bar(hEsc(r.Product), num(r.opportunity), max, money(r.opportunity), 'good', `${count(r.accounts)} accounts`)).join('') || '<div class="empty-note">No data.</div>');
+    rows.map(r => bar(hEsc(r.Product), num(r.opportunity), max, money(r.opportunity), 'good',
+      `${count(r.accounts)} accounts ${viewBtn('priority_product', 'View', r.Product, `Priority accounts: ${r.Product}`, true)}`)).join('') || '<div class="empty-note">No data.</div>');
 }
+
+// ---------------------------------------------------------------- the accounts behind a figure
+// Every card can show its accounts: the same rule as its number, at account level.
+const LIST_RULES = {
+  high_risk: 'Non-payment risk ≥ 0.70.',
+  worsening: 'Moved to a later arrears stage than last month (roll forward).',
+  bucket: 'All accounts in this arrears stage.',
+  broken_ptp: 'A promise to pay fell due and was not kept.',
+  product: 'All accounts in collections for this product, most to recover first.',
+  rolling_180: '150–180 days past due: about to enter 180+, the lowest-recovery stage.',
+  not_reached: 'Contact was attempted this month but the right person was never reached.',
+  over_contact: 'In a customer group (strategy × product × stage × vulnerability, 30+ accounts) averaging 4.5+ contacts this month.',
+  priority: 'Priority accounts: non-payment risk ≥ 0.70 and payment propensity ≥ 0.25 (business rule R08).',
+  priority_product: 'Priority accounts (risk ≥ 0.70, propensity ≥ 0.25) for this product.',
+  action: 'Priority accounts given this next step by the intervention rules.',
+  ptp_at_risk: 'Promise due in the next 7 days, from a customer with payment propensity < 0.35 or non-payment risk ≥ 0.60.',
+  ptp_due_other: 'Promise due in the next 7 days, from a customer likely to keep it.',
+  high_value: 'Payment propensity ≥ 0.60 and balance ≥ ₹100K.',
+};
+const viewBtn = (list, label, value = '', title = '', sm = false) =>
+  `<button class="view-btn${sm ? ' sm' : ''}" data-accounts="${list}" data-value="${hEsc(value)}" data-title="${hEsc(title)}">${hEsc(label)}</button>`;
+let acctRows = [];
+async function openAccounts(list, value, title) {
+  const dlg = document.getElementById('acctDialog');
+  document.getElementById('acctTitle').textContent = title || 'Accounts';
+  document.getElementById('acctRule').textContent = LIST_RULES[list] || '';
+  document.getElementById('acctSum').textContent = 'Loading accounts…';
+  document.getElementById('acctBody').innerHTML = '<div class="skel"></div><div class="skel"></div><div class="skel short"></div>';
+  document.getElementById('acctCsv').disabled = true;
+  if (!dlg.open) dlg.showModal();
+  let d;
+  try {
+    const r = await fetch(`/api/dashboard/accounts?list=${encodeURIComponent(list)}${value ? '&value=' + encodeURIComponent(value) : ''}`);
+    d = await r.json();
+    if (!r.ok) throw new Error(d.error || 'HTTP ' + r.status);
+  } catch (err) {
+    document.getElementById('acctSum').textContent = 'These accounts could not be loaded. Please try again.';
+    document.getElementById('acctBody').innerHTML = '';
+    return;
+  }
+  const t = d.totals || {};
+  acctRows = d.rows || [];
+  document.getElementById('acctSum').innerHTML = `<b>${count(t.accounts)}</b> accounts · <b>${money(t.balance)}</b> balance · <b>${money(t.recoverable)}</b> recoverable` +
+    (num(t.promised_7d) ? ` · <b>${money(t.promised_7d)}</b> promised in the next 7 days` : '') +
+    (d.truncated ? ` <span class="muted">(the first ${count(acctRows.length)} are listed and exported)</span>` : '');
+  // "Next step" exists only for priority accounts; a list without any leaves the column out.
+  const hasStep = acctRows.some(r => r.Recommended_Action);
+  document.getElementById('acctBody').innerHTML = `<table class="nice"><thead><tr><th>Account</th><th>Product · days overdue</th><th>Region</th><th>Balance</th><th>Recoverable</th>
+      <th>Likely to pay</th><th>Risk</th><th>Promise</th><th>Why not paying</th>${hasStep ? '<th>Next step</th>' : ''}<th>Collector</th></tr></thead>
+    <tbody>${acctRows.map(r => `<tr><td class="mono">${hEsc(r.Account_ID)}</td>
+      <td>${hEsc(r.Product)} <span class="muted">· ${count(r.DPD)} days</span></td><td>${hEsc(r.Region)}</td>
+      <td>${money(r.Outstanding_Balance)}</td><td><b>${money(r.Incremental_Recovery_Opportunity)}</b></td>
+      <td>${pct(r.Payment_Propensity, 0)}</td><td>${pct(r.Nonpayment_Risk, 0)}</td>
+      <td>${num(r.PTP_Amount) ? `${money(r.PTP_Amount)} <span class="muted">due ${hEsc(String(r.PTP_Due_Date || '').slice(0, 10))}${String(r.Broken_PTP_Flag) === '1' ? ', broken' : ''}</span>` : '<span class="muted">—</span>'}</td>
+      <td>${hEsc(r.Primary_Nonpayment_Driver)}</td>
+      ${hasStep ? `<td>${r.Recommended_Action ? `<span class="action-chip a-${ACTION_TONE[r.Recommended_Action] || 'standard'}">${hEsc(r.Recommended_Action)}</span>` : '<span class="muted">—</span>'}</td>` : ''}
+      <td class="mono">${hEsc(r.Collector_ID)}</td></tr>`).join('')}</tbody></table>`;
+  document.getElementById('acctCsv').disabled = !acctRows.length;
+  document.getElementById('acctCsv').onclick = () => {
+    const cols = ['Account_ID', 'Product', 'DPD', 'DPD_Bucket', 'Region', 'Outstanding_Balance', 'Incremental_Recovery_Opportunity', 'Payment_Propensity',
+      'Nonpayment_Risk', 'PTP_Amount', 'PTP_Due_Date', 'Broken_PTP_Flag', 'Primary_Nonpayment_Driver', 'Preferred_Channel', 'Vulnerability_Type', 'Recommended_Action', 'Collector_ID'];
+    const cell = v => (v === null || v === undefined ? '' : /[",\n]/.test(String(v)) ? `"${String(v).replace(/"/g, '""')}"` : String(v));
+    const csv = [`# ${title}: ${LIST_RULES[list] || ''}`, cols.join(','), ...acctRows.map(r => cols.map(c => cell(r[c])).join(','))].join('\n');
+    const a = document.createElement('a');
+    a.href = URL.createObjectURL(new Blob([csv], { type: 'text/csv' }));
+    a.download = `lenss-${list}${value ? '-' + value.replace(/\W+/g, '-').toLowerCase() : ''}.csv`;
+    a.click();
+    setTimeout(() => URL.revokeObjectURL(a.href), 1000);
+  };
+}
+document.getElementById('acctClose').addEventListener('click', () => document.getElementById('acctDialog').close());
+document.getElementById('acctDialog').addEventListener('click', (e) => { if (e.target.id === 'acctDialog') e.target.close(); });
+document.getElementById('tab-home').addEventListener('click', (e) => {
+  const b = e.target.closest('[data-accounts]');
+  if (b) openAccounts(b.dataset.accounts, b.dataset.value, b.dataset.title);
+});
 
 // The story bar follows the reader: the chapter in view is highlighted.
 if (window.IntersectionObserver) {
