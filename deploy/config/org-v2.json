@@ -18,5 +18,6 @@
   },
   "faithfulness_judge": { "model": "databricks-gpt-oss-120b", "sample_percent": 100, "warn_below": 70 },
   "follow_ups": { "model": "databricks-meta-llama-3-3-70b-instruct" },
+  "auto_mode": { "method": "ai", "model": "databricks-meta-llama-3-3-70b-instruct" },
   "evals": { "max_accuracy_cases": 10 }
 }

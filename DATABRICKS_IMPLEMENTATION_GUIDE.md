@@ -16,6 +16,7 @@ Every capability in LensS Collections Intelligence, one line each: what it is an
 | 2 metric views + 16 certified views | Each measure is defined once and correctly, and the AI answers from clean, approved sources only |
 | Forecast and cure-rate views removed as sources | They gave misleading answers; removing them worked better than adding instructions |
 | Executive summary written from the certified views (no AI) | The Command Center headline is accurate and costs nothing to generate |
+| 7 Command Center views (`qry_cc_*`: KPIs, risk snapshot, target outlook, action queues, action accounts, channel and region effectiveness) | The leadership page and the AI read the same governed figures, defined once in SQL |
 
 ### AI query engine (Genie, presented as the "LensS query engine")
 
@@ -37,11 +38,16 @@ Every capability in LensS Collections Intelligence, one line each: what it is an
 | 10 key metrics with plain-English context (contact, promise, kept, cost to collect, roll-forward…) | The health of the operation, without jargon |
 | 12 insight panels: product bars, shortfall sources, heatmap, funnel, best channel, top accounts, next steps, opportunity, drivers, strategies, regions, collectors | Answers the questions a collections head asks, on one page |
 | "Ask AI" on every card and panel | One click from any insight to a full AI analysis of it, in the right mode |
+| Core metrics with "show more", executive brief (where we stand / drivers / actions) and priority watchouts with a severity filter | Leadership reads the month in one screen, and expands only when needed |
+| Portfolio risk snapshot by arrears bucket, and a target outlook (achieved + promises due × honour rate, with a likelihood) | Shows where the money is at risk and whether the month will land |
+| Driver analysis (Pareto of non-payment reasons) and an Action Center of 5 queues (high-propensity high-balance, top 250 recoverable, promises due in 7 days, break risk, rolling to 180+) | Every insight ends in a list of accounts someone can work today |
+| Channel effectiveness, region tabs (recovery / contact / risk) and top and bottom 10 collectors | Where to put people and channels next |
+| KPI dictionary (15 definitions, with the population each one uses) | Anyone can check exactly how a figure is calculated |
 | AI Assistant tab: ChatGPT-style conversations with history, auto-naming, rename and delete | A familiar experience; people can return to past analyses |
 | Mode dropdown (Deep analysis by default, or Quick answer) with plain descriptions | People choose by what they get, not by technical names |
 | Progress bar and "keep working, we'll notify you" during deep analysis | Long answers feel managed, not stuck |
 | Charts with Chart / Table / SQL views | Answers can be checked visually and technically |
-| Suggested questions (6 tiles + side panel), tested against live data | A strong starting point and a reliable demo path |
+| Quick-start prompts (6 one-click analyses) and a categorized question library (Executive, Diagnostic, Operational, Risk & conduct, Strategy) | A strong starting point and a reliable demo path, organised the way leaders think |
 | PDF export of the whole conversation, charts included | Analyses can be shared with people who don't use the app |
 | Answer-ready notifications (large toast, browser alert, tab badge) | People can work elsewhere during long Agent answers |
 | Voice input (the browser's own speech recognition) | Hands-free questions, in the browser's language |
@@ -86,15 +92,20 @@ Every capability in LensS Collections Intelligence, one line each: what it is an
 
 | What | Why |
 |---|---|
-| Evals tab with 29 cases (ground-truth accuracy, red-team, false-positive, policy) | Proves accuracy and safety with numbers, not anecdotes |
+| Evaluations (Observability, area 6) with 29 cases (ground-truth accuracy, red-team, false-positive, policy) | Proves accuracy and safety with numbers, not anecdotes |
 | Run history with the change from the previous run | Shows whether a change helped or hurt quality |
 | Feedback review queue (👎 with reasons → Fixed, Dismiss, Add to evals) | Human-in-the-loop: complaints get reviewed and become permanent tests |
-| Responsible AI tab (purpose, models, data, protections, limits, NIST AI RMF / EU AI Act alignment) | Answers the risk and compliance questions clients ask |
+| Responsible AI (Observability, area 7: purpose, models, data, protections, limits, NIST AI RMF / EU AI Act alignment) | Answers the risk and compliance questions clients ask |
+| Explorer tab: filters (product, stage, region, channel, strategy, driver, team, balance band, vulnerability, contact and promise dates), a dimension × measure slicer with drill-down, the why panels and account records with CSV export | Lets a leader see why the numbers are what they are, on governed data |
 
-### Monitoring
+### Monitoring (now Observability)
 
 | What | Why |
 |---|---|
+| Five areas: pipeline traces, answer quality, performance, data and model drift, security and guardrails | Each audience (owner, risk, engineering) finds its view in one click |
+| Headline row: groundedness, numeric reconciliation, average latency, personal-data guardrail pass rate | The four numbers that say whether the AI can be trusted |
+| Trace console: every question as a 9-stage governed path (ask, secure, cache, plan, retrieve, verify, synthesize, deliver, log) with timings and SQL | Any answer can be explained step by step |
+| "Inspect in Observability" under each answer | One click from an answer to its full trace |
 | Health banner and time range (24 hours, 7 days, 30 days, all time) | A one-line verdict an owner reads first |
 | Trends per day: questions by mode, answer time, quality, cache use, hour of day | Shows adoption, speed and quality over time |
 | Most-asked questions, answer-time percentiles, 👎 reasons | What people want, how long they wait, and why they are unhappy |
@@ -1517,6 +1528,68 @@ Leadership found the first demo too analyst-oriented: the Command Center was thi
 
 ### Visual system
 The Concentrix palette (navy `#003B5C`, aqua `#25E2CC`) carries the hero, tabs with icons and the send button. Purple marks Deep analysis and blue marks Quick answer throughout. Bars, heatmap, funnel, skeleton loading states and responsive layouts were checked at phone width.
+
+---
+
+## Step 8i — Command Center to the leadership spec, benchmark features
+
+The leadership spec (`all_details_and _data/Book6.xlsx`) lists six Command Center sections; a healthcare referral demo was set as the UX benchmark. This step builds the spec on governed views and adopts the benchmark's best ideas.
+
+### Governed views (`deploy/sql/70_command_center_views.sql`, deploy step `views`)
+- **Seven gold views computed from silver,** because the app's service principal reads gold only:
+  - `qry_cc_kpis`, one row of headline KPIs;
+  - `qry_cc_risk_snapshot`, accounts and balance per DPD bucket;
+  - `qry_cc_target_outlook`, achieved, gap and outlook;
+  - `qry_cc_actions` and `qry_cc_action_accounts`, the five action queues;
+  - `qry_cc_channel` and `qry_cc_region`, effectiveness by channel and by region;
+  - `qry_explorer_base`, the account-level base of the Explorer (not a Genie source).
+- **Population:** accounts in arrears (DPD > 0) on the latest snapshot, like every other governed view. The spec's figures use the whole book (all 20,000 accounts), so some differ: ₹1.93B outstanding instead of ₹2.03B, and ₹53.4M collected instead of ₹55.4M. The KPI dictionary states the population of each figure.
+- **High propensity is ≥ 0.60:** the spec asks for > 0.80, but no account scores above about 0.6.
+- **Target outlook is a pipeline estimate, not a statistical forecast:** achieved + promises due in the rest of the month × the observed honour rate. Likelihood is High when the outlook covers the gap 1.5× or more, Medium at 1.0× or more, else Low.
+- **Wiring:** the views are Genie sources (`deploy/genie/space.py`), and `/api/dashboard/overview` returns them as `cc`.
+
+### Four tabs (leadership review)
+After the first build, leadership asked for the benchmark's four tabs and a clear split. The spreadsheet's figures are a reference only: the v1.6 calculations stay.
+- **Command Center:** how the business is doing, in about a minute.
+- **Explorer:** why, with drill-downs and filters.
+- **Assistant:** the conversation with LensS.
+- **Observability:** traces, quality, performance, drift, security, plus Evaluations (area 6) and Responsible AI (area 7).
+
+A "Built by the Concentrix Data & Analytics Practice" strip and a footer frame every page except the full-screen Assistant. Every "Ask AI" link is now "Ask LensS", and answers are signed "LensS Intelligence Engine".
+
+### Command Center (`public/js/home.js`)
+The page runs top to bottom:
+- hero (target progress, outlook, recoverable now / 604 priority accounts, customers in arrears, 879 high-risk, over-contact);
+- executive summary (the narrative written by the `summary` step);
+- today's priorities (four cards);
+- core metrics: five large cards and the seven v1.6 metrics under "show more" (customers reached 47.4%, agreed to pay 46.1% of customers reached, promises honoured 34.6% of promises due, amount promised, accounts worsening, cost to collect, contacts per customer);
+- executive brief and priority watchouts;
+- risk snapshot and target outlook;
+- Action Center (5 queues), recommended next steps, recovery opportunity by product, largest recovery opportunities;
+- a hand-off card to the Explorer.
+
+Each renderer is isolated, so one failing panel can't blank the page. A KPI dictionary dialog defines every figure, including both high-risk figures (879 at risk ≥ 0.70; 604 of them still likely to pay).
+
+### Explorer (`public/js/explorer.js`, `server/routes/explorer.ts`, view `qry_explorer_base`)
+- **Data:** `qry_explorer_base` is one row per account in collections (DPD > 0, balance > 0, latest snapshot) with nine dimensions, the two dates and the flags the measures need. The server computes each measure with the metric-view formula (for example agreed to pay = SUM(PTP_Flag) / SUM(RPC_Flag)), so the unfiltered Explorer reconciles exactly to the Command Center. Targets come from `qry_product_bucket_performance`, which only has product × stage grain.
+- **API:** `GET /api/explorer/options` returns the filter values and date ranges. `GET /api/explorer/data?product=…&bucket=…&contactFrom=YYYY-MM-DD…` returns totals, the portfolio for comparison, a breakdown per dimension, collectors (30+ accounts), targets, product × stage cells, the best channel per stage (same rule as `qry_recommended_channel`) and the top 500 accounts by recovery opportunity. Values are checked against the options list and dates against `YYYY-MM-DD`, so no free text reaches the SQL. Results are cached per data version.
+- **Page:** filters and chips; 12 filtered tiles compared with the portfolio; Layer 1, a dimension × measure slicer (bars or table, click to drill); the why panels (target, drivers, strategies, funnel, channels, regions, collectors); Layer 2, account records with search, sort, paging and CSV; and the segment table. Each "Ask LensS" question carries the active filters.
+
+### Assistant prompts (`server/lib/suggestions.ts`, `public/js/chat.js`)
+- **Quick-start prompts:** six one-click analyses, each with a mode.
+- **Question library:** five categories.
+- **Where they appear:** in the welcome screen and in a side panel that opens beside a conversation on wide screens.
+
+### Observability (`public/js/observability.js`, `GET /api/admin/insights`)
+- **Layout:** seven areas under a headline row. Areas 6 (Evaluations) and 7 (Responsible AI) were separate tabs before the leadership review; they load when opened.
+- **Pipeline traces:** a trace list and a detail view with the 9-stage path, a waterfall and the SQL.
+- **The other four sub-tabs:** answer quality, performance and latency (including average time per stage), data and model drift (versions, models, question mix, eval pass rate per run) and security and guardrails.
+- **New insights fields:** `reconciliation`, `pii`, `stages`, `lowConfidence` and `traces`.
+
+### Auto mode, faithfulness check, account menu (second review)
+- **Auto mode** (`server/lib/autoMode.ts`): the browser calls `POST /api/chat/route` before sending a question in Auto. With `auto_mode.method = "ai"` a small model returns `{"mode": "quick" | "deep", "reason"}` (6 s timeout); otherwise, or on any failure, the word rule decides. The decision and the classifier's tokens are kept for 10 minutes keyed by user and question, and attached to that question's log when it arrives (`details.autoMode`, token feature `auto_mode`), so the browser never reports its own token counts.
+- **Numbers check** (`server/lib/judge.ts`): evidence numbers now include subtotals by each text column's values (groups of 2+ rows, short of the whole table), ranges are expanded so both ends carry the unit, and the question's own figures and the business-rule constants are accepted. The model judge is unchanged.
+- **Account menu:** `/api/me` returns `{ email, name, workspaceUrl }`; the name comes from the workspace SCIM directory (cached per email, 4 s timeout) or is derived from the email. Log out is app-side only, because Databricks Apps has no supported way to end the platform session.
 
 ---
 

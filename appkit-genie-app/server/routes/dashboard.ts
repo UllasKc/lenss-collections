@@ -136,14 +136,27 @@ export function buildDashboardRouter(db: Lakebase): express.Router {
         q(`SELECT Product, SUM(Intervention_Accounts) AS accounts, SUM(Incremental_Recovery_Opportunity) AS opportunity
              FROM ${GOLD}.qry_recovery_opportunity_sizing GROUP BY Product ORDER BY opportunity DESC`),
       ]);
-      const top = collectors.slice(0, 5);
-      const bottom = collectors.slice(-5).reverse();
+      // Command Center views (deploy/sql/70_command_center_views.sql); empty until the deploy's views step has run.
+      const [ccKpis, outlook, ccActions, riskSnapshot, channelEff, regionView] = await Promise.all([
+        q(`SELECT * FROM ${GOLD}.qry_cc_kpis`),
+        q(`SELECT * FROM ${GOLD}.qry_cc_target_outlook`),
+        q(`SELECT * FROM ${GOLD}.qry_cc_actions`),
+        q(`SELECT * FROM ${GOLD}.qry_cc_risk_snapshot ORDER BY Bucket_Order`),
+        q(`SELECT * FROM ${GOLD}.qry_cc_channel ORDER BY Recovery_Rate DESC`),
+        q(`SELECT * FROM ${GOLD}.qry_cc_region ORDER BY Recovery_Rate DESC`),
+      ]);
+      const top = collectors.slice(0, 10);
+      const bottom = collectors.slice(-10).reverse();
       return {
         asOf: '2026-09-15',
         portfolio: portfolio[0] ?? null, funnel: funnel[0] ?? null, rates: rates[0] ?? null,
         products, shortfall, buckets, heat, channels, actions, topAccounts, drivers, strategies, regions, vulnerability,
         collectors: { count: collectors.length, top, bottom, best: collectors[0] ?? null, worst: collectors[collectors.length - 1] ?? null },
         overContact: overContact[0] ?? null, opportunity,
+        cc: {
+          kpis: ccKpis[0] ?? null, outlook: outlook[0] ?? null, actions: ccActions[0] ?? null,
+          riskSnapshot, channels: channelEff, regions: regionView,
+        },
       };
     }));
 

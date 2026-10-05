@@ -7,8 +7,9 @@ document.querySelectorAll('.tabs button').forEach(btn => {
     document.getElementById('tab-' + btn.dataset.tab).classList.add('on');
     document.body.classList.toggle('assistant-on', btn.dataset.tab === 'assistant');
     if (btn.dataset.tab === 'obs' && window.loadMonitoring) window.loadMonitoring();
-    if (btn.dataset.tab === 'evals' && window.loadEvals) window.loadEvals();
-    if (btn.dataset.tab === 'rai' && window.loadResponsibleAi) window.loadResponsibleAi();
+    if (btn.dataset.tab === 'explorer' && window.loadExplorer) window.loadExplorer();
+    // Evals and Responsible AI are areas of Observability (opened from its area tabs).
+    if (btn.dataset.tab === 'obs' && window.showObsPane) window.showObsPane(window.currentObsPane || 'traces');
   });
 });
 
@@ -41,7 +42,7 @@ function kpiCard(label, val, secondary, tone) {
 // ---------- request trace (shared by the answer panel and Monitoring) ----------
 const FEATURE_LABELS = {
   guardrails: 'Guardrail classifier', embeddings: 'Question embedding', judge: 'Answer-quality judge',
-  follow_ups: 'Follow-up suggestions', title: 'Session naming', other: 'Other',
+  follow_ups: 'Follow-up suggestions', auto_mode: 'Auto mode router', title: 'Session naming', other: 'Other',
 };
 function featureLabel(f) { return FEATURE_LABELS[f] || f; }
 
@@ -86,20 +87,37 @@ window.userFirstName = '';
 async function loadUser() {
   try {
     const me = await fetch('/api/me').then(r => r.json());
-    window.userFirstName = firstNameOf(me.email);
-    document.getElementById('userNameDisplay').textContent = me.email || '';
-    // Initials like Copilot: "ullas.kc@…" -> "UK", "ullaskc98@…" -> "U".
-    const parts = String(me.email || '').split('@')[0].split(/[._-]/).map(x => x.replace(/[^a-z]/gi, '')).filter(Boolean);
-    const initials = (parts.length > 1 ? parts[0][0] + parts[1][0] : (parts[0] || '?')[0]).toUpperCase();
-    ['userAvatar', 'sideAvatar'].forEach(id => { const el = document.getElementById(id); if (el) el.textContent = initials; });
-    const nameEl = document.getElementById('sideName');
-    if (nameEl) nameEl.textContent = window.userFirstName || (me.email || '').split('@')[0];
-    const mailEl = document.getElementById('sideEmail');
-    if (mailEl) mailEl.textContent = me.email || '';
+    window.userFirstName = (me.name || '').split(' ')[0] || firstNameOf(me.email);
+    // One letter, like the Databricks account button, in the Concentrix colours.
+    const letter = ((me.name || me.email || '?').trim()[0] || '?').toUpperCase();
+    ['userAvatar', 'userAvatar2'].forEach(id => { const el = document.getElementById(id); if (el) el.textContent = letter; });
+    document.getElementById('userFullName').textContent = me.name || (me.email || '').split('@')[0];
+    document.getElementById('userEmail').textContent = me.email || '';
+    document.getElementById('userBtn').title = `${me.name || ''}${me.name ? ' · ' : ''}${me.email || ''}`;
+    const ws = document.getElementById('workspaceLink');
+    if (me.workspaceUrl) { ws.href = me.workspaceUrl; ws.hidden = false; }
     document.getElementById('assistantUserGreeting').textContent = me.email ? `Signed in as ${me.email}` : '';
     document.dispatchEvent(new CustomEvent('lenss:user', { detail: { firstName: window.userFirstName } }));
   } catch { /* non-fatal */ }
 }
+
+// ---------- account menu (top right): full name, email, log out ----------
+const userBtn = document.getElementById('userBtn');
+const userMenu = document.getElementById('userMenu');
+const setUserMenu = (open) => { userMenu.hidden = !open; userBtn.setAttribute('aria-expanded', String(open)); };
+userBtn.addEventListener('click', (e) => { e.stopPropagation(); setUserMenu(userMenu.hidden); });
+document.addEventListener('click', (e) => { if (!e.target.closest('.user-bar')) setUserMenu(false); });
+document.addEventListener('keydown', (e) => { if (e.key === 'Escape') setUserMenu(false); });
+// Databricks Apps can't end the platform sign-in, so Log out ends the LensS session in this
+// browser: it clears this person's local preferences and shows a signed-out screen.
+document.getElementById('logoutBtn').addEventListener('click', () => {
+  setUserMenu(false);
+  try { Object.keys(localStorage).filter(k => k.startsWith('lenss.')).forEach(k => localStorage.removeItem(k)); } catch { /* ignore */ }
+  try { sessionStorage.clear(); } catch { /* ignore */ }
+  document.body.classList.add('signed-out-on');
+  document.getElementById('signedOut').hidden = false;
+});
+document.getElementById('signBackIn').addEventListener('click', () => { window.location.replace('/'); });
 
 // Anything marked data-ask="<question>" (Command Center panels, priorities) opens the
 // assistant and asks it, in the mode given by data-mode; data-tab-jump switches tabs.
@@ -109,6 +127,36 @@ document.addEventListener('click', (e) => {
   const jump = e.target.closest('[data-tab-jump]');
   if (jump) { e.preventDefault(); showTab(jump.dataset.tabJump); }
 });
+
+// Every "Ask LensS" control shows the exact question it will ask (and the mode) on hover or
+// keyboard focus, so people know what they are asking before they click.
+const askTip = document.createElement('div');
+askTip.className = 'ask-tip';
+askTip.setAttribute('role', 'tooltip');
+askTip.hidden = true;
+document.body.appendChild(askTip);
+let askTipFor = null;
+function showAskTip(el) {
+  if (el.title) { el.dataset.titleSaved = el.title; el.removeAttribute('title'); }   // no second, native tooltip
+  const mode = el.dataset.mode === 'chat' ? 'Quick answer' : 'Deep analysis';
+  askTip.innerHTML = `<span class="ask-tip-k">Asks LensS · ${mode}</span><span class="ask-tip-q"></span>`;
+  askTip.querySelector('.ask-tip-q').textContent = el.dataset.ask;
+  askTip.hidden = false;
+  const r = el.getBoundingClientRect();
+  const w = askTip.offsetWidth, h = askTip.offsetHeight;
+  const left = Math.max(8, Math.min(window.innerWidth - w - 8, r.left + r.width / 2 - w / 2));
+  const top = r.top - h - 8 >= 8 ? r.top - h - 8 : r.bottom + 8;
+  askTip.style.left = left + 'px';
+  askTip.style.top = top + 'px';
+  askTip.classList.toggle('below', top > r.top);
+  askTipFor = el;
+}
+function hideAskTip() { askTip.hidden = true; askTipFor = null; }
+document.addEventListener('mouseover', (e) => { const el = e.target.closest('[data-ask]'); if (el && el !== askTipFor) showAskTip(el); else if (!el && askTipFor) hideAskTip(); });
+document.addEventListener('focusin', (e) => { const el = e.target.closest('[data-ask]'); if (el) showAskTip(el); });
+document.addEventListener('focusout', hideAskTip);
+window.addEventListener('scroll', hideAskTip, true);
+document.addEventListener('click', hideAskTip, true);
 
 function showTab(name) {
   const b = document.querySelector(`.tabs button[data-tab="${name}"]`);

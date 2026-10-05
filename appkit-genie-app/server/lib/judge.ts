@@ -45,7 +45,10 @@ export function extractClaims(text: string): Claim[] {
     .replace(/^\s*\d+[.)]\s+/gm, ' ')                                     // list numbering
     .replace(/(?<![\w.])(1-30|31-60|61-90|91-180|180\+)(?!\d)/g, ' ')    // DPD bucket names ("180+ days" too)
     .replace(/\b\d{1,2}(:\d{2})?\s*(-|–|to)\s*\d{1,2}(:\d{2})?\s*(am|pm)\b/gi, ' ') // contact-time windows
-    .replace(/\b\d{4}-\d{2}-\d{2}\b/g, ' ');                              // dates
+    .replace(/\b\d{4}-\d{2}-\d{2}\b/g, ' ')                               // dates
+    // Ranges carry their unit on the last figure only: "0.15-0.54%", "₹2–3M", "20 to 25%".
+    .replace(/([₹$])?(\d[\d,]*(?:\.\d+)?)\s*(?:-|–|to)\s*([₹$])?(\d[\d,]*(?:\.\d+)?)\s?(%|k\b|m\b|mn\b|b\b|bn\b|cr\b|l\b)/gi,
+      (_m, c1, a, c2, b, u) => `${c1 ?? c2 ?? ''}${a}${u} to ${c2 ?? c1 ?? ''}${b}${u}`);
   const re = /([$₹])?\s?(?<![\w.])(-?\d[\d,]*(?:\.\d+)?)\s?(%|percent\b|k\b|m\b|mn\b|b\b|bn\b|thousand\b|million\b|billion\b|cr\b|crore\b|l\b|lakh\b)?/gi;
   const claims: Claim[] = [];
   for (const m of clean.matchAll(re)) {
@@ -62,26 +65,56 @@ export function extractClaims(text: string): Claim[] {
   return claims;
 }
 
-function evidenceNumbers(evidence: Evidence[]): number[] {
+const toNum = (cell: unknown): number | null => {
+  if (cell === null || cell === undefined || cell === '') return null;
+  const n = Number(String(cell).replace(/[,$₹%]/g, ''));
+  return Number.isFinite(n) ? n : null;
+};
+
+/**
+ * Every figure an answer can legitimately quote from the results: each cell, each column
+ * total, and each subtotal by a text column's values (e.g. "the 180+ bucket across all
+ * products" is the 180+ rows of a product × bucket table added up).
+ */
+export function evidenceNumbers(evidence: Evidence[]): number[] {
   const nums: number[] = [];
   for (const e of evidence) {
     const totals = new Array<number>(e.columns.length).fill(0);
+    const numericCols = new Set<number>();
     for (const row of e.rows) {
       row.forEach((cell, i) => {
-        const n = Number(String(cell ?? '').replace(/[,$₹%]/g, ''));
-        if (cell !== null && cell !== '' && Number.isFinite(n)) { nums.push(n); totals[i] += n; }
+        const n = toNum(cell);
+        if (n !== null) { nums.push(n); totals[i] += n; numericCols.add(i); }
       });
     }
     if (e.rows.length > 1) nums.push(...totals.filter((t) => t !== 0));
+    e.columns.forEach((_c, g) => {
+      if (numericCols.has(g)) return;
+      const groups = new Map<string, { n: number; sums: number[] }>();
+      for (const row of e.rows) {
+        const key = String(row[g] ?? '');
+        const acc = groups.get(key) ?? { n: 0, sums: new Array<number>(e.columns.length).fill(0) };
+        acc.n += 1;
+        row.forEach((cell, i) => { const v = toNum(cell); if (v !== null) acc.sums[i] += v; });
+        groups.set(key, acc);
+      }
+      // A one-row group adds nothing new; the whole table is already in the column totals.
+      for (const acc of groups.values()) if (acc.n > 1 && acc.n < e.rows.length) nums.push(...acc.sums.filter((t) => t !== 0));
+    });
   }
   return nums;
 }
 
 /**
- * Business-rule thresholds and policy constants (gold.business_rules_config and the
- * certified views): quoting them, e.g. "non-payment risk of 0.70 or more", is not a data claim.
+ * Business-rule thresholds and policy constants Genie is given (gold.business_rules_config,
+ * the space instructions and the certified views): quoting them, e.g. "non-payment risk of
+ * 0.70 or more" or "promises due in the next 7 days", is not a data claim.
+ *   0.9 cure / kept share · 0.7 high risk · 0.25 intervention propensity · 30 minimum segment
+ *   · 4.5 over-contact attempts · 0.8 and 50,000 specialist routing · 0.35 PTP follow-up
+ *   · 50 channel segment minimum · 0.6 and 100,000 high propensity, high balance
+ *   · 150 and 180 days rolling to 180+ · 7-day promise window · 1.5× target-likelihood coverage.
  */
-const RULE_NUMBERS = [0.9, 0.7, 0.25, 30, 4.5, 50000, 0.8, 0.35, 50];
+const RULE_NUMBERS = [0.9, 0.7, 0.25, 30, 4.5, 50000, 0.8, 0.35, 50, 0.6, 100000, 150, 180, 7, 1.5];
 
 function supported(c: Claim, nums: number[]): boolean {
   if (!c.unit || c.percent) {
@@ -97,9 +130,10 @@ function supported(c: Claim, nums: number[]): boolean {
   }));
 }
 
-export function numbersCheck(text: string, evidence: Evidence[]): JudgeResult['numeric'] {
+export function numbersCheck(text: string, evidence: Evidence[], question = ''): JudgeResult['numeric'] {
   const claims = extractClaims(text);
-  const nums = evidenceNumbers(evidence);
+  // Figures the person gave in the question ("accounts over ₹1M") are not claims of the answer.
+  const nums = [...evidenceNumbers(evidence), ...extractClaims(question).map((c) => (c.percent ? c.value / 100 : c.value))];
   if (!claims.length || !nums.length) return { checked: 0, found: 0, score: null, missing: [] };
   const missing = claims.filter((c) => !supported(c, nums)).map((c) => c.raw);
   const found = claims.length - missing.length;
@@ -137,7 +171,7 @@ function evidenceText(evidence: Evidence[], limit = 9000): string {
 export async function judgeAnswer(question: string, text: string, evidence: Evidence[], force = false): Promise<JudgeResult | null> {
   const cfg = aiConfig.judge;
   if (!cfg || (!force && Math.random() * 100 >= cfg.samplePercent)) return null;
-  const result: JudgeResult = { score: null, numeric: numbersCheck(text, evidence), llm: null, judgedAt: new Date().toISOString() };
+  const result: JudgeResult = { score: null, numeric: numbersCheck(text, evidence, question), llm: null, judgedAt: new Date().toISOString() };
   if (cfg.model) {
     const t0 = Date.now();
     try {

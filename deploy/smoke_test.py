@@ -9,6 +9,7 @@ Usage:
   set LENSS_SMOKE_CLIENT_SECRET=<oauth secret>
   python deploy/smoke_test.py --host https://<workspace> --app-url https://<app>.databricksapps.com
 """
+import urllib.parse
 import argparse
 import json
 import os
@@ -131,7 +132,26 @@ def main():
 
     check("GET / (UI shell)", lambda: get_ok("/", expect_json=False))
     check("GET /css/style.css", lambda: get_ok("/css/style.css", expect_json=False))
-    check("GET /api/me", lambda: get_ok("/api/me"))
+    def me():
+        m = get_ok("/api/me")
+        if not m.get("email") or not m.get("name"):
+            raise RuntimeError(f"missing email or name: {m}")
+        return f"{m['name']} ({'workspace link' if m.get('workspaceUrl') else 'no workspace link'})"
+
+    def auto_route():
+        out = []
+        for q, want in [("Which non-payment drivers have the lowest recovery rate?", "chat"),
+                        ("Why are collections lagging this month and what should we do about it?", "agent")]:
+            r = requests.post(f"{base}/api/chat/route", headers=headers, json={"question": q}, timeout=60)
+            r.raise_for_status()
+            d = r.json()
+            if d.get("mode") != want:
+                raise RuntimeError(f"{q!r} routed to {d.get('mode')} ({d.get('method')}: {d.get('reason')}), expected {want}")
+            out.append(f"{d['mode']} via {d['method']}")
+        return "; ".join(out)
+
+    check("GET /api/me (name, email)", me)
+    check("POST /api/chat/route (Auto mode)", auto_route)
     check("GET /api/dashboard/summary", lambda: get_ok("/api/dashboard/summary"))
     check("GET /api/dashboard/by-product", lambda: f"{len(get_ok('/api/dashboard/by-product'))} products")
     check("GET /api/dashboard/segments", lambda: f"{len(get_ok('/api/dashboard/segments'))} segments")
@@ -250,7 +270,19 @@ def main():
             raise RuntimeError("evals on but no cases (run the deploy's lakebase step)")
         return f"evals {'on, ' + str(len(e['cases'])) + ' cases' if e.get('enabled') else 'off'}; {len(t.get('sources') or [])} data sources listed"
 
+    def explorer():
+        opts = get_ok("/api/explorer/options")
+        d = get_ok("/api/explorer/data")
+        p = get_ok("/api/dashboard/overview").get("portfolio") or {}
+        t = d.get("totals") or {}
+        if str(t.get("accounts")) != str(p.get("accounts")) or str(t.get("high_risk")) != str(p.get("high_risk")):
+            raise RuntimeError(f"Explorer does not reconcile: {t.get('accounts')}/{t.get('high_risk')} vs {p.get('accounts')}/{p.get('high_risk')}")
+        product = opts["dims"]["product"][0]
+        f = get_ok("/api/explorer/data?" + urllib.parse.urlencode({"product": product}))
+        return f"{t['accounts']} accounts reconcile; {product}: {(f.get('totals') or {}).get('accounts')} accounts, {len(f.get('accounts') or [])} records"
+
     check("GET /api/dashboard/summary has the executive summary", exec_summary)
+    check("GET /api/explorer/* filters and reconciles to the Command Center", explorer)
     check("GET /api/dashboard/overview fills every Command Center panel", overview)
     check("GET /api/admin/insights (Monitoring trends)", insights)
     check("GET /api/evals and /api/ai/transparency", evals_and_transparency)

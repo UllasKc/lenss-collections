@@ -19,6 +19,8 @@ export interface AiConfig {
   judge: { model: string | null; samplePercent: number; warnBelow: number } | null; // model null = numbers check only
   /** Suggested next questions when the query engine offers none. */
   followUps: { model: string } | null;
+  /** Auto mode: how a question is routed to Quick answer or Deep analysis ("ai" model or "rules"). */
+  autoMode: { method: 'ai' | 'rules'; model: string | null; timeoutMs: number };
   /** Evaluation suite: how many ground-truth (accuracy) questions one run may ask. */
   evals: { maxAccuracyCases: number } | null;
   /** Optional USD per million tokens, per model endpoint, for Monitoring's cost estimate. */
@@ -26,7 +28,8 @@ export interface AiConfig {
 }
 
 function parse(): AiConfig {
-  const off: AiConfig = { semanticCache: null, guardrails: null, judge: null, followUps: null, evals: null, pricing: {} };
+  const off: AiConfig = { semanticCache: null, guardrails: null, judge: null, followUps: null,
+    autoMode: { method: 'rules', model: null, timeoutMs: 6000 }, evals: null, pricing: {} };
   const raw = process.env.LENSS_AI_CONFIG;
   if (!raw) return off;
   try {
@@ -65,6 +68,10 @@ function parse(): AiConfig {
           }
         : null,
       followUps: c.follow_ups?.model ? { model: String(c.follow_ups.model) } : null,
+      // deploy.py resolves the method and model (rules when no model is available).
+      autoMode: c.auto_mode?.method === 'ai' && c.auto_mode?.model
+        ? { method: 'ai', model: String(c.auto_mode.model), timeoutMs: Math.max(1000, Math.min(15000, Number(c.auto_mode.timeout_ms ?? 6000))) }
+        : { method: 'rules', model: null, timeoutMs: 6000 },
       evals: c.evals ? { maxAccuracyCases: Math.max(0, Math.min(50, Number(c.evals.max_accuracy_cases ?? 5))) } : null,
       pricing: Object.fromEntries(Object.entries((c.pricing ?? {}) as Record<string, { input?: number; output?: number }>)
         .map(([m, p]) => [m, { input: Number(p?.input ?? 0), output: Number(p?.output ?? 0) }])),
@@ -85,6 +92,7 @@ export function aiConfigSummary() {
     guardrails: c.guardrails ? { model: modelLabel(c.guardrails.model) || null, input: c.guardrails.input, output: c.guardrails.output } : null,
     judge: c.judge ? { model: modelLabel(c.judge.model) || null, samplePercent: c.judge.samplePercent, warnBelow: c.judge.warnBelow } : null,
     followUps: c.followUps ? { model: modelLabel(c.followUps.model) } : null,
+    autoMode: { method: c.autoMode.method, model: c.autoMode.model ? modelLabel(c.autoMode.model) : null },
     evals: c.evals,
     titles: process.env.LENSS_TITLE_ENDPOINT ? { model: modelLabel(process.env.LENSS_TITLE_ENDPOINT) } : null,
     priced: Object.keys(c.pricing).length > 0,

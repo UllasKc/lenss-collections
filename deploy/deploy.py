@@ -34,7 +34,7 @@ from pathlib import Path
 
 DEPLOY_DIR = Path(__file__).resolve().parent
 REPO_DIR = DEPLOY_DIR.parent
-STEPS = ["schemas", "ingest", "context", "transform", "summary", "genie", "lakebase", "app", "smoke"]
+STEPS = ["schemas", "ingest", "context", "transform", "views", "summary", "genie", "lakebase", "app", "smoke"]
 
 SHEETS = {  # sheet name -> (layer, table)
     "Fact_Collections_Snapshot": ("bronze", "fact_collections_snapshot"),
@@ -310,6 +310,14 @@ def step_context(sql: Sql, cfg: dict) -> None:
     sql.run_file(DEPLOY_DIR / "sql" / "20_context_manual.sql", cfg)
 
 
+def step_views(sql: Sql, cfg: dict) -> None:
+    """Command Center views (70_command_center_views.sql): additive, safe to run on a shared gold schema."""
+    sql.run_file(DEPLOY_DIR / "sql" / "70_command_center_views.sql", cfg)
+    c, p = cfg["catalog"], cfg["schema_prefix"]
+    (accounts, outstanding) = sql.execute(f"SELECT Accounts_In_Collections, Outstanding_Portfolio FROM {c}.{p}_gold.qry_cc_kpis")[0]
+    log(f"Command Center views ready: {int(float(accounts)):,} accounts in collections, {money(outstanding)} outstanding")
+
+
 def step_transform(sql: Sql, cfg: dict) -> None:
     for name in ("30_silver.sql", "40_gold_config.sql", "50_metric_views.sql", "60_certified_views.sql"):
         sql.run_file(DEPLOY_DIR / "sql" / name, cfg)
@@ -321,6 +329,8 @@ def step_transform(sql: Sql, cfg: dict) -> None:
 def money(v) -> str:
     v = float(v or 0)
     # The portfolio is in Indian rupees (Currency_Code INR in the data model).
+    if abs(v) >= 1e9:
+        return f"₹{v / 1e9:.2f}B"
     return f"₹{v / 1e6:.1f}M" if abs(v) >= 1e6 else f"₹{v / 1e3:.0f}K" if abs(v) >= 1e3 else f"₹{v:,.0f}"
 
 
@@ -678,6 +688,21 @@ def resolve_ai_config(db: Databricks, cfg: dict) -> dict:
     else:
         log("Suggested follow-up questions: engine's own only")
 
+    # Auto mode: "ai" (a small model routes each question to Quick answer or Deep analysis)
+    # or "rules" (a word rule, no model). With no section, the guardrail classifier's model is
+    # used when there is one; set "rules" to keep model calls to a minimum.
+    am = cfg.get("auto_mode") or {}
+    method = str(am.get("method") or ("ai" if (ai.get("guardrails") or {}).get("model") else "rules")).lower()
+    if method not in ("ai", "rules"):
+        raise DeployError(f'auto_mode.method must be "ai" or "rules", got {am.get("method")!r}')
+    model = am.get("model") or (ai.get("guardrails") or {}).get("model") if method == "ai" else None
+    if method == "ai" and model and exists(model):
+        ai["auto_mode"] = {"method": "ai", "model": model, "timeout_ms": int(am.get("timeout_ms", 6000))}
+        log(f"Auto mode: AI classifier ({model}), word rule as fallback")
+    else:
+        ai["auto_mode"] = {"method": "rules"}
+        log("Auto mode: word rule (no model)" + (" - no model available for the AI classifier" if method == "ai" else ""))
+
     e = cfg.get("evals")
     if e:
         ai["evals"] = {"max_accuracy_cases": int(e.get("max_accuracy_cases", 5))}
@@ -695,7 +720,8 @@ def ai_endpoints(ai: dict) -> list[str]:
     eps = [(ai.get("semantic_cache") or {}).get("embedding_model"),
            (ai.get("guardrails") or {}).get("model"),
            (ai.get("faithfulness_judge") or {}).get("model"),
-           (ai.get("follow_ups") or {}).get("model")]
+           (ai.get("follow_ups") or {}).get("model"),
+           (ai.get("auto_mode") or {}).get("model")]
     return sorted({e for e in eps if e})
 
 
@@ -869,6 +895,8 @@ def main() -> None:
                 step_context(sql, cfg)
             elif step == "transform":
                 step_transform(sql, cfg)
+            elif step == "views":
+                step_views(sql, cfg)
             elif step == "summary":
                 step_summary(sql, cfg)
             elif step == "genie":
@@ -884,7 +912,7 @@ def main() -> None:
                 if "app_url" not in state:
                     raise DeployError("'smoke' needs a deployed app — run the app step first.")
                 step_smoke(cfg, state, db)
-            if step in ("ingest", "transform", "summary"):
+            if step in ("ingest", "transform", "views", "summary"):
                 # New gold data or views → cached answers may be wrong. One stamp per run, so a full deploy bumps once.
                 bump_cache_version(db, cfg, state, cfg_path, "data", run_stamp)
         save_state(cfg_path, state)

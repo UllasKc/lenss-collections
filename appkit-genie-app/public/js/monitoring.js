@@ -131,6 +131,7 @@ function renderAuditTrail() {
       d.contextCarriedOver ? 'Context carried over from the other mode' : null,
       (d.sources || []).length ? `Data sources: ${esc(d.sources.join(', '))}` : null,
       d.followUps ? `Follow-ups suggested: ${d.followUps}` : null,
+      d.autoMode ? `Mode chosen by Auto (${d.autoMode.method === 'ai' ? 'AI classifier' : 'word rule'}): ${esc(d.autoMode.reason || '')}${d.autoMode.fallback ? ` · fell back to the rule: ${esc(d.autoMode.fallback)}` : ''}` : null,
       e.feedback_reason ? `Feedback: ${esc(e.feedback_reason.replace(/_/g, ' '))}${e.feedback_comment ? ` ("${esc(e.feedback_comment)}")` : ''}` : null,
       d.genieConversationId ? `Conversation: ${esc(d.genieConversationId)}` : null,
       d.genieMessageId ? `Message: ${esc(d.genieMessageId)}` : null,
@@ -173,7 +174,7 @@ document.getElementById('obsUserFilter').addEventListener('change', renderAuditT
 
 // ---------------------------------------------------------------- trends and insights (time range)
 
-const OBS_COLORS = { deep: '#7C3AED', quick: '#1D4ED8', failed: '#DC2626', blocked: '#D97706', quality: '#059669', cache: '#0E9384' };
+const OBS_COLORS = { deep: '#003B5C', quick: '#25B5C9', failed: '#DC2626', blocked: '#D97706', quality: '#059669', cache: '#0E9384' };
 
 function obsChart(id, config) {
   if (obsCharts[id]) obsCharts[id].destroy();
@@ -189,6 +190,8 @@ const REASON_TEXT = { wrong_numbers: 'Wrong numbers', wrong_data: 'Wrong product
 async function loadInsights() {
   let d;
   try { d = await fetch(`/api/admin/insights?days=${obsDays}`).then(r => r.json()); } catch { return; }
+  window.obsInsights = d;
+  document.dispatchEvent(new CustomEvent('lenss:obs-insights', { detail: d }));
   const s = d.summary || {};
   const pe = d.people || {};
   const range = obsDays === 1 ? 'the last 24 hours' : obsDays ? `the last ${obsDays} days` : 'all time';
@@ -336,10 +339,12 @@ window.loadMonitoring = async function loadMonitoring() {
   renderFeedback();
 
   obsRecent = data.recent;
+  window.obsUsage = data;
+  document.dispatchEvent(new CustomEvent('lenss:obs-usage', { detail: data }));
   const sel = document.getElementById('obsUserFilter');
   const current = sel.value;
   const users = [...new Set(obsRecent.map(e => e.user_email))];
-  sel.innerHTML = '<option value="">All users (latest 100 questions)</option>' +
+  sel.innerHTML = '<option value="">All users</option>' +
     users.map(u => `<option value="${esc(u)}">${esc(u)}</option>`).join('');
   sel.value = users.includes(current) ? current : '';
   renderAuditTrail();
@@ -441,6 +446,7 @@ function renderAi(ai) {
     ${g ? pill(`Output: PII ${g.output.pii}, profanity ${g.output.profanity}, policy checks ${g.output.policy_checks}`) : ''}
     ${pill(c.judge ? `Answer-quality judge: on · ${c.judge.model ? esc(c.judge.model) : 'numbers check only'} · ${c.judge.samplePercent}% of answers · warns below ${Math.round((c.judge.warnBelow || 0.7) * 100)}%` : 'Answer-quality judge: off')}
     ${pill(c.followUps ? `Follow-up suggestions: ${esc(c.followUps.model)}` : 'Follow-up suggestions: engine only')}
+    ${pill(c.autoMode ? `Auto mode: ${c.autoMode.method === 'ai' ? 'AI classifier ' + esc(c.autoMode.model || '') : 'word rule (no model)'}` : 'Auto mode: word rule')}
     ${pill(c.evals ? `Evals: on · up to ${c.evals.maxAccuracyCases} ground-truth questions per run` : 'Evals: off')}
   </div>`;
   const counts = document.querySelector('#guardTable tbody');

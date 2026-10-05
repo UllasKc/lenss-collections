@@ -11,7 +11,146 @@ Versions match git tags where one exists. Dates are when the change was committe
 
 ---
 
-## v1.6.0 — Leadership-ready UX: Command Center, Copilot-style Assistant, Observability (2026-10-05)
+## v1.7.0 — Four tabs like the benchmark: Command Center, Explorer, Assistant, Observability (2026-10-05)
+
+The leadership spec (`all_details_and _data/Book6.xlsx`) defines six Command Center sections, and a healthcare referral demo was named as the UX benchmark to beat. This release builds the spec on governed views, adopts the benchmark's best ideas (quick-start prompts, an executive brief, watchouts, a KPI dictionary, Observability split into areas with a trace console) and goes further: one-click "Ask LensS" from every panel, account-level action queues, and a trace link under every answer. Deployed to the personal workspace; not committed.
+
+For the org v2 app: `git pull`, then `python deploy\deploy.py --config deploy\config\org2-v2.json --only views,genie,summary,app`.
+
+### Changed (second review: Auto classifier, faithfulness, account menu, theme)
+- **Auto mode can use an AI classifier** (`server/lib/autoMode.ts`, `POST /api/chat/route`). Before, Auto was a word rule in the browser; "Which non-payment drivers have the lowest recovery rate?" went to the 1–3 minute Deep analysis because it contains "drivers". Now:
+  - **`auto_mode` in the deploy config:** `"ai"` (a small model routes each question, any language, with the word rule as a fallback if it is slow or unreadable) or `"rules"` (no model). Left out, it uses `ai` with the guardrail classifier's model when there is one. `personal.json` is set to `rules`; `org.json` and `org-v2.json` use `ai` with Llama 3.3 70B.
+  - **The word rule is better too:** "driver(s)" and "opportunity" no longer force Deep analysis on plain "which / what is / show / top N" lookups.
+  - **Logged:** each question's trace records the decision, the method and the reason; the classifier's tokens count under "Auto mode router"; Responsible AI and the Observability models list show which method is on.
+  - **Refresh no longer changes your mode.** "↻ Refresh" on a cached answer used to switch the mode menu to that answer's mode; it now re-asks in that mode without touching the setting.
+- **Faithfulness check no longer penalises correct figures** (`server/lib/judge.ts`). Investigation of the 90% answer ("Why are collections lagging…", 46 of 51 figures): the three "missing" figures were all right. 1,633 accounts and ₹158M are the five 180+ rows of the query added up; 0.15% is Auto Loan's 180+ recovery (0.0015), written as the range "0.15-0.54%" so the check read "0.15" without the %. The check now also accepts subtotals by group, both ends of a range, more business-rule constants (0.60, ₹100K, 150/180 days, 7 days, 1.5×) and figures from the question. Re-running that answer's 8 queries: the old check gives 46/51 (90%, identical to the log), the new one 53/54 (98%). The one figure still flagged is a genuine approximation ("65–85% of promises broken"; the segments range 62–100%). Older answers keep the score they were given.
+- **Account menu, top right on every tab:** one letter in the Concentrix colours; it opens the full name (from the workspace user directory, or worked out from the email), the email, and Log out. The profile at the bottom of the Assistant's sidebar is gone. Databricks Apps can't end the platform sign-in, so Log out ends the LensS session in that browser (clears its local settings and shows a signed-out screen with "Sign in again" and a link to the workspace).
+- **Assistant sidebar, collapsed:** new chat, search and chats icons, like ChatGPT. Search opens the list with the search box focused; chats opens the list.
+- **One Concentrix theme across tabs, kept subtle:** the Command Center hero's navy-to-teal gradient as a slim title band on the Explorer and Observability, teal instead of purple for the Explorer's buttons and chips, the Observability area tabs, selected traces and the deep/quick chart colours, an aqua marker on section headings, and a gradient edge on the headline cards. The purple "Ask LensS" pills stay, as on the Command Center.
+
+- **Responsible AI page:** the Auto row's status now uses the same green "On" badge as the other rows (it was plain text).
+
+- **Every "Ask LensS" control shows its question on hover or keyboard focus** (`public/js/app.js`): a tooltip with the mode and the exact question, for every element that asks LensS (panel buttons, priority cards, action queues, watchouts, hero buttons, the executive summary, Explorer panels, chips and account rows). Before, only the panel buttons had a slow native tooltip; the cards and queues had none. Checked by hovering every control with real mouse events: Command Center 22/22, Explorer 24/24.
+
+### Verified (second review)
+- **Numbers audit (48/48):** every Command Center and Explorer headline figure recomputed straight from silver with independent SQL matches what the app serves: accounts, outstanding, collected, 879 high-risk, 604 priority and ₹6.4M recoverable, RPC, agreed to pay, broken and kept promises, roll forward and back, cost to collect, amount promised, contacts per customer, the funnel, all five action queues (counts and amounts), target, achievement, gap, outlook, and every Explorer breakdown adding up to 19,035. A filtered Explorer view (31-60 days, promises due 16–22 Sep: 360 accounts, ₹36.3M) matches SQL.
+- **Auto classifier prompt:** 12 sample questions with Llama 3.1 8B on the personal workspace (one-off, about 3,000 tokens): 12/12 routed as expected, about 2 s each, including Spanish and "what's going on?" phrasing that the word rule misses.
+- **Local browser QA (27/27, no console errors, no failed requests):** four tabs, strip and footer, account letter and menu (name, email, Log out, closes on outside click), no "Ask AI", Command Center figures as displayed (hero, 5 + 7 metrics, queues, outlook, KPI dictionary), aqua section markers, the Explorer band, filter, date filter, scoped question, CSV export and reset, Observability band, seven areas on one row, every area opening, Auto router listed in Responsible AI and the models list, the Assistant rail (toggle, new chat, search, chats; search focuses the box), no sidebar profile, the Auto router, an existing answer signed by the engine with its chart fitting on screen, the mode menu, Log out and Sign in again, and mobile.
+- **Personal deploy:** `--only app` (log: "Auto mode: word rule (no model)"). Smoke test with `--skip-agent`, now also checking `/api/me` (name and email) and the Auto router: 26/26 passed.
+- **Not verified:** the AI classifier inside the deployed app (personal uses the word rule; the prompt itself was tested above); the full name for a real signed-in user (the smoke test signs in as a service principal); the org deploy.
+
+
+The spreadsheet is a reference, not a definition change; nothing from v1.6 should be lost; the app should have the benchmark's four tabs; the Command Center is the one-minute health check and the Explorer answers "why", with filters.
+- **High-risk accounts did not change.** 879 is, and was in v1.6, the count of accounts with non-payment risk ≥ 0.70. The 604 shown in v1.6 is a different figure: the high-risk accounts still likely to pay (propensity ≥ 0.25), the "Recoverable now / priority accounts" list. The first v1.7 build put 879 at the front, which read as a jump. Both are back in their v1.6 places, and the high-risk card now says "879 · 604 still likely to pay". The KPI dictionary defines both.
+- **Previous calculations restored.** The first v1.7 build showed the spreadsheet's per-account promise rate (20.7%) and broken-promise rate (6.5%). The Command Center is back on the v1.6 definitions: agreed to pay = promises ÷ customers reached (46.1%), promises honoured = kept ÷ promises due (34.6%), customers reached 47.4%. These come from the governed metric view and certified views, as before.
+- **Nothing from v1.6 removed.** Restored: the executive summary (AI narrative), Today's priorities (4 cards), all ten v1.6 metrics (five large cards plus seven under "Show 7 more metrics"), Recommended next steps, Recovery opportunity by product, and the "Why customers aren't paying" bar chart. Every other chart moved to the Explorer unchanged.
+- **Four top tabs, as in the benchmark:** Command Center, Explorer, Assistant, Observability. Evals and Responsible AI are now areas 6 and 7 of Observability and load when opened.
+- **Command Center = how the business is doing, in about a minute:** hero with target progress and outlook, executive summary, priorities, core metrics, brief and watchouts, portfolio risk and target, action center, next steps, opportunity, largest recovery opportunities, and a hand-off to the Explorer.
+- **"Ask AI" is now "Ask LensS"** everywhere. Answers in the Assistant are signed "LensS Intelligence Engine".
+- **"Built by the Concentrix Data & Analytics Practice":** a strip above the top bar ("Proprietary & Confidential to Concentrix") and a footer with the engine badge, as in the benchmark. Both are hidden in the full-screen Assistant.
+- **Assistant density:** smaller type (13.5px), tighter spacing, a shorter header and question box, wider answers (1,080px) and 230px charts. An answer with its chart and follow-ups now fits on a 1440×900 screen without scrolling (the chart measured 287px of a 712px message area).
+
+### Added (leadership review)
+- **Explorer tab** (`public/js/explorer.js`, `server/routes/explorer.ts`), the "why":
+  - **Filters:** product (business unit), arrears stage, region, preferred channel, treatment strategy, non-payment driver, collector team, balance band, vulnerability, plus date ranges for last contact and promise due date. Active filters show as removable chips; Reset and Export CSV. Filters are remembered per browser.
+  - **Filtered headline measures** (12 tiles) compared with the whole portfolio (share of the book, or points above or below).
+  - **Layer 1: dimension × measure slicer.** Any of the nine dimensions by any of twelve measures, as bars (with the portfolio value as a marker) or a table. Clicking a bar filters the whole page to it (drill-down).
+  - **Why panels, all following the filters:** achievement by product, shortfall, product × stage heatmap, why customers aren't paying, top non-payment drivers (Pareto), treatment strategies, the funnel, channel effectiveness, best channel per stage, regional view, collector top and bottom 10. Targets exist only by product × stage, so the three target panels follow only those two filters (the page says so).
+  - **Layer 2: account records.** The 500 accounts with the most recovery opportunity in the current view: search, sort, paging, CSV export, and "Ask LensS" about any account.
+  - **"Ask LensS about this view"** and every panel's question carry the current filters ("… (for Credit Card, Hyderabad)?").
+- **Governed view `qry_explorer_base`** (in `70_command_center_views.sql`, deployed by the `views` step): one row per account in collections with the Explorer's dimensions and the flags its measures use. The server computes each measure with the same formula as the metric views and certified views.
+- **API:** `GET /api/explorer/options` (filter values and date ranges) and `GET /api/explorer/data` (everything on the page for a set of filters). Only values that exist in the data are accepted (anything else is a 400), so nothing typed reaches the SQL. Results are cached per data version.
+
+### Added
+- **Seven governed Command Center views** (`deploy/sql/70_command_center_views.sql`). They are built in gold from silver and run by the new deploy step `views`, which also bumps the data cache version.
+  - **The views:**
+    - `qry_cc_kpis`: headline KPIs;
+    - `qry_cc_risk_snapshot`: DPD buckets;
+    - `qry_cc_target_outlook`: achieved, gap, outlook and likelihood;
+    - `qry_cc_actions` and `qry_cc_action_accounts`: five action queues;
+    - `qry_cc_channel` and `qry_cc_region`: channel and region effectiveness.
+  - **Where they're used:** they are Genie sources (now 23) and are served in `/api/dashboard/overview` as `cc`.
+- **Command Center, sections 1–6 of the spec:**
+  - **Core metrics with "show more":** outstanding portfolio, recovery MTD and rate, accounts in collections, contact, promise, broken promise, roll forward/back, high-risk, cost to collect.
+  - **Executive brief** (where we stand / what's driving it / what we're doing).
+  - **Priority watchouts,** with a severity filter.
+  - **Portfolio risk snapshot:** a stacked bar and table by bucket.
+  - **Target vs achieved:** six tiles plus the outlook and likelihood.
+  - **Driver analysis:** a Pareto of non-payment reasons.
+  - **Action Center:**
+    - 492 high-propensity high-balance accounts, ₹18.0M;
+    - the top 250 by recoverable amount, ₹15.5M;
+    - 1,198 promises due in 7 days, ₹52.6M;
+    - 610 at risk of breaking, ₹27.2M;
+    - 999 rolling to 180+, ₹95.1M exposure.
+  - **Channel effectiveness.**
+  - **Region tabs:** recovery / contact / risk.
+  - **Top and bottom 10 collectors,** with a Recovery / Contact / Promise toggle.
+  - **KPI dictionary:** 15 definitions, including the population of each figure.
+- **Quick-start prompts and a question library** in the Assistant:
+  - six one-click analyses, each with a mode, on the welcome screen and in a prompts panel;
+  - five categories (Executive, Diagnostic, Operational, Risk & conduct, Strategy);
+  - shortcuts for PDF and a new conversation.
+- **Observability in five areas:**
+  - pipeline traces;
+  - answer quality and faithfulness;
+  - performance and latency;
+  - data and model drift;
+  - security and guardrails.
+
+  These sit under a headline row: groundedness, numeric reconciliation, average end-to-end latency and the personal-data guardrail pass rate.
+  - **Trace console:** a searchable trace list (filter by passed / blocked / failed and by user) and the 9-stage governed path for each question (ask, secure, cache, plan, retrieve, verify, synthesize, deliver, log), with a timing waterfall and copyable SQL.
+  - **Drift:** data and Genie versions, models in use, the deep/quick mix per day and the eval pass rate per run.
+  - **Insights API:** `/api/admin/insights` adds reconciliation, personal-data checks, average time per stage, low-confidence answers and trace counts.
+- **"Inspect in Observability ›"** under each answer opens its trace.
+
+### Changed
+- **Deploy log:** `money()` prints billions (₹1.93B, not ₹1926.6M).
+- **Observability user filter:** it now reads "All users".
+
+### Definitions (differences from the spec workbook)
+- **Population:**
+  - The spec's figures use the whole book (20,000 accounts).
+  - The app keeps the governed population, accounts in arrears (DPD > 0, 19,035), so it matches every other view and the AI's answers.
+  - Hence the differences:
+    - ₹1.93B outstanding (spec ₹2.03B);
+    - ₹53.4M collected (spec ₹55.4M);
+    - contact rate 47.4% of attempted accounts (spec 44.3%);
+    - roll forward 33.4% (spec 31.8%).
+  - Promise rate per account (20.7%) and broken promises per account (6.5%) match the spec closely, but after the leadership review the app shows the v1.6 definitions instead (agreed to pay 46.1% of customers reached; promises honoured 34.6% of promises due, so 65% broken).
+- **High propensity is ≥ 0.60:** the spec asks for > 0.80, but no account scores above about 0.6.
+- **Target outlook is a pipeline estimate, not a statistical forecast:**
+  - outlook = achieved + promises due in the rest of the month × the honour rate (34.6%), giving ₹83.7M;
+  - the likelihood is High when the outlook covers the gap 1.5× or more (it covers 5.2×).
+
+### Verified (leadership review)
+- **Reconciliation:** with no filters, `qry_explorer_base` gives exactly the metric view's figures: 19,035 accounts, ₹1,926,555,082 outstanding, ₹53,428,965 collected, 879 high-risk, RPC 47.38%, agreed to pay 46.07%, promises honoured 34.57%, roll forward 33.36%, cost to collect 0.0157. The funnel matches `qry_collections_funnel` (18,074 / 8,563 / 3,945 / 652), the best channel per stage matches `qry_recommended_channel`, and there are 80 collectors, as in `qry_collector_scorecard`.
+- **Filters:** Credit Card + Mumbai + contacted from 1 Sep gives 397 accounts. An injected value (`x' OR 1=1`) is rejected with a 400.
+- **Local browser checks (13/13 passed, no console errors, no failed requests):**
+  - four tabs, the Concentrix strip and footer;
+  - the 604 and 879 cards;
+  - the v1.6 secondary metrics (47.4% / 46.1% / 34.6%);
+  - no "Ask AI" text;
+  - the why panels are off the Command Center;
+  - the Explorer reconciles, filters by select, drills by bar click, and searches and pages the account records;
+  - Observability has seven areas on one row, and Evals and Responsible AI load;
+  - an existing Assistant answer is signed by the engine, and its chart fits on screen.
+
+  Screenshots reviewed: Command Center, Explorer unfiltered and filtered, Observability Evals and Responsible AI, Assistant, mobile Explorer.
+- **Personal workspace:** the `views` step created `qry_explorer_base`; `--only app` deployed the app. The smoke test (`deploy/smoke_test.py`, now with an Explorer check that the unfiltered totals match the Command Center and a filtered call works) passed 28/28 against the deployed app.
+- **Not verified:** live AI answers to the Explorer's scoped questions (no model calls on the personal workspace); the org deploy.
+
+### Verified (first build)
+- **Local UI regression script:** 31/31 checks passed, with no console errors. Screenshots of every Command Center section, the prompts panel and all five Observability areas were reviewed.
+- **Personal deploy:** `--only genie,app` ran; the views had been deployed and the counts checked earlier.
+- **Smoke test against the deployed app:** 24/24 passed, including the overview with every panel filled.
+- **Not verified:**
+  - live Agent-mode answers using the new views (no model calls on the personal workspace);
+  - the org deploy.
+
+---
+
+## v1.6.0 — Leadership-ready UX: Command Center, Copilot-style Assistant, Observability (2026-10-05, `01a741a`)
 
 Leadership feedback on the first demo was that the UI was not end-user friendly; the demo stopped at the Command Center and Chat + Agent. This release rebuilds both for a CEO/director audience, enriches Monitoring (now Observability), and fixes the issues found in four review rounds and a senior-QA pass. Deployed to the personal workspace.
 
@@ -447,4 +586,7 @@ Kept to a handful of model calls on the personal workspace.
 - **Cost estimates:** add a `pricing` section (USD per million input/output tokens per endpoint, from your price sheet) to show estimated cost in Monitoring.
 - **Evals, next steps:** grow the accuracy set (aim for ~50 ground-truth questions, including Agent questions), and consider running it as a deploy step that fails below a threshold.
 - **Personal workspace:** turn `prewarm_suggestions` back on when testing is done.
+- **v1.7 spec differences (resolved):** leadership confirmed the spreadsheet's figures are a reference only; the governed population and the v1.6 calculations stay.
+- **Demo guide docx:** add the v1.7 Command Center, Explorer, prompts and Observability (seven areas) screens to `docs/LensS_Collections_Demo_Guide (with feature catalogue).docx`.
+- **Org config:** `org2-v2.json` (kept out of git) has no `auto_mode` section, so Auto uses AI with its guardrail model if one is set; add `"auto_mode": { "method": "ai", "model": "<an enabled small model>" }` to choose the model, or `"rules"` to turn it off.
 - **Optional:** restrict Monitoring and Evals to admins (today any app user can open them and start an eval run).

@@ -6,15 +6,26 @@ const MODE_NAMES = { agent: 'Deep analysis', chat: 'Quick answer', auto: 'Auto' 
 const modeName = m => MODE_NAMES[m] || MODE_NAMES.chat;
 
 /**
- * Auto: "why / what should we do / compare / prioritise" questions and long, multi-part
- * questions get a Deep analysis; direct "what is / which / show" questions a Quick answer.
+ * Auto: the server decides per question (an AI classifier, or the word rule where the
+ * deployment turns the model off; see server/lib/autoMode.ts). This local copy of the word
+ * rule is only the fallback if that call fails.
  */
-function autoMode(question) {
+function autoModeLocal(question) {
   const t = String(question).toLowerCase();
-  const deep = /\b(why|how (can|could|should|do|would) we|what should|recommend|strateg(y|ies)|improve|root cause|driv(er|ers|ing)|compare|comparison|analy[sz]e|analysis|investigat|prioriti[sz]e|opportunit|plan|explain|aggressive|impact|trade-?off|what (is|are) (causing|behind))\b/;
-  return deep.test(t) || t.split(/\s+/).length > 22 ? 'agent' : 'chat';
+  if (t.split(/\s+/).filter(Boolean).length > 22) return 'agent';
+  if (/\b(why|how (can|could|should|do|would) we|what should|recommend|strateg(y|ies)|improve|root cause|driving|compare|comparison|analy[sz]e|analysis|investigat|prioriti[sz]e|plan|explain|aggressive|impact|trade-?off|what (is|are) (causing|behind))\b/.test(t)) return 'agent';
+  const lookup = /^\s*(which|what (is|are|was|were)|show|list|give me|how (many|much)|top \d+|count)\b/.test(t);
+  return !lookup && /\b(opportunit|drivers?\b)/.test(t) ? 'agent' : 'chat';
 }
-const resolveMode = (question, explicit) => explicit || (currentMode === 'auto' ? autoMode(question) : currentMode);
+async function autoRoute(question) {
+  try {
+    const r = await fetch('/api/chat/route', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ question }) });
+    if (!r.ok) throw new Error('HTTP ' + r.status);
+    const d = await r.json();
+    if (d.mode === 'agent' || d.mode === 'chat') return d;
+  } catch { /* fall back to the local rule */ }
+  return { mode: autoModeLocal(question), method: 'rules', reason: 'local rule (the router was unavailable)' };
+}
 
 // Auto is the default; a person's own choice is remembered (new key, so everyone starts on Auto).
 let currentMode = readPref('lenss.mode.v3', 'auto');
@@ -82,20 +93,6 @@ let STARTERS = [
   { mode: 'agent', label: 'Biggest recovery opportunity and best channel', q: 'Where is the biggest recovery opportunity and which channel should we use for each segment?' },
 ];
 
-function starterButton(s, cls) {
-  const b = document.createElement('button');
-  b.className = cls;
-  b.title = s.q;
-  b.innerHTML = `<span class="tag ${s.mode}">${s.mode === 'agent' ? '✦ ' : '⚡ '}${modeName(s.mode)}</span><span class="starter-text">${esc(s.label)}</span>` +
-    (cls === 'starter' ? `<span class="starter-go" aria-hidden="true">→</span>` : '');
-  b.addEventListener('click', () => {
-    if (sending) return;
-    setSuggestOpen(false);
-    // A suggested question stands on its own, so it can be answered from the cache; it keeps its own mode.
-    sendMessage(s.q, { standalone: true, mode: s.mode });
-  });
-  return b;
-}
 // The side panel shows the six starters plus four more (five per mode), also
 // checked against the live data for strong answers.
 let MORE_SUGGESTIONS = [
@@ -105,26 +102,71 @@ let MORE_SUGGESTIONS = [
   { mode: 'agent', label: 'Why so many broken promises, and where to act first', q: 'Why are so many promises to pay being broken, and which segments should we prioritise to fix it?' },
 ];
 
+// Quick-start prompts (welcome screen and the prompts panel) and the categorized
+// question library. The server owns the lists; these are fallbacks until it answers.
+let QUICK_START = [
+  { icon: 'gap', category: 'Diagnostic', title: 'Why we are behind target', desc: 'Root causes of the gap and what to do', mode: 'agent', q: 'Why are collections lagging this month and what should we do about it?' },
+  { icon: 'alert', category: 'Operational', title: 'Accounts to act on today', desc: 'High-risk accounts still likely to pay', mode: 'chat', q: 'Which accounts require immediate intervention?' },
+];
+let LIBRARY = [];
+const QS_ICONS = {
+  gap: '<path d="M4 18l6-6 4 4 6-8"/><path d="M15 8h5v5"/>',
+  alert: '<path d="M12 3l9 16H3z"/><path d="M12 10v4M12 17h.01"/>',
+  promise: '<path d="M7 11V7a5 5 0 0 1 10 0v4"/><rect x="5" y="11" width="14" height="10" rx="2"/>',
+  cash: '<path d="M3 7h18v10H3z"/><circle cx="12" cy="12" r="2.5"/>',
+  shield: '<path d="M12 3l8 3v6c0 4.5-3.4 8.3-8 9-4.6-.7-8-4.5-8-9V6z"/>',
+  brief: '<path d="M14 3H6a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V9z"/><path d="M14 3v6h6M8 13h8M8 17h5"/>',
+};
+let libCategory = null;
+
+function askFromPanel(q, mode) {
+  if (sending) return;
+  setSuggestOpen(false, false);
+  sendMessage(q, { standalone: true, mode });
+}
+
+function quickCard(s, cls) {
+  const b = document.createElement('button');
+  b.className = cls;
+  b.title = s.q;
+  b.innerHTML = `<span class="qs-top"><svg viewBox="0 0 24 24" aria-hidden="true">${QS_ICONS[s.icon] || QS_ICONS.gap}</svg><span class="qs-cat">${esc(s.category)}</span></span>
+    <span class="qs-title">${esc(s.title)}</span><span class="qs-desc">${esc(s.desc)}</span>`;
+  b.addEventListener('click', () => askFromPanel(s.q, s.mode));
+  return b;
+}
+
 function renderSuggestions() {
   const grid = document.getElementById('starterGrid');
-  const list = document.getElementById('suggestList');
   grid.innerHTML = '';
+  QUICK_START.forEach(s => grid.appendChild(quickCard(s, 'starter qs-card')));
+  const qs = document.getElementById('qsGrid');
+  qs.innerHTML = '';
+  QUICK_START.forEach(s => qs.appendChild(quickCard(s, 'qs-mini')));
+  renderLibrary();
+}
+
+function renderLibrary() {
+  const chips = document.getElementById('libChips');
+  const list = document.getElementById('libList');
+  if (!LIBRARY.length) { chips.innerHTML = ''; list.innerHTML = ''; return; }
+  if (!libCategory || !LIBRARY.some(c => c.category === libCategory)) libCategory = LIBRARY[0].category;
+  chips.innerHTML = LIBRARY.map(c => `<button class="chip-btn${c.category === libCategory ? ' on' : ''}" data-c="${esc(c.category)}">${esc(c.category)}</button>`).join('');
+  chips.querySelectorAll('.chip-btn').forEach(b => b.addEventListener('click', () => { libCategory = b.dataset.c; renderLibrary(); }));
   list.innerHTML = '';
-  STARTERS.forEach(s => grid.appendChild(starterButton(s, 'starter')));
-  const all = STARTERS.concat(MORE_SUGGESTIONS);
-  [['agent', 'Deep analysis · 1–3 min'], ['chat', 'Quick answers · ~20 s']].forEach(([mode, title]) => {
-    const h = document.createElement('div');
-    h.className = 'suggest-group';
-    h.textContent = title;
-    list.appendChild(h);
-    all.filter(s => s.mode === mode).forEach(s => list.appendChild(starterButton(s, 'suggest-item')));
+  (LIBRARY.find(c => c.category === libCategory)?.items || []).forEach(it => {
+    const b = document.createElement('button');
+    b.className = 'lib-item';
+    b.innerHTML = `<span>${esc(it.q)}</span><small>(${esc(it.tag)}) · ${modeName(it.mode)}</small>`;
+    b.addEventListener('click', () => askFromPanel(it.q, it.mode));
+    list.appendChild(b);
   });
 }
 renderSuggestions();
 fetch('/api/chat/suggestions').then(r => r.ok ? r.json() : null).then(d => {
-  if (!d || !Array.isArray(d.starters) || !d.starters.length) return;
-  STARTERS = d.starters;
-  MORE_SUGGESTIONS = d.more || [];
+  if (!d) return;
+  if (Array.isArray(d.starters) && d.starters.length) { STARTERS = d.starters; MORE_SUGGESTIONS = d.more || []; }
+  if (Array.isArray(d.quickStart) && d.quickStart.length) QUICK_START = d.quickStart;
+  if (Array.isArray(d.library)) LIBRARY = d.library;
   renderSuggestions();
 }).catch(() => {});
 
@@ -145,10 +187,14 @@ function setSideOpen(open, remember = true) {
 }
 document.getElementById('sideToggle').addEventListener('click', () => setSideOpen(!chatWrapEl.classList.contains('side-open')));
 document.getElementById('sideOpen').addEventListener('click', () => setSideOpen(true));
+// Collapsed rail, like ChatGPT: new chat, search and chats each open the list where it's needed.
+document.getElementById('searchMini').addEventListener('click', () => { setSideOpen(true); setTimeout(() => document.getElementById('sessionSearch').focus(), 220); });
+document.getElementById('chatsMini').addEventListener('click', () => setSideOpen(true));
 sideScrim.addEventListener('click', () => { setSideOpen(false, false); setSuggestOpen(false); });
 setSideOpen(!narrow() && readPref('lenss.sideOpen', '1') === '1', false);   // open by default on desktop, like Copilot
 
-function setSuggestOpen(open) {
+function setSuggestOpen(open, remember = true) {
+  if (remember) writePref('lenss.promptsOpen', open ? '1' : '0');
   suggestPanel.hidden = !open;
   chatWrapEl.classList.toggle('suggest-open', open);
   suggestBtn.setAttribute('aria-expanded', String(open));
@@ -157,6 +203,8 @@ function setSuggestOpen(open) {
 }
 suggestBtn.addEventListener('click', () => setSuggestOpen(suggestPanel.hidden));
 document.getElementById('suggestClose').addEventListener('click', () => setSuggestOpen(false));
+document.getElementById('resetBtn').addEventListener('click', () => { if (!sending) newChat(); });
+document.getElementById('pdfBtn2').addEventListener('click', () => document.getElementById('pdfBtn').click());
 document.addEventListener('keydown', (e) => { if (e.key === 'Escape' && !suggestPanel.hidden) setSuggestOpen(false); });
 
 // Conversation search: filters the list as you type.
@@ -195,6 +243,9 @@ function updateEmpty() {
   const started = msgsEl.children.length > 0;
   emptyEl.classList.toggle('hidden', started);
   document.querySelector('#tab-assistant .chat').classList.toggle('is-empty', !started);
+  // The welcome screen already shows the quick-start prompts; once a conversation starts the
+  // prompts panel opens beside it on wide screens (unless the person closed it).
+  if (!narrow() && window.innerWidth >= 1400) setSuggestOpen(started && readPref('lenss.promptsOpen', '1') === '1', false);
   document.getElementById('pdfBtn').hidden = !started;
 }
 
@@ -329,7 +380,18 @@ function addRow(role) {
   }
   const msg = document.createElement('div');
   msg.className = 'msg';
-  row.appendChild(msg);
+  if (role === 'bot') {
+    // Answers are signed by the engine, like the benchmark: "LensS Intelligence Engine".
+    const col = document.createElement('div');
+    col.className = 'bot-col';
+    const name = document.createElement('div');
+    name.className = 'bot-name';
+    name.textContent = 'LensS Intelligence Engine';
+    col.append(name, msg);
+    row.appendChild(col);
+  } else {
+    row.appendChild(msg);
+  }
   msgsEl.appendChild(row);
   updateEmpty();
   return msg;
@@ -477,8 +539,10 @@ function addTrustBar(msg, metaEl, opts) {
     else if (acted.length) chips.push(`<span class="trust-chip" title="${esc(acted.map(g => CHECK_LABELS[g.check] || g.check).join(', '))}">🛡 ${acted.length} safety check${acted.length === 1 ? '' : 's'} applied</span>`);
     else chips.push('<span class="trust-chip">🛡 Safety checks passed</span>');
     chips.push('<button class="trust-link" data-open>How this answer was made ›</button>');
+    chips.push('<button class="trust-link" data-obs>Inspect in Observability ›</button>');
     bar.innerHTML = chips.join('');
     bar.querySelectorAll('[data-open]').forEach(b => b.addEventListener('click', () => openTrace(opts.messageId)));
+    bar.querySelectorAll('[data-obs]').forEach(b => b.addEventListener('click', () => window.openTraceForMessage && window.openTraceForMessage(opts.messageId)));
     const dot = msg.querySelector('.det-dot');
     if (dot) {
       dot.className = 'det-dot ' + (q.status === 'done' && q.score !== null ? (q.score >= 0.85 ? 'ok' : q.score >= q.warnBelow ? 'mid' : 'low') : q.status === 'pending' ? 'pending' : '');
@@ -612,8 +676,8 @@ function addCacheNote(msg, metaEl, answer, opts) {
     b.title = 'Get a fresh live answer';
     b.addEventListener('click', () => {
       if (sending) return;
-      setMode(answer.mode || opts.mode || 'chat');
-      sendMessage(opts.question, { refreshOf: opts.messageId, target: msg });
+      // Re-ask in the same mode as the cached answer, without changing the person's mode setting.
+      sendMessage(opts.question, { refreshOf: opts.messageId, target: msg, mode: answer.mode || opts.mode || 'chat' });
     });
     metaEl.appendChild(b);
   }
@@ -694,7 +758,8 @@ async function sendMessage(preset, opts = {}) {
   const text = (preset || inputEl.value).trim();
   if (!text || sending) return;
   if (window.offerNotifications) window.offerNotifications();
-  const mode = resolveMode(text, opts.mode);
+  const isAuto = !opts.mode && currentMode === 'auto';
+  let mode = opts.mode || (isAuto ? 'chat' : currentMode);
   sending = true;
   sendBtn.disabled = true;
   if (!opts.refreshOf) inputEl.value = '';
@@ -708,6 +773,12 @@ async function sendMessage(preset, opts = {}) {
     thinking = addRow('bot');
   }
   thinking.classList.add('thinking');
+  let route = null;
+  if (isAuto) {
+    thinking.innerHTML = '<div class="tline"><span class="dot"></span><span>Choosing quick answer or deep analysis…</span></div>';
+    route = await autoRoute(text);
+    mode = route.mode;
+  }
   const started = Date.now();
   const steps = [];
   let status = mode === 'agent' ? 'Planning the analysis…' : 'Understanding the question…';
@@ -740,7 +811,7 @@ async function sendMessage(preset, opts = {}) {
     sentSessionId = sessionId;
     const res = await fetch(`/api/chat/sessions/${sessionId}/messages`, {
       method: 'POST', headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ content: text, mode, standalone: Boolean(opts.standalone), refreshOf: opts.refreshOf || undefined }),
+      body: JSON.stringify({ content: text, mode, auto: Boolean(route), standalone: Boolean(opts.standalone), refreshOf: opts.refreshOf || undefined }),
     });
     if (!res.ok || !res.body) throw new Error('HTTP ' + res.status);
     const reader = res.body.getReader();

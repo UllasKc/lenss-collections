@@ -28,6 +28,7 @@ window.loadResponsibleAi = async function loadResponsibleAi() {
     ['Screening questions', g && g.model ? g.model : 'Pattern checks only', 'Before a question reaches the query engine', on(g)],
     ['Matching similar questions', c.semanticCache ? c.semanticCache.model : '—', 'To reuse a recent answer to the same question', on(c.semanticCache)],
     ['Checking answer quality', c.judge ? (c.judge.model || 'Numbers check only') : '—', 'After each answer, without delaying it', on(c.judge)],
+    ['Choosing quick or deep (Auto)', c.autoMode && c.autoMode.method === 'ai' ? c.autoMode.model : 'Word rule, no model', 'When Auto is selected, before the question is sent', on(true)],
     ['Suggesting follow-up questions', c.followUps ? c.followUps.model : '—', 'After an answer, when the engine suggests none', on(c.followUps)],
     ['Naming conversations', c.titles ? c.titles.model : 'From the first question', 'Once per conversation', on(true)],
   ];

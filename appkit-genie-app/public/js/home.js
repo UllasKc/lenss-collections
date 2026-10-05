@@ -1,7 +1,9 @@
 // ---------------------------------------------------------------- Command Center
-// Written for a collections leader, not an analyst: where we stand against target,
-// what needs action today, and why — every figure from the certified views (no AI).
-// Each panel has an "Ask AI" link that opens the assistant with the right question.
+// The one-minute view for a collections leader: how the business is doing and what is
+// happening (target, outlook, core metrics, brief, watchouts, risk, today's work queues).
+// The "why" (drill-downs by product, stage, region, channel, strategy, driver, collector,
+// with filters) lives in the Explorer (explorer.js). Every figure comes from the certified
+// views (no AI). Each panel has an "Ask LensS" link that opens the assistant with the right question.
 
 const hEsc = s => String(s ?? '').replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
 const CUR = '₹';
@@ -38,10 +40,10 @@ const ICONS = {
   spark: '<path d="M12 3l1.9 4.6L18.5 9.5l-4.6 1.9L12 16l-1.9-4.6L5.5 9.5l4.6-1.9z"/>',
 };
 const icon = (name, cls = '') => `<svg class="ico ${cls}" viewBox="0 0 24 24" aria-hidden="true">${ICONS[name] || ''}</svg>`;
-const askBtn = (q, mode = 'agent', label = 'Ask AI') =>
+const askBtn = (q, mode = 'agent', label = 'Ask LensS') =>
   `<button class="ask-link" data-ask="${hEsc(q)}" data-mode="${mode}" title="${hEsc(q)}">${icon('spark', 'ico-xs')}${label}</button>`;
 
-/** A panel: title, a one-line "so what", its Ask-AI question, and a body. */
+/** A panel: title, a one-line "so what", its Ask LensS question, and a body. */
 function panel(id, title, sub, ask, body) {
   const el = document.getElementById(id);
   if (!el) return;
@@ -58,8 +60,8 @@ function bar(label, value, scale, shown, t = 'brand', sub = '', marker = null) {
 
 function skeletons() {
   document.querySelectorAll('#tab-home .panel').forEach(p => { if (!p.innerHTML.trim()) p.innerHTML = '<div class="skel skel-h"></div><div class="skel"></div><div class="skel"></div><div class="skel short"></div>'; });
-  const k = document.getElementById('homeKpis');
-  if (!k.innerHTML.trim()) k.innerHTML = Array.from({ length: 10 }, () => '<div class="metric skel-card"><div class="skel"></div><div class="skel skel-h"></div></div>').join('');
+  const k = document.getElementById('execKpis');
+  if (!k.innerHTML.trim()) k.innerHTML = Array.from({ length: 5 }, () => '<div class="xkpi skel-card"><div class="skel"></div><div class="skel skel-h"></div></div>').join('');
 }
 
 function greeting() {
@@ -69,44 +71,74 @@ function greeting() {
 }
 document.addEventListener('lenss:user', () => { const g = document.getElementById('heroGreeting'); if (g) g.textContent = greeting(); });
 
+// ---------------------------------------------------------------- KPI dictionary
+// One place that says what every figure means and how it is calculated (the "KPI Dict").
+const KPI_DICT = [
+  ['Total Outstanding Portfolio', 'Total balance currently under collections.', 'Sum of outstanding balance for accounts past due (DPD > 0) on the snapshot date.'],
+  ['Recovery Collected MTD', 'Total collections recovered this month.', 'Sum of month-to-date recoveries for accounts in collections.'],
+  ['Recovery Rate %', 'How much of the book we are turning into cash.', 'Recovery collected ÷ outstanding portfolio.'],
+  ['Accounts in Collections', 'Size of the active delinquent book.', 'Distinct accounts past due (DPD > 0).'],
+  ['High-Risk Accounts', 'Customers unlikely to pay without action.', 'Accounts with non-payment risk ≥ 0.70 (business rule R07).'],
+  ['Priority accounts / Recoverable now', 'High-risk customers who are still likely to pay: the immediate-intervention list.', 'High-risk accounts (risk ≥ 0.70) with payment propensity ≥ 0.25; recoverable now = their incremental recovery opportunity.'],
+  ['Customers reached (RPC rate)', 'Contact effectiveness.', 'Accounts where we reached the right person ÷ accounts we attempted to contact.'],
+  ['Agreed to pay (PTP conversion)', 'Customer commitment.', 'Accounts with a promise to pay ÷ accounts we reached (right-party contact).'],
+  ['Promises honoured', 'Early-warning signal: the inverse is the broken-promise rate.', 'Promises already due that were kept ÷ promises already due.'],
+  ['Amount promised', 'Cash committed by customers.', 'Sum of promise-to-pay amounts this month.'],
+  ['Accounts worsening (roll forward)', 'Deterioration indicator.', 'Accounts that moved to a later arrears stage this month ÷ accounts in collections; roll back is the share that improved.'],
+  ['Cost to collect', 'Efficiency of collections.', 'Month-to-date collection cost ÷ recovery collected (cost per ₹1 collected).'],
+  ['Contacts per customer', 'Contact intensity (and over-contact risk).', 'Average contact attempts per account this month.'],
+  ['Target Achievement %', 'Progress to the monthly recovery target.', 'Recovery collected ÷ monthly target (product × arrears-stage targets).'],
+  ['Target Gap', 'Still to collect this month.', 'Monthly target − recovery collected (never below zero).'],
+  ['Outlook: end-of-month recovery', 'Where we are likely to land.', 'Collected so far + promises falling due by month-end × the honour rate of promises already due. A pipeline view, not a statistical forecast.'],
+  ['Likelihood of hitting target', 'How safe the target is.', 'High if expected promise collections cover the remaining gap 1.5× or more; Medium if 1.0–1.5×; Low below 1.0×.'],
+  ['Action center queues', 'Where to put effort today.', 'High propensity + high balance: propensity ≥ 0.60 and balance ≥ ₹100K. PTP due: promises due in the next 7 days. Broken-PTP queue: due in 7 days with propensity < 0.35 or risk ≥ 0.60. Rolling to 180+: 150–180 days past due.'],
+];
+function openKpiDict() {
+  document.getElementById('kpiDictBody').innerHTML = `<p class="score-reason">Governed population: accounts in collections (past due) on the snapshot date. Every figure comes from certified views; no AI computes them.</p>
+    <table class="mini kpi-table"><thead><tr><th>Metric</th><th>Why it matters</th><th>How it is calculated</th></tr></thead><tbody>
+    ${KPI_DICT.map(([m, w, c]) => `<tr><td><b>${hEsc(m)}</b></td><td>${hEsc(w)}</td><td>${hEsc(c)}</td></tr>`).join('')}</tbody></table>`;
+  document.getElementById('kpiDict').showModal();
+}
+['kpiDictBtn', 'kpiDictBtn2'].forEach(id => document.getElementById(id)?.addEventListener('click', openKpiDict));
+document.getElementById('kpiDictClose').addEventListener('click', () => document.getElementById('kpiDict').close());
+document.getElementById('kpiDict').addEventListener('click', (e) => { if (e.target.id === 'kpiDict') e.target.close(); });
+document.getElementById('kpiMoreBtn').addEventListener('click', (e) => {
+  const sec = document.getElementById('execKpis2');
+  sec.hidden = !sec.hidden;
+  e.currentTarget.setAttribute('aria-expanded', String(!sec.hidden));
+  e.currentTarget.textContent = sec.hidden ? 'Show 7 more metrics' : 'Show fewer metrics';
+});
+
 async function loadHome() {
   skeletons();
-  const [summary, overview, segments] = await Promise.all([
+  const [summary, overview] = await Promise.all([
     fetch('/api/dashboard/summary').then(r => r.json()),
     fetch('/api/dashboard/overview').then(r => r.json()).catch(() => ({})),
-    fetch('/api/dashboard/segments').then(r => r.json()).catch(() => []),
   ]);
   const o = overview || {};
-  renderHero(summary, o);
-  renderNarrative(summary);
-  renderPriorities(summary, o);
-  renderKpis(summary, o);
-  renderProducts(o);
-  renderShortfall(summary, o);
-  renderHeat(o);
-  renderFunnel(o);
-  renderChannels(o);
-  renderAccounts(summary, o);
-  renderActions(o);
-  renderOpportunity(o);
-  renderDrivers(o);
-  renderStrategies(o);
-  renderRegions(o);
-  renderCollectors(o);
-  renderSegments(segments);
+  const cc = o.cc || {};
+  const steps = [
+    () => renderHero(summary, o, cc), () => renderNarrative(summary), () => renderPriorities(summary, o),
+    () => renderExecKpis(summary, o, cc), () => renderBrief(summary, o, cc), () => renderWatchouts(summary, o, cc),
+    () => renderRisk(cc), () => renderTarget(summary, cc), () => renderActionCenter(cc, o),
+    () => renderActions(o), () => renderOpportunity(o), () => renderAccounts(summary, o),
+  ];
+  // One panel's problem never blanks the page.
+  steps.forEach(fn => { try { fn(); } catch (err) { console.error('Command Center panel failed', err); } });
 }
 
-function renderHero(s, o) {
+function renderHero(s, o, cc) {
   const asOf = new Date((o.asOf || '2026-09-15') + 'T00:00:00');
   const days = new Date(asOf.getFullYear(), asOf.getMonth() + 1, 0).getDate();
   document.getElementById('heroDate').textContent =
     `Snapshot · ${asOf.toLocaleDateString(undefined, { weekday: 'long', day: 'numeric', month: 'long', year: 'numeric' })} · day ${asOf.getDate()} of ${days}`;
   document.getElementById('heroGreeting').textContent = greeting();
   const ach = num(s.achievement_pct);
-  const worst = (o.products || [])[0];
+  const out = cc.outlook || {};
+  const likely = out.Target_Likelihood;
   document.getElementById('heroSub').innerHTML =
-    `We've collected <b>${money(s.mtd_collections)}</b> of this month's <b>${money(s.monthly_target)}</b> target, ` +
-    `with <b>${money(s.target_gap)}</b> still to close${worst ? `. <b>${hEsc(worst.Product)}</b> is furthest behind at ${pct(worst.Achievement_Pct)}` : ''}.`;
+    `We've collected <b>${money(s.mtd_collections)}</b> of this month's <b>${money(s.monthly_target)}</b> target, with <b>${money(s.target_gap)}</b> still to collect` +
+    (likely ? ` and ${count(out.Days_Remaining)} days to go. Promises due this month cover the gap <b>${num(out.Gap_Coverage).toFixed(1)}×</b>, so the outlook is <b>${hEsc(likely.toLowerCase())}</b>.` : '.');
   document.getElementById('heroProgress').innerHTML = `
     <div class="hp-track"><div class="hp-fill" style="width:${Math.min(100, (ach || 0) * 100).toFixed(1)}%"></div></div>
     <div class="hp-legend"><span><b>${pct(ach)}</b> of target achieved</span><span>${money(s.mtd_collections)} / ${money(s.monthly_target)}</span></div>`;
@@ -128,7 +160,7 @@ function renderNarrative(s) {
     ? `Written from the certified views on ${gen && !isNaN(gen) ? gen.toLocaleString() : s.narrative_generated_at}` : '';
 }
 
-/** Four cards, worked out from the data, each opening the right analysis. */
+/** Today's priorities: four cards worked out from the data, each opening the right analysis. */
 function renderPriorities(s, o) {
   const cards = [];
   const worst = (o.products || [])[0];
@@ -159,108 +191,174 @@ function renderPriorities(s, o) {
       <div class="prio-top"><span class="prio-rank">${i + 1}</span><span class="prio-kicker">${icon(c.ic, 'ico-sm')}${c.kicker}</span><span class="prio-metric">${c.metric}</span></div>
       <div class="prio-title">${hEsc(c.title)}</div>
       <div class="prio-body">${hEsc(c.body)}</div>
-      <div class="prio-cta">${icon('spark', 'ico-xs')}${c.mode === 'agent' ? 'Run deep analysis' : 'Get a quick answer'} <span aria-hidden="true">→</span></div>
+      <div class="prio-cta">${icon('spark', 'ico-xs')}Ask LensS · ${c.mode === 'agent' ? 'deep analysis' : 'quick answer'} <span aria-hidden="true">→</span></div>
     </button>`).join('');
 }
 
-function renderKpis(s, o) {
+/** 1. Core metrics: five large cards, then the v1.6 metrics (same formulas) on demand. */
+function renderExecKpis(s, o, cc) {
+  const k = cc.kpis || {};
+  const card = (ic, label, value, sub, why, t) => `
+    <div class="xkpi${t ? ' x-' + t : ''}" title="${hEsc(why)}">
+      <div class="xkpi-top">${icon(ic, 'ico-sm')}<span>${label}</span></div>
+      <div class="xkpi-v">${value}</div>
+      <div class="xkpi-s">${sub}</div>
+      <div class="xkpi-why">${hEsc(why)}</div>
+    </div>`;
   const p = o.portfolio || {};
   const r = o.rates || {};
-  const recRate = num(p.recovered) && num(p.outstanding) ? num(p.recovered) / num(p.outstanding) : null;
   const keptRate = num(r.Broken_Promise_Rate) === null ? null : 1 - num(r.Broken_Promise_Rate);
-  const metrics = [
-    ['cash', 'Collected this month', money(s.mtd_collections), `of ${money(s.monthly_target)} target`, null],
-    ['target', 'Target achievement', pct(s.achievement_pct), `${money(s.target_gap)} still to collect`, num(s.achievement_pct), tone(num(s.achievement_pct))],
-    ['pulse', 'Recovery rate', pct(recRate, 2), 'collected ÷ outstanding balance', null],
-    ['phone', 'Customers reached', pct(r.RPC_Rate), 'of those we tried to contact', num(r.RPC_Rate)],
-    ['handshake', 'Agreed to pay', pct(r.PTP_Conversion_Rate), 'of customers we spoke to', num(r.PTP_Conversion_Rate)],
-    ['promise', 'Promises honoured', pct(keptRate), 'of payment promises now due', keptRate, keptRate !== null && keptRate < 0.5 ? 'bad' : null],
-    ['coin', 'Cost to collect', num(p.cost_to_collect) === null ? '—' : CUR + num(p.cost_to_collect).toFixed(3), `cost per ${CUR}1 collected`, null],
-    ['handshake', 'Amount promised', money(p.ptp_amount), 'promised by customers this month', null],
-    ['slip', 'Accounts worsening', pct(p.roll_forward_rate), `moving to a later arrears stage · ${pct(p.roll_back_rate)} improving`, null, num(p.roll_forward_rate) > num(p.roll_back_rate) ? 'warn' : null],
-    ['users', 'Contacts per customer', num(p.average_attempts) === null ? '—' : num(p.average_attempts).toFixed(1), 'average this month', null],
+  document.getElementById('execKpis').innerHTML = [
+    card('cash', 'Total outstanding portfolio', money(k.Outstanding_Portfolio, 2), `${count(k.Accounts_In_Collections)} accounts in collections`, 'Total balance currently under collections'),
+    card('target', 'Collected this month', money(k.Recovery_MTD ?? s.mtd_collections), `${pct(s.achievement_pct)} of ${money(s.monthly_target)} target · ${money(s.target_gap)} to go`, 'Total collections recovered this month', tone(num(s.achievement_pct))),
+    card('pulse', 'Recovery rate', pct(k.Recovery_Rate, 2), 'collected ÷ outstanding balance', 'How much of the book we turn into cash'),
+    card('users', 'Accounts in collections', count(k.Accounts_In_Collections), `${money(k.Outstanding_Portfolio, 2)} outstanding`, 'Total active delinquent accounts'),
+    card('alert', 'High-risk accounts', count(k.High_Risk_Accounts), `risk ≥ 0.70 · ${count(s.immediate_intervention_accounts)} still likely to pay`, 'Non-payment risk threshold exceeded; the priority list is the subset still likely to pay', 'warn'),
+  ].join('');
+  document.getElementById('execKpis2').innerHTML = [
+    card('phone', 'Customers reached', pct(r.RPC_Rate), 'of those we tried to contact (RPC)', 'Contact effectiveness'),
+    card('handshake', 'Agreed to pay', pct(r.PTP_Conversion_Rate), 'of customers we spoke to (PTP conversion)', 'Customer commitment'),
+    card('promise', 'Promises honoured', pct(keptRate), 'of payment promises now due', 'Early-warning signal', keptRate !== null && keptRate < 0.5 ? 'bad' : null),
+    card('handshake', 'Amount promised', money(p.ptp_amount), 'promised by customers this month', 'Cash committed by customers'),
+    card('slip', 'Accounts worsening', pct(p.roll_forward_rate), `moving to a later arrears stage · ${pct(p.roll_back_rate)} improving`, 'Deterioration indicator', num(p.roll_forward_rate) > num(p.roll_back_rate) ? 'warn' : null),
+    card('coin', 'Cost to collect', num(p.cost_to_collect) === null ? '—' : CUR + num(p.cost_to_collect).toFixed(3), `cost per ${CUR}1 collected · ${money(k.Collection_Cost)} spent`, 'Efficiency of collections'),
+    card('users', 'Contacts per customer', num(p.average_attempts) === null ? '—' : num(p.average_attempts).toFixed(1), 'average this month', 'Contact intensity'),
+  ].join('');
+}
+
+/** Executive decision brief: what changed / why / what to do, written from the same certified figures. */
+function renderBrief(s, o, cc) {
+  const worst = (o.products || [])[0];
+  const best = (o.products || []).slice(-1)[0];
+  const seg = (o.shortfall || [])[0];
+  const drivers = (o.drivers || []).slice().sort((a, b) => num(a.Recovery_Rate) - num(b.Recovery_Rate));
+  const k = cc.kpis || {};
+  const a = cc.actions || {};
+  const out = cc.outlook || {};
+  const lowDriver = drivers[0];
+  const body = `
+    <div class="brief-sec"><span class="brief-n">1</span><div><b>Where we stand</b>
+      <p>${pct(s.achievement_pct)} of the ${money(s.monthly_target)} monthly target is collected with ${count(out.Days_Remaining)} days left. ${worst ? `${hEsc(worst.Product)} has the lowest achievement (${pct(worst.Achievement_Pct)}, ${money(worst.Target_Gap)} to go)${best ? `; ${hEsc(best.Product)} leads at ${pct(best.Achievement_Pct)}` : ''}.` : ''} ${seg ? `The largest single gap is ${hEsc(seg.Product)} at ${hEsc(seg.DPD_Bucket)} days (${money(seg.Target_Gap)}).` : ''}</p></div></div>
+    <div class="brief-sec"><span class="brief-n">2</span><div><b>What is driving it</b>
+      <p>Recovery falls sharply with arrears: early-stage accounts convert best. ${lowDriver ? `${hEsc(lowDriver.Primary_Nonpayment_Driver)} has the lowest recovery (${pct(lowDriver.Recovery_Rate, 2)}).` : ''} ${pct(k.Roll_Forward_Rate)} of accounts slipped to a later stage this month against ${pct(k.Roll_Back_Rate)} improving, and ${pct(k.Broken_Share_Of_Due_Promises, 0)} of promises already due were broken.</p></div></div>
+    <div class="brief-sec"><span class="brief-n">3</span><div><b>Recommended actions</b>
+      <ul>
+        <li>Secure the <b>${count(a.PTP_Due_7d_Accounts)}</b> promises due in the next 7 days (${money(a.PTP_Due_7d_Amount)}), starting with the <b>${count(a.PTP_Break_Risk_7d_Accounts)}</b> likely to break.</li>
+        <li>Work the <b>${count(a.HighProp_HighBal_Accounts)}</b> high-propensity, high-balance accounts: ${money(a.HighProp_HighBal_Recoverable)} recoverable.</li>
+        <li>Stop <b>${count(a.Rolling_To_180_Accounts)}</b> accounts (${money(a.Rolling_To_180_Exposure)}) rolling into 180+ days.</li>
+      </ul></div></div>`;
+  panel('pnlBrief', 'LensS executive decision brief', 'Written from the certified views of this snapshot',
+    { q: 'Write a one-page executive brief for this month: where we stand against target, what is driving it, the biggest risks, and the top three actions with their value.', mode: 'agent' }, body);
+}
+
+/** Priority watchouts, ranked, with a severity filter (Critical / High / Medium). */
+function renderWatchouts(s, o, cc) {
+  const k = cc.kpis || {};
+  const a = cc.actions || {};
+  const r = o.rates || {};
+  const worst = (o.products || [])[0];
+  const oc = o.overContact || {};
+  const items = [
+    { sev: 'Critical', cat: 'Promises to pay', title: `${pct(k.Broken_Share_Of_Due_Promises, 0)} of promises already due were broken`,
+      metric: `${count(k.Broken_PTP_Accounts)} broken · ${count(a.PTP_Break_Risk_7d_Accounts)} more at risk this week`,
+      driver: 'Promises taken from customers with low propensity or high non-payment risk.',
+      q: 'Why are so many promises to pay being broken, and which segments should we prioritise to fix it?', mode: 'agent' },
+    { sev: 'High', cat: 'Deterioration', title: `${money(a.Rolling_To_180_Exposure)} is close to rolling into 180+ days`,
+      metric: `${count(a.Rolling_To_180_Accounts)} accounts at 150–180 days · ${pct(k.Roll_Forward_Rate)} roll-forward`,
+      driver: 'Late-stage accounts recover at a fraction of early-stage rates.',
+      q: 'Which accounts are about to roll into 180+ days past due, and what should we do before they do?', mode: 'agent' },
+    worst && { sev: 'High', cat: 'Target', title: `${worst.Product} has the lowest achievement (${pct(worst.Achievement_Pct)})`,
+      metric: `${money(worst.Target_Gap)} still to collect`,
+      driver: 'Shortfall concentrated in early-stage (1-30 days) accounts.',
+      q: `Why is ${worst.Product} behind target this month and what should we do about it?`, mode: 'agent' },
+    { sev: 'Medium', cat: 'Conduct risk', title: `${count(oc.accounts)} customers may be over-contacted`,
+      metric: `${count(oc.segments ?? s.over_contact_segments)} customer groups at 4.5+ contacts`,
+      driver: 'Contact strategies with high attempt counts and low right-party contact.',
+      q: 'Are our current collections policies too aggressive? Look at over-contact risk, complaints and vulnerable customers.', mode: 'agent' },
+    { sev: 'Medium', cat: 'Contact', title: `Only ${pct(r.RPC_Rate)} of attempted customers are reached`,
+      metric: `${pct(r.PTP_Conversion_Rate)} of those agree to pay`,
+      driver: 'Channel and contact-time mismatch for parts of the book.',
+      q: 'Which channels and contact times work best for reaching customers, and how should we change our contact strategy?', mode: 'agent' },
+  ].filter(Boolean);
+  const el = document.getElementById('pnlWatch');
+  const draw = (filter) => {
+    const shown = items.filter(i => filter === 'All' || i.sev === filter);
+    el.innerHTML = `<div class="panel-head"><div><h3>Priority watchouts</h3><div class="panel-sub">Ranked by risk and money at stake</div></div>
+      <div class="chips">${['All', 'Critical', 'High', 'Medium'].map(f => `<button class="chip-btn${f === filter ? ' on' : ''}" data-f="${f}">${f}</button>`).join('')}</div></div>
+      <div class="panel-body watch-list">${shown.map(i => `
+        <div class="watch sev-${i.sev.toLowerCase()}">
+          <div class="watch-top"><span class="sev-tag">${i.sev}</span><span class="watch-cat">${hEsc(i.cat)}</span></div>
+          <div class="watch-title">${hEsc(i.title)}</div>
+          <div class="watch-meta"><b>Supporting metric:</b> ${hEsc(i.metric)}</div>
+          <div class="watch-meta"><b>Likely driver:</b> ${hEsc(i.driver)}</div>
+          <button class="ask-link" data-ask="${hEsc(i.q)}" data-mode="${i.mode}">${icon('spark', 'ico-xs')}Ask LensS</button>
+        </div>`).join('') || '<div class="empty-note">Nothing at this level.</div>'}</div>`;
+    el.querySelectorAll('.chip-btn').forEach(b => b.addEventListener('click', () => draw(b.dataset.f)));
+  };
+  draw('All');
+}
+
+/** 2. Portfolio risk snapshot: accounts and balance by arrears stage. */
+function renderRisk(cc) {
+  const rows = cc.riskSnapshot || [];
+  const colors = ['#0E8F80', '#0B6E99', '#D97706', '#EA580C', '#DC2626'];
+  const total = rows.reduce((a, r) => a + num(r.Accounts), 0);
+  const stack = `<div class="stack">${rows.map((r, i) => `<span style="width:${(100 * num(r.Account_Share)).toFixed(2)}%;background:${colors[i]}" title="${hEsc(r.DPD_Bucket)} days: ${count(r.Accounts)} accounts (${pct(r.Account_Share)})">${num(r.Account_Share) > 0.07 ? pct(r.Account_Share, 0) : ''}</span>`).join('')}</div>`;
+  const table = `<table class="mini risk-table"><thead><tr><th>Arrears stage</th><th>Accounts</th><th>Amount</th><th>Distribution</th><th>Recovery</th></tr></thead><tbody>
+    ${rows.map((r, i) => `<tr><td><span class="dot" style="background:${colors[i]}"></span>${hEsc(r.DPD_Bucket)} days</td><td>${count(r.Accounts)}</td><td>${money(r.Outstanding_Balance)}</td><td>${pct(r.Account_Share)}</td><td>${pct(r.Recovery_Rate, 2)}</td></tr>`).join('')}
+    <tr class="tot"><td>Total</td><td>${count(total)}</td><td>${money(rows.reduce((a, r) => a + num(r.Outstanding_Balance), 0), 2)}</td><td>100%</td><td></td></tr></tbody></table>`;
+  panel('pnlRisk', 'Portfolio risk snapshot', 'Accounts and balance by days past due',
+    { q: 'How is our portfolio distributed across DPD buckets, and where is the risk concentrated?', mode: 'chat' }, stack + table);
+}
+
+/** 3. Target achievement: the six figures leadership asked for, with an honest outlook. */
+function renderTarget(s, cc) {
+  const t = cc.outlook || {};
+  const like = t.Target_Likelihood || '—';
+  const tile = (l, v, sub, cls = '') => `<div class="ttile ${cls}"><div class="ttile-l">${l}</div><div class="ttile-v">${v}</div>${sub ? `<div class="ttile-s">${sub}</div>` : ''}</div>`;
+  const body = `<div class="ttiles">
+      ${tile('Recovery target', money(t.Recovery_Target ?? s.monthly_target), 'this month')}
+      ${tile('Recovery achieved', money(t.Recovery_Achieved ?? s.mtd_collections), `day ${new Date((t.Snapshot_Date || '2026-09-15') + 'T00:00:00').getDate()}`)}
+      ${tile('Achievement', pct(t.Achievement_Pct ?? s.achievement_pct), '', tone(num(t.Achievement_Pct ?? s.achievement_pct)))}
+      ${tile('Target gap', money(t.Target_Gap ?? s.target_gap), 'still to collect')}
+      ${tile('Outlook: month-end recovery', money(t.Outlook_EOM_Recovery), `${pct(num(t.Outlook_EOM_Recovery) / num(t.Recovery_Target), 0)} of target`)}
+      ${tile('Likelihood of hitting target', hEsc(like), t.Gap_Coverage ? `promises cover the gap ${num(t.Gap_Coverage).toFixed(1)}×` : '', 'like-' + String(like).toLowerCase())}
+    </div>
+    <div class="panel-note">Outlook = collected so far + ${money(t.Promised_Rest_Of_Month)} promised by ${count(t.Promises_Rest_Of_Month)} customers for the rest of the month × the ${pct(t.Promise_Honour_Rate, 0)} honour rate of promises already due (${money(t.Expected_From_Promises)} expected). A pipeline view, not a statistical forecast.</div>`;
+  panel('pnlTarget', 'Target achievement', 'Where we are, and where we are likely to land',
+    { q: 'Are we on track to hit this month\'s recovery target, and which products or buckets put it at risk?', mode: 'agent' }, body);
+}
+
+/** 5. Action center: the five work queues, each one click from a LensS analysis. */
+function renderActionCenter(cc, o) {
+  const a = cc.actions || {};
+  const cards = [
+    { ic: 'cash', t: 'High propensity + high balance', v: money(a.HighProp_HighBal_Recoverable), unit: 'recoverable',
+      d: `${count(a.HighProp_HighBal_Accounts)} accounts with propensity ≥ 60% and balance ≥ ₹100K (${money(a.HighProp_HighBal_Balance)} balance).`,
+      q: 'Which accounts have both high payment propensity and high balance, and how should we work them?', mode: 'chat', tone: 'good' },
+    { ic: 'target', t: 'Largest recovery opportunities', v: money(a.Top250_Recoverable), unit: 'from 250 accounts',
+      d: `The 250 accounts with the most incremental recovery available (${money(a.Top250_Balance)} balance).`,
+      q: 'Where is the biggest recovery opportunity and which channel should we use for each segment?', mode: 'agent', tone: 'good' },
+    { ic: 'promise', t: 'PTP due in next 7 days', v: count(a.PTP_Due_7d_Accounts), unit: 'promises',
+      d: `${money(a.PTP_Due_7d_Amount)} promised by customers, due by next week.`,
+      q: 'Which promises to pay are due in the next 7 days, and how much is at stake?', mode: 'chat', tone: 'brand' },
+    { ic: 'alert', t: 'Broken-PTP follow-up queue', v: count(a.PTP_Break_Risk_7d_Accounts), unit: 'likely to break',
+      d: `Promises due in 7 days from customers with low propensity or high risk: ${money(a.PTP_Break_Risk_7d_Amount)} at stake.`,
+      q: 'Which customers with promises due in the next 7 days are likely to break them, and what follow-up should we do?', mode: 'agent', tone: 'bad' },
+    { ic: 'slip', t: 'Accounts rolling toward 180+', v: money(a.Rolling_To_180_Exposure), unit: 'exposure',
+      d: `${count(a.Rolling_To_180_Accounts)} accounts at 150–180 days past due, about to enter the lowest-recovery stage.`,
+      q: 'Which accounts are about to roll into 180+ days past due, and what should we do before they do?', mode: 'agent', tone: 'warn' },
   ];
-  document.getElementById('homeKpis').innerHTML = metrics.map(([ic, l, v, sub, ratio, t]) => `
-    <div class="metric${t ? ' m-' + t : ''}">
-      <div class="metric-top">${icon(ic, 'ico-sm')}<span>${l}</span></div>
-      <div class="metric-v">${v}</div>
-      ${ratio !== null && ratio !== undefined ? `<div class="metric-bar"><span style="width:${Math.min(100, ratio * 100).toFixed(1)}%"></span></div>` : ''}
-      <div class="metric-s">${sub}</div>
-    </div>`).join('');
-}
-
-function renderProducts(o) {
-  const rows = (o.products || []).slice().sort((a, b) => num(a.Achievement_Pct) - num(b.Achievement_Pct));
-  panel('pnlProducts', 'Achievement by product', 'Collected vs monthly target. The line marks 100%.',
-    { q: 'What is my MTD collections performance versus target by product?', mode: 'chat' },
-    rows.map(r => bar(hEsc(r.Product), num(r.Achievement_Pct), 1.1, `${pct(r.Achievement_Pct)}`, tone(num(r.Achievement_Pct)),
-      `${money(r.MTD_Collections)} of ${money(r.Monthly_Target)} · <b>${money(r.Target_Gap)}</b> to go`, 1)).join('') || '<div class="empty-note">No data.</div>');
-}
-
-function renderShortfall(s, o) {
-  const rows = o.shortfall || [];
-  const max = Math.max(...rows.map(r => num(r.Contribution_To_Gap_Pct) || 0), 0.01);
-  panel('pnlShortfall', `Where the ${money(s.target_gap)} shortfall comes from`, 'The products and arrears stages with the biggest gaps.',
-    { q: 'Which portfolios are contributing most to the shortfall?', mode: 'chat' },
-    rows.map(r => bar(`${hEsc(r.Product)} <span class="muted">· ${hEsc(r.DPD_Bucket)} days</span>`, num(r.Contribution_To_Gap_Pct), max,
-      `${money(r.Target_Gap)} <span class="muted">(${pct(r.Contribution_To_Gap_Pct, 0)})</span>`, 'bad')).join('') || '<div class="empty-note">No shortfall.</div>');
-}
-
-function renderHeat(o) {
-  const cells = o.heat || [];
-  const buckets = ['1-30', '31-60', '61-90', '91-180', '180+'].filter(b => cells.some(c => c.DPD_Bucket === b));
-  const products = [...new Set((o.products || []).map(p => p.Product))].filter(p => cells.some(c => c.Product === p));
-  const get = (p, b) => cells.find(c => c.Product === p && c.DPD_Bucket === b);
-  const body = `<div class="heat" style="grid-template-columns:150px repeat(${buckets.length},1fr)">
-    <div></div>${buckets.map(b => `<div class="heat-h">${b} days</div>`).join('')}
-    ${products.map(p => `<div class="heat-r">${hEsc(p)}</div>${buckets.map(b => {
-      const c = get(p, b);
-      const a = c ? num(c.Achievement_Pct) : null;
-      return `<div class="heat-c t-${tone(a)}" title="${hEsc(p)} · ${b}: ${pct(a)} of target, ${money(c && c.Target_Gap)} to go">${a === null ? '—' : pct(a, 0)}<small>${c && num(c.Target_Gap) > 0 ? money(c.Target_Gap, 1) + ' gap' : 'on target'}</small></div>`;
-    }).join('')}`).join('')}</div>
-    <div class="heat-legend"><span class="t-bad">Below 88%</span><span class="t-warn">88–95%</span><span class="t-good">95% and above</span></div>`;
-  panel('pnlHeat', 'Target achievement by product and arrears stage', 'Red is furthest behind target.',
-    { q: 'Which product and DPD bucket combinations are furthest behind target, and why?', mode: 'agent' }, body);
-}
-
-function renderFunnel(o) {
-  const f = o.funnel || {};
-  const steps = [
-    ['In arrears', f.Eligible_Accounts, 'accounts past due'],
-    ['Tried to contact', f.Attempted_Accounts, 'at least one attempt'],
-    ['Reached the right person', f.RPC_Accounts, 'right-party contact'],
-    ['Promised to pay', f.PTP_Accounts, 'promise to pay'],
-    ['Kept the promise', f.Kept_PTP_Accounts, 'paid when due'],
-  ];
-  const top = num(steps[0][1]) || 1;
-  const body = `<div class="funnel">${steps.map((s, i) => {
-    const v = num(s[1]) || 0;
-    const prev = i ? num(steps[i - 1][1]) || 0 : null;
-    const conv = prev ? v / prev : null;
-    return `<div class="fstep">
-      <div class="fbar" style="width:${Math.max(6, (v / top) * 100).toFixed(1)}%"><span>${count(v)}</span></div>
-      <div class="flabel"><b>${s[0]}</b><small>${s[2]}${conv !== null ? ` · <span class="${conv < 0.4 ? 'neg' : ''}">${pct(conv, 0)} of previous step</span>` : ''}</small></div>
-    </div>`;
-  }).join('')}</div>`;
-  panel('pnlFunnel', 'From arrears to payment', 'Where we lose customers on the way to a payment.',
-    { q: 'Where are we losing customers in the collections funnel, and how do we improve contact and promise-keeping?', mode: 'agent' }, body);
+  document.getElementById('actionCenter').innerHTML = cards.map(c => `
+    <button class="act-card t-${c.tone}" data-ask="${hEsc(c.q)}" data-mode="${c.mode}">
+      <div class="act-top">${icon(c.ic, 'ico-sm')}<span>${hEsc(c.t)}</span></div>
+      <div class="act-v">${c.v} <small>${hEsc(c.unit)}</small></div>
+      <div class="act-d">${hEsc(c.d)}</div>
+      <div class="prio-cta">${icon('spark', 'ico-xs')}Ask LensS · ${c.mode === 'agent' ? 'deep analysis' : 'quick answer'} →</div>
+    </button>`).join('');
 }
 
 const CHANNEL_ICON = { Voice: '📞', SMS: '💬', Email: '✉️', WhatsApp: '🟢', Field: '🚗', 'Digital Self-Cure': '📱' };
-function renderChannels(o) {
-  const rows = o.channels || [];
-  const body = `<div class="chan-grid">${rows.map(r => `
-    <div class="chan">
-      <div class="chan-b">${hEsc(r.DPD_Bucket)} days</div>
-      <div class="chan-c"><span aria-hidden="true">${CHANNEL_ICON[r.Recommended_Channel] || '•'}</span>${hEsc(r.Recommended_Channel)}</div>
-      <div class="chan-m"><span>${pct(r.Balance_Recovery_Rate, 1)}</span> recovery</div>
-      <div class="chan-m"><span>${pct(r.PTP_Conversion_Rate, 0)}</span> promise rate</div>
-    </div>`).join('')}</div>
-    <div class="panel-note">Best-performing channel in each bucket, by recovery rate (segments of 50+ accounts). Observed results, not a guarantee of uplift.</div>`;
-  panel('pnlChannels', 'Best channel for each stage of arrears', 'Use the channel that is already working best at each stage.',
-    { q: 'Which channel should we use for each DPD bucket?', mode: 'chat' }, body);
-}
-
 const ACTION_TONE = {
   'Route to hardship support': 'care', 'Route to dispute resolution': 'dispute', 'Immediate PTP follow-up': 'urgent',
   'Initiate preferred digital journey': 'digital', 'Assign to specialist collector': 'urgent', 'Prioritised collector outreach': 'standard',
@@ -279,77 +377,24 @@ function renderAccounts(s, o) {
     { q: 'Which accounts require immediate intervention?', mode: 'chat' }, body);
 }
 
+/** Recommended next steps: how the priority accounts should be handled (v1.6). */
 function renderActions(o) {
   const rows = o.actions || [];
   const max = Math.max(...rows.map(r => num(r.accounts) || 0), 1);
-  panel('pnlActions', 'Recommended next steps', 'How the accounts needing action should be handled.',
+  panel('pnlActions', 'Recommended next steps', 'How the priority accounts should be handled.',
     { q: 'Which accounts should go to hardship support or dispute resolution, and how should we handle them?', mode: 'agent' },
     rows.map(r => bar(hEsc(r.Recommended_Action), num(r.accounts), max, `${count(r.accounts)} <span class="muted">accounts</span>`,
       ACTION_TONE[r.Recommended_Action] === 'care' || ACTION_TONE[r.Recommended_Action] === 'dispute' ? 'warn' : 'brand',
-      `${money(r.opportunity)} recoverable`)).join(''));
+      `${money(r.opportunity)} recoverable`)).join('') || '<div class="empty-note">No data.</div>');
 }
 
+/** Recovery opportunity by product (v1.6). */
 function renderOpportunity(o) {
   const rows = o.opportunity || [];
   const max = Math.max(...rows.map(r => num(r.opportunity) || 0), 1);
   panel('pnlOpportunity', 'Recovery opportunity by product', 'Money recoverable from high-risk accounts that are still likely to pay.',
     { q: 'Where is the biggest recovery opportunity and which channel should we use for each segment?', mode: 'agent' },
-    rows.map(r => bar(hEsc(r.Product), num(r.opportunity), max, money(r.opportunity), 'good', `${count(r.accounts)} accounts`)).join(''));
-}
-
-function renderDrivers(o) {
-  const rows = (o.drivers || []).slice().sort((a, b) => num(a.Recovery_Rate) - num(b.Recovery_Rate));
-  const max = Math.max(...rows.map(r => num(r.Recovery_Rate) || 0), 0.0001);
-  const worst = rows[0];
-  panel('pnlDrivers', "Why customers aren't paying", worst ? `<b>${hEsc(worst.Primary_Nonpayment_Driver)}</b> has the lowest recovery rate.` : '',
-    { q: 'Which non-payment drivers have the lowest recovery rate, and what should we do for each?', mode: 'agent' },
-    rows.map((r, i) => bar(hEsc(r.Primary_Nonpayment_Driver), num(r.Recovery_Rate), max * 1.05, pct(r.Recovery_Rate, 2),
-      i < 2 ? 'bad' : 'brand', `${count(r.Account_Count)} accounts · ${money(r.Outstanding_Balance)} outstanding`)).join(''));
-}
-
-function renderStrategies(o) {
-  const rows = o.strategies || [];
-  const max = Math.max(...rows.map(r => num(r.recovery_rate) || 0), 0.0001);
-  panel('pnlStrategies', 'Treatment strategy results', 'Recovery rate and cost to collect for each strategy, as observed this month.',
-    { q: 'Which treatment strategies perform best like-for-like, and what does that mean for our policy?', mode: 'agent' },
-    rows.map((r, i) => bar(hEsc(r.Treatment_Strategy), num(r.recovery_rate), max * 1.05, pct(r.recovery_rate, 2), i === 0 ? 'good' : 'brand',
-      `${count(r.accounts)} accounts · ${CUR}${num(r.cost_to_collect) === null ? '—' : num(r.cost_to_collect).toFixed(3)} cost per ${CUR}1 · ${pct(r.ptp_conversion, 0)} promise rate`)).join('')
-    + '<div class="panel-note">Strategies serve different customers, so compare like-for-like before changing policy (ask AI for the matched comparison).</div>');
-}
-
-function renderRegions(o) {
-  const rows = o.regions || [];
-  const max = Math.max(...rows.map(r => num(r.recovery_rate) || 0), 0.0001);
-  const avg = rows.length ? rows.reduce((a, r) => a + num(r.recovery_rate), 0) / rows.length : 0;
-  panel('pnlRegions', 'Recovery by region', rows.length ? `${hEsc(rows[0].Region)} leads; ${hEsc(rows[rows.length - 1].Region)} trails.` : '',
-    { q: 'Which regions are underperforming on recovery and why?', mode: 'agent' },
-    rows.map(r => bar(hEsc(r.Region), num(r.recovery_rate), max * 1.05, pct(r.recovery_rate, 2), num(r.recovery_rate) < avg * 0.9 ? 'bad' : num(r.recovery_rate) > avg * 1.1 ? 'good' : 'brand',
-      `${count(r.accounts)} accounts · ${money(r.outstanding)} outstanding`)).join(''));
-}
-
-function renderCollectors(o) {
-  const c = o.collectors || {};
-  const row = r => `<div class="coll"><span class="mono">${hEsc(r.Collector_ID)}</span><span class="muted">${hEsc(r.Team || '')}${r.Specialization ? ' · ' + hEsc(r.Specialization) : ''}</span><b>${pct(r.Balance_Recovery_Rate, 2)}</b></div>`;
-  const spread = c.best && c.worst && num(c.worst.Balance_Recovery_Rate) ? (num(c.best.Balance_Recovery_Rate) / num(c.worst.Balance_Recovery_Rate)).toFixed(1) : null;
-  panel('pnlCollectors', 'Collector performance', `${count(c.count)} collectors with 30+ accounts.${spread ? ` The best recovers <b>${spread}×</b> as much per rupee as the lowest.` : ''}`,
-    { q: 'How do our collectors compare, and what separates the best performers from the rest?', mode: 'agent' },
-    `<div class="coll-cols"><div><div class="coll-h good">Top 5</div>${(c.top || []).map(row).join('')}</div>
-     <div><div class="coll-h bad">Bottom 5</div>${(c.bottom || []).map(row).join('')}</div></div>`);
-}
-
-function renderSegments(segments) {
-  const tbody = document.querySelector('#segmentTable tbody');
-  tbody.innerHTML = '';
-  (segments || []).forEach(s => {
-    const rate = Number(s.Balance_Recovery_Rate);
-    const t = rate < 0.025 ? 'red' : rate < 0.035 ? 'amber' : 'green';
-    const tr = document.createElement('tr');
-    tr.innerHTML = `<td>${hEsc(s.Product)}</td><td>${hEsc(s.DPD_Bucket)}</td><td>${fmtNum(s.Account_Count)}</td>
-      <td>${fmtMoney(s.Outstanding_Balance)}</td><td>${fmtMoney(s.Recovery_MTD)}</td>
-      <td><span class="badge ${t}">${fmtPct(s.Balance_Recovery_Rate)}</span></td>
-      <td>${fmtPct(s.RPC_Rate)}</td><td>${fmtPct(s.PTP_Conversion_Rate)}</td>`;
-    tbody.appendChild(tr);
-  });
+    rows.map(r => bar(hEsc(r.Product), num(r.opportunity), max, money(r.opportunity), 'good', `${count(r.accounts)} accounts`)).join('') || '<div class="empty-note">No data.</div>');
 }
 
 loadHome().catch(err => {

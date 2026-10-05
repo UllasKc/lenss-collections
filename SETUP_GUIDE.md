@@ -213,6 +213,7 @@ Open it in any editor (Notepad works):
 | `guardrails` | *(optional)* model plus an action per input and output check | Screens questions and answers. **Left out = off.** See 9.5 |
 | `faithfulness_judge` | *(optional)* `{ "model": "databricks-gpt-oss-120b", "sample_percent": 100, "warn_below": 70 }` | Scores each answer's faithfulness, relevance, completeness and safety; answers below `warn_below` (%) show a warning. **Left out = off.** See 9.5 |
 | `follow_ups` | *(optional)* `{ "model": "databricks-meta-llama-3-3-70b-instruct" }` | Tops up suggested follow-up questions to three after each answer. **Left out = only the engine's own suggestions.** See 9.6 |
+| `auto_mode` | *(optional)* `{ "method": "ai", "model": "databricks-meta-llama-3-3-70b-instruct" }` or `{ "method": "rules" }` | How **Auto** picks Quick answer or Deep analysis. `ai`: a small model reads each question (about 2 s, about 250 tokens), with the word rule as fallback. `rules`: a word rule, no model. **Left out = `ai` with the guardrail classifier's model if there is one, else `rules`.** `personal.json` uses `rules` to keep model calls down. See 9.5 |
 | `evals` | *(optional)* `{ "max_accuracy_cases": 10 }` | Turns on the **Evals** tab; caps how many ground-truth questions one run asks. **Left out = off.** See 9.6 |
 | `pricing` | *(optional)* `{ "databricks-gpt-oss-120b": { "input": 0.15, "output": 0.6 } }` | USD per million tokens per endpoint, from your price sheet, so Monitoring can estimate cost. **Left out = tokens only** |
 
@@ -377,12 +378,19 @@ The first three are switched on per workspace in the config (step 7); leaving a 
 
 **Faithfulness judge** (`faithfulness_judge`)
 - **When it runs:** after each live answer, in the background, so it adds no wait.
-- **Numbers check** (no model): every figure in the answer is looked up in the query results.
+- **Numbers check** (no model): every figure in the answer is looked up in the query results. It accepts each cell, column totals, subtotals by group (for example "the 180+ bucket across all products" = the 180+ rows added up), both ends of a range ("0.15–0.54%"), the business-rule thresholds Genie is given (0.70 risk, 0.25 propensity, 4.5 contacts, 7 days and so on) and figures the person typed in the question. Anything else is listed under "Figures not found in the results".
 - **Judge model:** scores how well the factual claims are supported and lists any unsupported ones. It doesn't judge recommendations.
 - **Final score** is the average of the two.
 - **Cached answers** show the score from when they were generated, so they aren't judged again.
 - **Cost control:** `sample_percent` judges only some answers.
 - **In Monitoring:** a **Faithfulness** KPI with the judge model's name, a **Faithful** column in the audit trail, and the details (figures not found, unsupported claims, tokens used) in each row.
+
+**Auto mode** (`auto_mode`)
+- **What it does:** when the mode menu is on **Auto**, each question is first sent to `POST /api/chat/route`, which answers Quick answer or Deep analysis with a short reason. The browser shows "Choosing quick answer or deep analysis…" meanwhile.
+- **`ai`:** a small model classifies the question (any language). If it's slow (over `timeout_ms`, default 6000) or its reply can't be read, the word rule decides instead, so a question is never held up.
+- **`rules`:** reasoning words (why, what should, recommend, compare, root cause, prioritise, explain…) or more than 22 words → Deep analysis; plain lookups ("which…", "show…", "top 10…") → Quick answer.
+- **Where it shows:** each question's trace in Observability records the decision, the method and the reason; the classifier's tokens are counted under "Auto mode router"; the Responsible AI page and the models list say which method is on.
+- **Not affected:** picking Quick answer or Deep analysis yourself, and prompts that carry their own mode (quick-start, library, Command Center and Explorer links).
 
 **Notifications** (no config)
 - **When:** an answer finishes while the person is on another tab or another chat.
@@ -407,7 +415,7 @@ The first three are switched on per workspace in the config (step 7); leaving a 
 - **Low confidence:** below `warn_below`, a red box lists what couldn't be verified. It's in the PDF too.
 - **Follow-up questions:** up to three buttons after the answer. They come from the engine and, with `follow_ups` set, a small model.
 
-**Evals tab** (`evals`)
+**Evaluations** (Observability → 6. Evaluations; config `evals`)
 - **Running it:** choose the categories and press **Run evals**. Results appear as each case finishes. Run history shows the scores of each run and the change from the previous one.
 - **The cases** (seeded by the `lakebase` step from `deploy/evals/cases.py`; switch any off in the tab):
   - **Accuracy:** the Genie benchmark questions, asked live. The figures returned are compared with the ground-truth SQL's, then the answer is scored by the judge. Each one costs a query-engine answer plus a judge call, so `max_accuracy_cases` caps them per run.
@@ -423,7 +431,7 @@ The first three are switched on per workspace in the config (step 7); leaving a 
 - **Tokens:** by feature and model, for questions and eval runs. The query engine's own usage is billed with the SQL warehouse and isn't counted here.
 - **Cost:** add `pricing` to the config to see estimated cost.
 
-**Responsible AI tab** (no config)
+**Responsible AI** (Observability → 7. Responsible AI; no config)
 - **What it covers:**
   - purpose and intended use;
   - each AI model, when it runs and whether it's on;
@@ -481,6 +489,7 @@ The first three are switched on per workspace in the config (step 7); leaving a 
 | Genie instructions / examples / benchmarks (`deploy/genie/space.py`) | `--only genie` |
 | The workbook (new data, same sheets) | `--only ingest,transform,summary` (this also invalidates the answer cache) |
 | Any SQL in `deploy/sql/` | `--only context,transform` |
+| The Command Center and Explorer views (`deploy/sql/70_command_center_views.sql`) | `--only views,genie,app` |
 
 Deploying to **another workspace** is the same procedure: a new CLI profile (step 6), a new config file (step 7), and run it. Each config keeps its own IDs in `deploy/.state/<config-name>.json`, which stays on your laptop and is not committed.
 

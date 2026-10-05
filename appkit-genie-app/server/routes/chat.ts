@@ -9,9 +9,10 @@ import {
 import { runGenie, type GenieLike, type GenieRun, type Mode } from '../lib/genieRun.js';
 import { checkOutput, inputClassifier, inputPatterns, type GuardEvent } from '../lib/guardrails.js';
 import { judgeAnswer } from '../lib/judge.js';
+import { rememberRoute, routeQuestion, takeRoute } from '../lib/autoMode.js';
 import { suggestFollowUps } from '../lib/followups.js';
 import { modelLabel, withTokenLedger, type TokenLedger } from '../lib/models.js';
-import { STARTERS, MORE_SUGGESTIONS } from '../lib/suggestions.js';
+import { LIBRARY, MORE_SUGGESTIONS, QUICK_START, STARTERS } from '../lib/suggestions.js';
 import { GUARDED_TITLES, generateTitle, isGuardedTitle } from '../lib/titles.js';
 import { Trace, sourcesFromSql } from '../lib/trace.js';
 
@@ -145,13 +146,38 @@ export function buildChatRouter(appkit: ChatAppKit): express.Router {
     return `Context from earlier in this conversation:\n${turns.slice(-4).map((r) => `${r.role === 'user' ? 'Q' : 'A'}: ${String(r.content ?? '').slice(0, 700)}`).join('\n')}\n\nNew question: `;
   };
 
-  router.get('/api/me', (req, res) => {
-    res.json({ email: currentUserEmail(req) });
+  // Who is signed in: email from the platform's header, full name from the workspace user
+  // directory (cached), or worked out from the email if the directory can't be read.
+  const names = new Map<string, string>();
+  const nameFromEmail = (email: string) => String(email).split('@')[0].split(/[._-]+/).map((p) => p.replace(/\d+$/, ''))
+    .filter(Boolean).map((p) => p.charAt(0).toUpperCase() + p.slice(1)).join(' ');
+  router.get('/api/me', async (req, res) => {
+    const email = currentUserEmail(req);
+    let name = names.get(email);
+    if (name === undefined && email.includes('@') && !email.endsWith('@localhost')) {
+      try {
+        const client = getExecutionContext().client;
+        const r = (await Promise.race([
+          client.apiClient.request({
+            path: '/api/2.0/preview/scim/v2/Users', method: 'GET', headers: new Headers(), raw: false,
+            query: { filter: `userName eq "${email.replace(/"/g, '')}"`, attributes: 'displayName,name' },
+          } as never),
+          new Promise((_, reject) => setTimeout(() => reject(new Error('timed out')), 4000)),
+        ])) as { Resources?: Array<{ displayName?: string; name?: { givenName?: string; familyName?: string } }> };
+        const u = r.Resources?.[0];
+        name = u ? (u.displayName || [u.name?.givenName, u.name?.familyName].filter(Boolean).join(' ')) : '';
+      } catch (err) {
+        console.warn('[me] user directory lookup failed:', err instanceof Error ? err.message : err);
+      }
+      names.set(email, name ?? '');
+    }
+    const host = (process.env.DATABRICKS_HOST ?? '').replace(/\/$/, '');
+    res.json({ email, name: name || nameFromEmail(email), workspaceUrl: host ? (host.startsWith('http') ? host : `https://${host}`) : null });
   });
 
   // One list for the tiles, the side panel and the cache pre-warm.
   router.get('/api/chat/suggestions', (_req, res) => {
-    res.json({ starters: STARTERS, more: MORE_SUGGESTIONS });
+    res.json({ starters: STARTERS, more: MORE_SUGGESTIONS, quickStart: QUICK_START, library: LIBRARY });
   });
 
   // Pre-warmed answers are judged too, so cache hits can show their score.
@@ -249,6 +275,16 @@ export function buildChatRouter(appkit: ChatAppKit): express.Router {
 
   // --- send a message (SSE response; the mode is chosen per message) ---
 
+  // Auto mode: Quick answer or Deep analysis for this question (AI model or word rule, per config).
+  router.post('/api/chat/route', async (req, res) => {
+    const question = String(req.body?.question ?? '').trim().slice(0, 2000);
+    if (!question) { res.status(400).json({ error: 'question is required' }); return; }
+    const ledger: TokenLedger = {};
+    const route = await withTokenLedger(ledger, () => routeQuestion(question));
+    rememberRoute(currentUserEmail(req), question, route, ledger);
+    res.json({ mode: route.mode, method: route.method, reason: route.reason, model: route.model ? modelLabel(route.model) : null, ms: route.ms ?? null, fallback: route.fallback ?? null });
+  });
+
   router.post('/api/chat/sessions/:id/messages', (req, res) => {
     // Every model call made for this question lands in its token ledger (Monitoring's cost view).
     const tokens: TokenLedger = {};
@@ -263,6 +299,9 @@ export function buildChatRouter(appkit: ChatAppKit): express.Router {
     const email = currentUserEmail(req);
     const content = String(req.body?.content ?? '').trim();
     const mode: Mode = req.body?.mode === 'agent' ? 'agent' : 'chat';
+    // When Auto chose the mode, its decision (and the classifier's tokens) belong to this question.
+    const auto = req.body?.auto ? takeRoute(email, content) : null;
+    if (auto) for (const [f, e] of Object.entries(auto.tokens)) tokens[f] = e;
     const session = await ownedSession(req.params.id as string, email);
     if (!session) {
       res.status(404).json({ error: 'session not found' });
@@ -534,6 +573,7 @@ export function buildChatRouter(appkit: ChatAppKit): express.Router {
       genieConversationId,
       genieMessageId,
       cache: cacheInfo,
+      autoMode: auto ? { method: auto.route.method, reason: auto.route.reason, model: auto.route.model ?? null, ms: auto.route.ms ?? null, fallback: auto.route.fallback ?? null } : undefined,
       guardrails: guardEvents.length ? { events: guardEvents, classifierMs: guardIn.modelMs } : undefined,
       trace: trace.toJSON(),
       tokens,
@@ -704,7 +744,7 @@ export function buildChatRouter(appkit: ChatAppKit): express.Router {
           GROUP BY mode`,
       ),
       appkit.lakebase.query(
-        `SELECT u.event_id, u.session_id, s.title AS session_title, u.user_email, u.mode, u.question, u.success,
+        `SELECT u.event_id, u.assistant_message_id, u.session_id, s.title AS session_title, u.user_email, u.mode, u.question, u.success,
                 u.latency_ms, u.error_message, u.feedback, u.feedback_reason, u.feedback_comment, u.details, u.from_cache, u.guard_action, u.faithfulness, u.created_at
            FROM chatapp.usage_log u
            LEFT JOIN chatapp.chat_sessions s ON s.session_id = u.session_id
@@ -815,6 +855,25 @@ export function buildChatRouter(appkit: ChatAppKit): express.Router {
       run(`SELECT EXTRACT(HOUR FROM created_at)::int AS hour, COUNT(*)::int AS n
              FROM chatapp.usage_log WHERE ${since} GROUP BY 1 ORDER BY 1`),
     ]);
+    // Governance figures for the Observability headline and its tabs.
+    const [recon, pii, stages, lowConf, traces] = await Promise.all([
+      run(`SELECT COALESCE(SUM((details->'judge'->'numeric'->>'checked')::int), 0)::int AS checked,
+                  COALESCE(SUM((details->'judge'->'numeric'->>'found')::int), 0)::int AS found,
+                  COUNT(*) FILTER (WHERE details->'judge'->'llm' IS NOT NULL)::int AS llm_judged,
+                  COALESCE(SUM(jsonb_array_length(COALESCE(details->'judge'->'llm'->'unsupported', '[]'::jsonb))), 0)::int AS unsupported
+             FROM chatapp.usage_log WHERE ${since} AND details ? 'judge'`),
+      run(`SELECT e->>'stage' AS stage, e->>'action' AS action, COUNT(*)::int AS n
+             FROM chatapp.usage_log, jsonb_array_elements(details->'guardrails'->'events') e
+            WHERE ${since} AND e->>'check' = 'pii' GROUP BY 1, 2`),
+      run(`SELECT st->>'stage' AS stage, mode, ROUND(AVG((st->>'ms')::numeric)) AS avg_ms, COUNT(*)::int AS n
+             FROM chatapp.usage_log, jsonb_array_elements(details->'timeline') st
+            WHERE ${since} AND NOT from_cache AND success GROUP BY 1, 2 HAVING COUNT(*) >= 2 ORDER BY avg_ms DESC LIMIT 16`),
+      run(`SELECT event_id, created_at, user_email, mode, question, faithfulness,
+                  details->'judge'->'llm'->'unsupported' AS unsupported, details->'judge'->'numeric'->'missing' AS missing
+             FROM chatapp.usage_log WHERE ${since} AND faithfulness < ${aiConfig.judge?.warnBelow ?? 0.7}
+            ORDER BY created_at DESC LIMIT 10`),
+      run(`SELECT COUNT(*)::int AS total, MAX(created_at) AS latest FROM chatapp.usage_log`),
+    ]);
     // Health: what a non-technical owner should look at first.
     const s = summary.rows[0] ?? {};
     const issues: string[] = [];
@@ -826,6 +885,9 @@ export function buildChatRouter(appkit: ChatAppKit): express.Router {
     res.json({
       days, daily: daily.rows, latency: latency.rows, topQuestions: topQuestions.rows, reasons: reasons.rows,
       people: people.rows[0] ?? {}, summary: s, hourly: hourly.rows,
+      reconciliation: recon.rows[0] ?? {}, pii: pii.rows, stages: stages.rows,
+      lowConfidence: lowConf.rows.map((r) => ({ ...r, question: String(r.question ?? '').slice(0, 300) })),
+      traces: traces.rows[0] ?? {},
       health: { status: !Number(s.questions) ? 'idle' : issues.length ? 'attention' : 'healthy', issues },
     });
   });

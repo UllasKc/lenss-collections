@@ -1,6 +1,6 @@
 # LensS Collections Intelligence
 
-Natural-language analytics for collections, built on Databricks and presented as **Concentrix LensS**. It has governed bronze → silver → gold data, and a Genie space with curated instructions, examples and benchmarks. The web app has Chat and Agent (deep-analysis) modes and per-user chat history. Every answer carries a quality score, its sources and its trace. The app also has an **Evals** tab, a **Responsible AI** page and Monitoring, which covers cost, feedback review and the audit trail.
+Natural-language analytics for collections, built on Databricks and presented as **Concentrix LensS**. It has governed bronze → silver → gold data, and a Genie space with curated instructions, examples and benchmarks. The web app has Chat and Agent (deep-analysis) modes and per-user chat history. Every answer carries a quality score, its sources and its trace. The app has four tabs: a **Command Center** (business health in a minute), an **Explorer** (the why, with filters and drill-downs), the **Assistant**, and **Observability** (traces, quality, performance, drift, security, plus Evaluations and Responsible AI).
 
 > **Deploying to a new workspace or a new laptop? Follow [SETUP_GUIDE.md](SETUP_GUIDE.md)**. It covers every step from installing the tools to giving users access, plus troubleshooting.
 
@@ -18,8 +18,9 @@ That single run, idempotently and in order:
 | `ingest` | Uploads the workbook to the volume and lands all 11 sheets as bronze/context tables, verifying row counts |
 | `context` | Creates the governance tables that exist only in the Word docs |
 | `transform` | Builds silver (typed + primary key), `business_rules_config`, 2 metric views, 16 certified views |
+| `views` | Builds the 7 Command Center views (`qry_cc_*`) in gold from silver |
 | `summary` | Writes the Command Center's executive summary to `gold.exec_summary`, built from the certified views (no LLM); re-run it when the data changes |
-| `genie` | Creates or updates the Genie space: 19 sources, instructions, 19 examples, 8 sample questions, 7 benchmarks |
+| `genie` | Creates or updates the Genie space: 23 sources, instructions, 19 examples, 8 sample questions, 7 benchmarks |
 | `lakebase` | Creates the Lakebase Postgres project/database and the chat-history + usage-log tables |
 | `app` | Creates or updates the Databricks App, binds the Genie space + SQL warehouse, grants the app's service principal read access on gold and access to Lakebase, then syncs and deploys |
 | `smoke` | Calls the deployed URL end to end (skipped unless smoke-test credentials are set — see below) |

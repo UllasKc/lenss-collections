@@ -23,6 +23,9 @@ TABLES = [
     "qry_collections_funnel", "qry_funnel_rates", "qry_nonpayment_drivers",
     "qry_underperforming_segments", "qry_strategy_like_for_like", "qry_recommended_channel",
     "qry_recovery_opportunity_sizing", "qry_collector_scorecard",
+    # Command Center views (deploy/sql/70_command_center_views.sql)
+    "qry_cc_kpis", "qry_cc_risk_snapshot", "qry_cc_target_outlook", "qry_cc_actions", "qry_cc_action_accounts",
+    "qry_cc_channel", "qry_cc_region",
 ]
 
 INSTRUCTIONS_TEXT = """COLLECTIONS ANALYTICS — RULES AND GUARDRAILS
