@@ -11,7 +11,7 @@ Versions match git tags where one exists. Dates are when the change was committe
 
 ---
 
-## Unreleased
+## v1.9.2 — This week's plan before the high-risk opportunity; greeting by first name (2026-10-06, `1aab4ed`)
 
 - **Chapters 4 and 5 swapped, so the plan comes before the extra opportunity.** Presenters mixed up "Where is the money?" (₹6.4M from 604 accounts) and "What should we do this week?" (queues with different, overlapping groups and amounts).
   - **Chapter 4 is now "What should we do this week?"**: the four queues only.
