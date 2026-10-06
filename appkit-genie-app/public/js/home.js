@@ -139,6 +139,12 @@ async function loadHome() {
     () => renderActionCenter(cc, o), () => renderActions(o),
   ];
   for (const fn of steps) { run(fn); await nextFrame(); }
+  // Then the other tabs load in the background while the browser is idle, so they open
+  // instantly. The Command Center always comes first; the Assistant loads its own when idle.
+  (window.requestIdleCallback || (f => setTimeout(f, 1000)))(() => {
+    if (window.loadExplorer) window.loadExplorer();
+    if (window.loadMonitoring) window.loadMonitoring({ maxAgeMs: 60_000 });
+  }, { timeout: 3000 });
 }
 
 /** 1. Are we on track? The verdict, progress to target, and the month-end outlook. */
@@ -368,17 +374,24 @@ const LIST_RULES = {
 const viewBtn = (list, label, value = '', title = '', sm = false) =>
   `<button class="view-btn${sm ? ' sm' : ''}" data-accounts="${list}" data-value="${hEsc(value)}" data-title="${hEsc(title)}">${hEsc(label)}</button>`;
 let acctRows = [];
-async function openAccounts(list, value, title) {
+function openAccounts(list, value, title) {
+  return showAccountList({
+    url: `/api/dashboard/accounts?list=${encodeURIComponent(list)}${value ? '&value=' + encodeURIComponent(value) : ''}`,
+    title, rule: LIST_RULES[list] || '', file: `lenss-${list}${value ? '-' + value.replace(/\W+/g, '-').toLowerCase() : ''}`,
+  });
+}
+/** The accounts window, shared by the Command Center and the Explorer (window.showAccountList). */
+async function showAccountList({ url, title, rule, file }) {
   const dlg = document.getElementById('acctDialog');
   document.getElementById('acctTitle').textContent = title || 'Accounts';
-  document.getElementById('acctRule').textContent = LIST_RULES[list] || '';
+  document.getElementById('acctRule').textContent = rule || '';
   document.getElementById('acctSum').textContent = 'Loading accounts…';
   document.getElementById('acctBody').innerHTML = '<div class="skel"></div><div class="skel"></div><div class="skel short"></div>';
   document.getElementById('acctCsv').disabled = true;
   if (!dlg.open) dlg.showModal();
   let d;
   try {
-    const r = await fetch(`/api/dashboard/accounts?list=${encodeURIComponent(list)}${value ? '&value=' + encodeURIComponent(value) : ''}`);
+    const r = await fetch(url);
     d = await r.json();
     if (!r.ok) throw new Error(d.error || 'HTTP ' + r.status);
   } catch (err) {
@@ -408,14 +421,15 @@ async function openAccounts(list, value, title) {
     const cols = ['Account_ID', 'Product', 'DPD', 'DPD_Bucket', 'Region', 'Outstanding_Balance', 'Incremental_Recovery_Opportunity', 'Payment_Propensity',
       'Nonpayment_Risk', 'PTP_Amount', 'PTP_Due_Date', 'Broken_PTP_Flag', 'Primary_Nonpayment_Driver', 'Preferred_Channel', 'Vulnerability_Type', 'Recommended_Action', 'Collector_ID'];
     const cell = v => (v === null || v === undefined ? '' : /[",\n]/.test(String(v)) ? `"${String(v).replace(/"/g, '""')}"` : String(v));
-    const csv = [`# ${title}: ${LIST_RULES[list] || ''}`, cols.join(','), ...acctRows.map(r => cols.map(c => cell(r[c])).join(','))].join('\n');
+    const csv = [`# ${title}: ${rule || ''}`, cols.join(','), ...acctRows.map(r => cols.map(c => cell(r[c])).join(','))].join('\n');
     const a = document.createElement('a');
     a.href = URL.createObjectURL(new Blob([csv], { type: 'text/csv' }));
-    a.download = `lenss-${list}${value ? '-' + value.replace(/\W+/g, '-').toLowerCase() : ''}.csv`;
+    a.download = `${file || 'lenss-accounts'}.csv`;
     a.click();
     setTimeout(() => URL.revokeObjectURL(a.href), 1000);
   };
 }
+window.showAccountList = showAccountList;
 document.getElementById('acctClose').addEventListener('click', () => document.getElementById('acctDialog').close());
 document.getElementById('acctDialog').addEventListener('click', (e) => { if (e.target.id === 'acctDialog') e.target.close(); });
 document.getElementById('tab-home').addEventListener('click', (e) => {

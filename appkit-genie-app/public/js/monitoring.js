@@ -294,9 +294,14 @@ document.addEventListener('click', (e) => {
   if (b) document.getElementById(b.dataset.tabScroll)?.scrollIntoView({ behavior: 'smooth', block: 'center' });
 });
 
-window.loadMonitoring = async function loadMonitoring() {
+let obsLoadedAt = 0;
+/** Loads Observability. `maxAgeMs`: skip if it was loaded that recently (e.g. preloaded in the background). */
+window.loadMonitoring = async function loadMonitoring({ maxAgeMs = 0 } = {}) {
+  if (maxAgeMs && Date.now() - obsLoadedAt < maxAgeMs) return;
+  obsLoadedAt = Date.now();
   loadInsights();
-  const data = await fetch('/api/admin/usage').then(r => r.json());
+  let data;
+  try { data = await fetch('/api/admin/usage').then(r => r.json()); } catch (err) { obsLoadedAt = 0; console.warn('Observability failed to load', err); return; }
 
   const kpis = document.getElementById('obsKpis');
   kpis.innerHTML = '';

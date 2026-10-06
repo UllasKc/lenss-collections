@@ -6,7 +6,8 @@ document.querySelectorAll('.tabs button').forEach(btn => {
     btn.classList.add('on');
     document.getElementById('tab-' + btn.dataset.tab).classList.add('on');
     document.body.classList.toggle('assistant-on', btn.dataset.tab === 'assistant');
-    if (btn.dataset.tab === 'obs' && window.loadMonitoring) window.loadMonitoring();
+    // Live view: refreshed when opened, unless it was loaded in the last minute (e.g. in the background).
+    if (btn.dataset.tab === 'obs' && window.loadMonitoring) window.loadMonitoring({ maxAgeMs: 60_000 });
     if (btn.dataset.tab === 'explorer' && window.loadExplorer) window.loadExplorer();
     // Evals and Responsible AI are areas of Observability (opened from its area tabs).
     if (btn.dataset.tab === 'obs' && window.showObsPane) window.showObsPane(window.currentObsPane || 'traces');

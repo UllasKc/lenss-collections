@@ -57,6 +57,40 @@
   const scoped = (q) => { const sc = scopeText(); return sc ? `${q.replace(/\?$/, '')} (for ${sc})?` : q; };
   const ask = (q, mode = 'agent') => ({ q: scoped(q), mode });
 
+  /**
+   * "View" on any chart item: the accounts behind it, in the same window as the Command
+   * Center. `seg` is the item's own filter (e.g. { product: 'Credit Card' }), a funnel
+   * stage or a collector; the current filters still apply.
+   */
+  const xpView = (seg, title, label = 'View') =>
+    `<button class="view-btn sm" data-xpview="${hEsc(JSON.stringify(seg))}" data-title="${hEsc(title)}">${hEsc(label)}</button>`;
+  document.getElementById('tab-explorer').addEventListener('keydown', (e) => {
+    if ((e.key === 'Enter' || e.key === ' ') && e.target.matches('[data-xpview][role="button"]')) { e.preventDefault(); e.target.click(); }
+  });
+  const STAGE_RULE = {
+    attempted: 'contact was attempted this month', not_reached: 'contact attempted but the right person never reached', reached: 'the right person was reached',
+    promised: 'a promise to pay was made', due: 'a promise has fallen due', kept: 'a promise fell due and was kept', broken: 'a promise fell due and was broken',
+  };
+  document.getElementById('tab-explorer').addEventListener('click', (e) => {
+    const b = e.target.closest('[data-xpview]');
+    if (!b || !window.showAccountList) return;
+    e.stopPropagation();
+    const seg = JSON.parse(b.dataset.xpview);
+    const merged = { ...state.filters, ...seg };
+    const qs = Object.entries(merged).filter(([, v]) => v).map(([k, v]) => `${encodeURIComponent(k)}=${encodeURIComponent(v)}`).join('&');
+    const words = [
+      ...FILTERS.filter(([k]) => merged[k]).map(([k, l]) => `${l.replace(/ \(.*\)/, '')}: ${merged[k]}`),
+      ...Object.keys(DATE_LABELS).filter(k => merged[k]).map(k => `${DATE_LABELS[k]} ${merged[k]}`),
+      merged.stage ? `where ${STAGE_RULE[merged.stage] || merged.stage}` : '',
+      merged.collector ? `collector ${merged.collector}` : '',
+    ].filter(Boolean);
+    window.showAccountList({
+      url: '/api/explorer/accounts' + (qs ? '?' + qs : ''), title: b.dataset.title,
+      rule: words.length ? `Accounts in collections · ${words.join(' · ')}` : 'All accounts in collections',
+      file: 'lenss-explorer-' + (Object.values(seg).join('-').replace(/\W+/g, '-').toLowerCase() || 'accounts'),
+    });
+  });
+
   // ---- filters
   function buildSelects() {
     const o = state.options?.dims || {};
@@ -189,8 +223,8 @@
         <div class="hbar-track">${m.rate && num(pv) !== null ? `<span class="hbar-marker" style="left:${Math.min(100, (num(pv) / max) * 100).toFixed(1)}%" title="Portfolio: ${m.fmt(pv)}"></span>` : ''}<span class="hbar-fill t-${toneOf(v)}" style="width:${Math.max(0.5, (v / max) * 100).toFixed(1)}%"></span></div>
       </button>`;
     }).join('');
-    const table = `<div class="table-scroll flat"><table class="nice"><thead><tr><th>${hEsc(DIM_LABEL[state.dim])}</th><th>Accounts</th><th>Outstanding</th><th>Collected</th><th>Recovery</th><th>RPC</th><th>Agreed to pay</th><th>Promises honoured</th><th>High risk</th><th>Opportunity</th></tr></thead><tbody>
-      ${rows.map(r => `<tr><td>${hEsc(label(r))}</td><td>${count(r.accounts)}</td><td>${money(r.outstanding)}</td><td>${money(r.collected)}</td><td>${pct(r.recovery_rate, 2)}</td><td>${pct(r.rpc_rate)}</td><td>${pct(r.ptp_conversion)}</td><td>${pct(r.promise_kept_rate)}</td><td>${pct(r.high_risk_share)}</td><td>${money(r.opportunity)}</td></tr>`).join('')}</tbody></table></div>`;
+    const table = `<div class="table-scroll flat"><table class="nice"><thead><tr><th>${hEsc(DIM_LABEL[state.dim])}</th><th>Accounts</th><th>Outstanding</th><th>Collected</th><th>Recovery</th><th>RPC</th><th>Agreed to pay</th><th>Promises honoured</th><th>High risk</th><th>Opportunity</th><th></th></tr></thead><tbody>
+      ${rows.map(r => `<tr><td>${hEsc(label(r))}</td><td>${count(r.accounts)}</td><td>${money(r.outstanding)}</td><td>${money(r.collected)}</td><td>${pct(r.recovery_rate, 2)}</td><td>${pct(r.rpc_rate)}</td><td>${pct(r.ptp_conversion)}</td><td>${pct(r.promise_kept_rate)}</td><td>${pct(r.high_risk_share)}</td><td>${money(r.opportunity)}</td><td>${xpView({ [state.dim]: r.k }, `${label(r)}: accounts`)}</td></tr>`).join('')}</tbody></table></div>`;
     const best = rows.length ? rows.reduce((a, r) => (num(r[state.measure]) > num(a[state.measure]) ? r : a)) : null;
     const worst = rows.length ? rows.reduce((a, r) => (num(r[state.measure]) < num(a[state.measure]) ? r : a)) : null;
     el.innerHTML = `<div class="panel-head"><div><div class="xs-kicker">Layer 1 · dimension &amp; measure</div><h3>Analytical exploration workspace</h3>
@@ -224,7 +258,7 @@
     panel('xpProducts', 'Achievement by product', 'Collected vs monthly target. The line marks 100%.',
       ask('What is my MTD collections performance versus target by product?', 'chat'),
       rows.map(r => bar(hEsc(r.Product), r.achievement, 1.1, pct(r.achievement), tone(r.achievement),
-        `${money(r.collected)} of ${money(r.target)} · <b>${money(r.gap)}</b> to go`, 1)).join('') || '<div class="empty-note">No data.</div>');
+        `${money(r.collected)} of ${money(r.target)} · <b>${money(r.gap)}</b> to go ${xpView({ product: r.Product }, `${r.Product} accounts`)}`, 1)).join('') || '<div class="empty-note">No data.</div>');
   }
   function renderShortfall(d) {
     const rows = targetRows(d).filter(r => num(r.gap) > 0).sort((a, b) => num(b.gap) - num(a.gap));
@@ -234,7 +268,8 @@
     panel('xpShortfall', `Where the ${money(total)} shortfall comes from`, 'The products and arrears stages with the biggest gaps.',
       ask('Which portfolios are contributing most to the shortfall?', 'chat'),
       top.map(r => bar(`${hEsc(r.Product)} <span class="muted">· ${hEsc(r.DPD_Bucket)} days</span>`, num(r.gap) / total, max,
-        `${money(r.gap)} <span class="muted">(${pct(num(r.gap) / total, 0)})</span>`, 'bad')).join('') || '<div class="empty-note">No shortfall.</div>');
+        `${money(r.gap)} <span class="muted">(${pct(num(r.gap) / total, 0)})</span>`, 'bad',
+        xpView({ product: r.Product, bucket: r.DPD_Bucket }, `${r.Product} · ${r.DPD_Bucket} days accounts`, 'View accounts'))).join('') || '<div class="empty-note">No shortfall.</div>');
   }
   function renderHeat(d) {
     const cells = targetRows(d);
@@ -246,9 +281,9 @@
       ${products.map(p => `<div class="heat-r">${hEsc(p)}</div>${buckets.map(b => {
         const c = get(p, b);
         const a = c ? num(c.achievement) : null;
-        return `<div class="heat-c t-${tone(a)}" title="${hEsc(p)} · ${b}: ${pct(a)} of target, ${money(c && c.gap)} to go">${a === null ? '—' : pct(a, 0)}<small>${c && num(c.gap) > 0 ? money(c.gap, 1) + ' gap' : 'on target'}</small></div>`;
+        return `<div class="heat-c t-${tone(a)}" role="button" tabindex="0" data-xpview="${hEsc(JSON.stringify({ product: p, bucket: b }))}" data-title="${hEsc(`${p} · ${b} days accounts`)}" title="${hEsc(p)} · ${b}: ${pct(a)} of target, ${money(c && c.gap)} to go. Click to see the accounts.">${a === null ? '—' : pct(a, 0)}<small>${c && num(c.gap) > 0 ? money(c.gap, 1) + ' gap' : 'on target'}</small></div>`;
       }).join('')}`).join('')}</div>
-      <div class="heat-legend"><span class="t-bad">Below 88%</span><span class="t-warn">88–95%</span><span class="t-good">95% and above</span></div>`;
+      <div class="heat-legend"><span class="t-bad">Below 88%</span><span class="t-warn">88–95%</span><span class="t-good">95% and above</span><span class="muted">· click a cell to see its accounts</span></div>`;
     panel('xpHeat', 'Target achievement by product and arrears stage', 'Red is furthest behind target.',
       ask('Which product and DPD bucket combinations are furthest behind target, and why?'), body);
   }
@@ -261,7 +296,7 @@
     panel('xpDriverBars', "Why customers aren't paying", worst ? `<b>${hEsc(worst.k)}</b> has the lowest recovery rate.` : '',
       ask('Which non-payment drivers have the lowest recovery rate, and what should we do for each?'),
       rows.map((r, i) => bar(hEsc(r.k), num(r.recovery_rate), max * 1.05, pct(r.recovery_rate, 2),
-        i < 2 ? 'bad' : 'brand', `${count(r.accounts)} accounts · ${money(r.outstanding)} outstanding`)).join('') || '<div class="empty-note">No data.</div>');
+        i < 2 ? 'bad' : 'brand', `${count(r.accounts)} accounts · ${money(r.outstanding)} outstanding ${xpView({ driver: r.k }, `Accounts: ${r.k}`)}`)).join('') || '<div class="empty-note">No data.</div>');
   }
   function renderDrivers(d) {
     const all = (d.by.driver || []).slice().sort((a, b) => num(b.accounts) - num(a.accounts));
@@ -277,10 +312,11 @@
     const total = all.reduce((a, r) => a + num(r.accounts), 0) || 1;
     const low = all.slice().sort((a, b) => num(a.recovery_rate) - num(b.recovery_rate))[0];
     let cum = 0;
-    const body = `<table class="mini drv-table"><thead><tr><th>Non-payment driver</th><th>Count</th><th>Outstanding</th><th>Recovery</th><th>Share (cumulative)</th></tr></thead><tbody>
+    const body = `<table class="mini drv-table"><thead><tr><th>Non-payment driver</th><th>Count</th><th>Outstanding</th><th>Recovery</th><th>Share (cumulative)</th><th></th></tr></thead><tbody>
       ${rows.map(r => { cum += num(r.accounts); const sh = num(r.accounts) / total; return `<tr${low && r.k === low.k ? ' class="hl"' : ''}>
         <td>${hEsc(r.k)}</td><td>${count(r.accounts)}</td><td>${money(r.outstanding)}</td><td>${pct(r.recovery_rate, 2)}</td>
-        <td><span class="pareto"><span style="width:${(sh * 100).toFixed(1)}%"></span></span>${pct(sh, 0)} <span class="muted">(${pct(cum / total, 0)})</span></td></tr>`; }).join('')}</tbody></table>
+        <td><span class="pareto"><span style="width:${(sh * 100).toFixed(1)}%"></span></span>${pct(sh, 0)} <span class="muted">(${pct(cum / total, 0)})</span></td>
+        <td>${String(r.k).startsWith('Others (') ? '' : xpView({ driver: r.k }, `Accounts: ${r.k}`)}</td></tr>`; }).join('')}</tbody></table>
       <div class="panel-note">${low ? `Lowest recovery: <b>${hEsc(low.k)}</b> at ${pct(low.recovery_rate, 2)}. ` : ''}Drivers are the primary reason recorded for each account.</div>`;
     panel('xpDrivers', 'Top non-payment drivers', 'How many accounts each reason covers, and how much it recovers',
       ask('Which non-payment drivers account for most of the balance, and what should we do for each?'), body);
@@ -291,17 +327,17 @@
     panel('xpStrategies', 'Treatment strategy results', 'Recovery rate and cost to collect for each strategy, as observed this month.',
       ask('Which treatment strategies perform best like-for-like, and what does that mean for our policy?'),
       rows.map((r, i) => bar(hEsc(r.k), num(r.recovery_rate), max * 1.05, pct(r.recovery_rate, 2), i === 0 ? 'good' : 'brand',
-        `${count(r.accounts)} accounts · ${CUR}${num(r.cost_to_collect) === null ? '—' : num(r.cost_to_collect).toFixed(3)} cost per ${CUR}1 · ${pct(r.ptp_conversion, 0)} promise rate`)).join('')
+        `${count(r.accounts)} accounts · ${CUR}${num(r.cost_to_collect) === null ? '—' : num(r.cost_to_collect).toFixed(3)} cost per ${CUR}1 · ${pct(r.ptp_conversion, 0)} promise rate ${xpView({ strategy: r.k }, `${r.k} strategy accounts`)}`)).join('')
       + '<div class="panel-note">Strategies serve different customers, so compare like-for-like before changing policy (ask LensS for the matched comparison).</div>');
   }
   function renderFunnel(d) {
     const t = d.totals || {};
     const steps = [
-      ['In arrears', t.accounts, 'accounts past due'],
-      ['Tried to contact', t.attempted, 'at least one attempt'],
-      ['Reached the right person', t.rpc_accounts, 'right-party contact'],
-      ['Promised to pay', t.ptp_accounts, 'promise to pay'],
-      ['Kept the promise', t.kept_accounts, 'paid when due'],
+      ['In arrears', t.accounts, 'accounts past due', ''],
+      ['Tried to contact', t.attempted, 'at least one attempt', 'attempted'],
+      ['Reached the right person', t.rpc_accounts, 'right-party contact', 'reached'],
+      ['Promised to pay', t.ptp_accounts, 'promise to pay', 'promised'],
+      ['Kept the promise', t.kept_accounts, 'paid when due', 'kept'],
     ];
     const top = num(steps[0][1]) || 1;
     const body = `<div class="funnel">${steps.map((s, i) => {
@@ -310,7 +346,7 @@
       const conv = prev ? v / prev : null;
       return `<div class="fstep">
         <div class="fbar" style="width:${Math.max(6, (v / top) * 100).toFixed(1)}%"><span>${count(v)}</span></div>
-        <div class="flabel"><b>${s[0]}</b><small>${s[2]}${conv !== null ? ` · <span class="${conv < 0.4 ? 'neg' : ''}">${pct(conv, 0)} of previous step</span>` : ''}</small></div>
+        <div class="flabel"><b>${s[0]}</b><small>${s[2]}${conv !== null ? ` · <span class="${conv < 0.4 ? 'neg' : ''}">${pct(conv, 0)} of previous step</span>` : ''} ${xpView(s[3] ? { stage: s[3] } : {}, `${s[0]}: accounts`)}</small></div>
       </div>`;
     }).join('')}</div>`;
     panel('xpFunnel', 'From arrears to payment', 'Where we lose customers on the way to a payment.',
@@ -321,11 +357,11 @@
   function renderChannelEff(d) {
     const rows = d.by.channel || [];
     const maxR = Math.max(...rows.map(r => num(r.recovery_rate) || 0), 0.0001);
-    const body = `<table class="mini chan-table"><thead><tr><th>Channel</th><th>Accounts</th><th>RPC</th><th>Agreed to pay</th><th>Recovery</th><th>Cost per ${CUR}1</th></tr></thead><tbody>
+    const body = `<table class="mini chan-table"><thead><tr><th>Channel</th><th>Accounts</th><th>RPC</th><th>Agreed to pay</th><th>Recovery</th><th>Cost per ${CUR}1</th><th></th></tr></thead><tbody>
       ${rows.map((r, i) => `<tr${i === 0 ? ' class="hl"' : ''}><td><span aria-hidden="true">${CHANNEL_ICON[r.k] || '•'}</span> ${hEsc(r.k)}</td><td>${count(r.accounts)}</td>
         <td>${pct(r.rpc_rate)}</td><td>${pct(r.ptp_conversion)}</td>
         <td><span class="pareto"><span style="width:${(100 * num(r.recovery_rate) / maxR).toFixed(0)}%"></span></span>${pct(r.recovery_rate, 2)}</td>
-        <td>${num(r.cost_to_collect) === null ? '—' : CUR + num(r.cost_to_collect).toFixed(3)}</td></tr>`).join('')}</tbody></table>`;
+        <td>${num(r.cost_to_collect) === null ? '—' : CUR + num(r.cost_to_collect).toFixed(3)}</td><td>${xpView({ channel: r.k }, `Accounts preferring ${r.k}`)}</td></tr>`).join('')}</tbody></table>`;
     panel('xpChannelEff', 'Channel effectiveness', 'By each customer\'s preferred channel',
       ask('Which channels work best for reaching customers and recovering balances, and how should we change our channel mix?'), body);
   }
@@ -337,6 +373,7 @@
         <div class="chan-c"><span aria-hidden="true">${CHANNEL_ICON[r.Preferred_Channel] || '•'}</span>${hEsc(r.Preferred_Channel)}</div>
         <div class="chan-m"><span>${pct(r.recovery_rate, 1)}</span> recovery</div>
         <div class="chan-m"><span>${pct(r.ptp_conversion, 0)}</span> promise rate</div>
+        ${xpView({ bucket: r.DPD_Bucket, channel: r.Preferred_Channel }, `${r.DPD_Bucket} days · ${r.Preferred_Channel} accounts`, 'View accounts')}
       </div>`).join('')}</div>` : '<div class="empty-note">Too few accounts in these filters to compare channels (segments need 50+ accounts).</div>';
     panel('xpChannels', 'Best channel for each stage of arrears', 'Use the channel that is already working best at each stage.',
       ask('Which channel should we use for each DPD bucket?', 'chat'),
@@ -361,7 +398,7 @@
           const val = num(r[v.key]);
           const bad = v.good ? val < avg * 0.93 : val > avg * 1.07;
           const good = v.good ? val > avg * 1.07 : val < avg * 0.93;
-          return bar(hEsc(r.k), val, max * 1.05, pct(val, v.dp), bad ? 'bad' : good ? 'good' : 'brand', v.sub(r));
+          return bar(hEsc(r.k), val, max * 1.05, pct(val, v.dp), bad ? 'bad' : good ? 'good' : 'brand', `${v.sub(r)} ${xpView({ region: r.k }, `${r.k} accounts`)}`);
         }).join('') || '<div class="empty-note">No data.</div>'}</div>`;
       el.querySelectorAll('.chip-btn').forEach(b => b.addEventListener('click', () => draw(b.dataset.v)));
     };
@@ -378,7 +415,7 @@
       const n = Math.min(10, Math.ceil(uniq.length / 2));
       const top = uniq.slice(0, n);
       const bottom = uniq.slice(-n).reverse();
-      const row = (r, i) => `<div class="coll"><span class="coll-rank">${i + 1}</span><span class="mono">${hEsc(r.k)}</span><span class="muted">${hEsc(r.team || '')}${r.specialization ? ' · ' + hEsc(r.specialization) : ''}</span><b>${pct(r[key], m === 'Recovery' ? 2 : 1)}</b></div>`;
+      const row = (r, i) => `<div class="coll"><span class="coll-rank">${i + 1}</span><span class="mono">${hEsc(r.k)}</span><span class="muted">${hEsc(r.team || '')}${r.specialization ? ' · ' + hEsc(r.specialization) : ''}</span><b>${pct(r[key], m === 'Recovery' ? 2 : 1)}</b>${xpView({ collector: r.k }, `Collector ${r.k}: accounts`)}</div>`;
       const spread = uniq.length > 1 && num(uniq[uniq.length - 1].recovery_rate) ? (num(uniq[0].recovery_rate) / num(uniq[uniq.length - 1].recovery_rate)).toFixed(1) : null;
       el.innerHTML = `<div class="panel-head"><div><h3>Collector performance</h3><div class="panel-sub">${count(c.count)} collectors with 30+ accounts in this view · ranked by ${m === 'Recovery' ? 'recovery rate' : m === 'RPC' ? 'right-party contact' : 'promise-to-pay conversion'}${spread && m === 'Recovery' ? ` · the best recovers <b>${spread}×</b> the lowest` : ''}</div></div>
         <div class="chips">${Object.keys(metrics).map(k => `<button class="chip-btn${k === m ? ' on' : ''}" data-m="${k}">${k}</button>`).join('')}${askBtn(scoped('How do our collectors compare, and what separates the best performers from the rest?'), 'agent')}</div></div>

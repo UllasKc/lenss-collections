@@ -13,6 +13,37 @@ Versions match git tags where one exists. Dates are when the change was committe
 
 ## Unreleased
 
+### Explorer charts open their accounts too; the other tabs load in the background
+- **Every Explorer chart item has a "View" button** that opens its accounts in the same window as the Command Center (totals, Export CSV), within the current filters:
+  - achievement by product;
+  - shortfall segments;
+  - **heatmap cells** (click a cell);
+  - non-payment drivers (bars and table);
+  - treatment strategies;
+  - **each funnel step** (tried to contact, reached, promised, kept);
+  - channel effectiveness;
+  - best channel per stage;
+  - regions;
+  - **each collector**;
+  - the workspace's table view.
+- **Server:** `GET /api/explorer/accounts`.
+  - It takes the Explorer's own filters (checked against the data as before), plus a funnel `stage` from a fixed list or a `collector` ID.
+  - It is cached per data version.
+  - The filter builder now takes a table alias for the join.
+- **Background loading:**
+  - The Explorer and Observability used to load only when opened, to keep the first page fast.
+  - Now, once the Command Center has drawn, they load in the background while the browser is idle, so they open instantly. Request order: Command Center → Assistant → Explorer → Observability.
+  - Observability is a live view: opening it refreshes it, unless it was loaded in the last minute (so a preload isn't fetched twice).
+- **Verified (local):**
+  - Each list's count matches its chart exactly:
+    - funnel 18,074 / 8,563 / 3,945 / 652;
+    - Credit Card 5,395; Dispute 3,048; Hyderabad 2,341;
+    - Personal Loan + reached 2,243; collector COL012 245.
+  - A bad stage or product returns 400.
+  - 99 view buttons on the Explorer.
+  - Opening the Explorer and Observability after the preload made no new requests, and Observability's charts render correctly after loading hidden.
+  - No console errors.
+
 ### Every Command Center figure shows the accounts behind it
 A card said "610 promises" or "999 accounts" with no way to see which. Every card now has a **View accounts** button that opens the accounts behind its number: same rule, same count. The list shows account, product and days overdue, region, balance, recoverable, likely to pay, risk, promise (amount, due date, broken), why not paying, next step (for priority accounts) and collector, with totals and **Export CSV**.
 - **Where:**

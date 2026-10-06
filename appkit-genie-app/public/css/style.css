@@ -1361,3 +1361,4 @@ h2.sect::before{content:"";width:3px;height:12px;border-radius:2px;background:va
 .prio.issue:hover,#tab-home .act-card:hover{transform:none}
 .card-btns .ask-link{margin:0}
 .hbar .view-btn{margin-left:8px}
+.heat-c[data-xpview]{cursor:pointer}.heat-c[data-xpview]:hover{outline:2px solid var(--brand-2);outline-offset:-2px}.chan .view-btn{margin-top:6px}.flabel .view-btn{margin-left:6px}.coll .view-btn{margin-left:8px}

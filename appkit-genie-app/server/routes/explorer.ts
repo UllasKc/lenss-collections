@@ -81,7 +81,8 @@ export function buildExplorerRouter(db: Lakebase): express.Router {
   });
 
   /** Only values that exist in the data are accepted, so nothing user-typed reaches the SQL. */
-  async function filtersFrom(query: express.Request['query']) {
+  /** The WHERE clause for the request's filters; `alias` prefixes the columns (e.g. 'b.') when the query joins tables. */
+  async function filtersFrom(query: express.Request['query'], alias = '') {
     const opts = await options();
     const clauses: string[] = [];
     const applied: Record<string, string> = {};
@@ -89,14 +90,14 @@ export function buildExplorerRouter(db: Lakebase): express.Router {
       const v = typeof query[k] === 'string' ? query[k] as string : '';
       if (!v) continue;
       if (!opts.dims[k]?.includes(v)) throw Object.assign(new Error(`Unknown ${k}: ${v}`), { status: 400 });
-      clauses.push(`${col} = ${sqlStr(v)}`);
+      clauses.push(`${alias}${col} = ${sqlStr(v)}`);
       applied[k] = v;
     }
     for (const [k, [col, op]] of Object.entries(DATES)) {
       const v = typeof query[k] === 'string' ? query[k] as string : '';
       if (!v) continue;
       if (!/^\d{4}-\d{2}-\d{2}$/.test(v)) throw Object.assign(new Error(`Bad date for ${k}`), { status: 400 });
-      clauses.push(`${col} ${op} DATE '${v}'`);
+      clauses.push(`${alias}${col} ${op} DATE '${v}'`);
       applied[k] = v;
     }
     return { where: clauses.length ? `WHERE ${clauses.join(' AND ')}` : '', applied };
@@ -109,6 +110,48 @@ export function buildExplorerRouter(db: Lakebase): express.Router {
 
   router.get('/api/explorer/options', async (_req, res) => {
     try { res.json(await options()); } catch (err) { fail(res, err); }
+  });
+
+  /**
+   * The accounts behind any Explorer chart item: the current filters plus the item's own
+   * (a product, stage, region, … sent as one more filter, so it is checked the same way),
+   * optionally narrowed to a funnel stage or one collector. Same columns as the Command
+   * Center's lists, so the browser shows them in the same window.
+   */
+  const STAGES: Record<string, string> = {
+    attempted: 'b.Attempted_Flag = 1', not_reached: 'b.Attempted_Flag = 1 AND b.RPC_Flag = 0', reached: 'b.RPC_Flag = 1',
+    promised: 'b.PTP_Flag = 1', due: 'b.PTP_Due_Flag = 1', kept: 'b.PTP_Kept_Flag = 1', broken: 'b.Broken_PTP_Flag = 1',
+    high_risk: 'b.High_Risk_Flag = 1', worsening: 'b.Roll_Forward_Flag = 1',
+  };
+  router.get('/api/explorer/accounts', async (req, res) => {
+    try {
+      const { where, applied } = await filtersFrom(req.query, 'b.');
+      const clauses = where ? [where.replace(/^WHERE /, '')] : [];
+      const stage = typeof req.query.stage === 'string' ? req.query.stage : '';
+      if (stage) {
+        if (!STAGES[stage]) throw Object.assign(new Error(`Unknown stage: ${stage}`), { status: 400 });
+        clauses.push(STAGES[stage]);
+      }
+      const collector = typeof req.query.collector === 'string' ? req.query.collector : '';
+      if (collector) {
+        if (!/^[A-Za-z0-9_-]{1,30}$/.test(collector)) throw Object.assign(new Error('Bad collector'), { status: 400 });
+        clauses.push(`b.Collector_ID = ${sqlStr(collector)}`);
+      }
+      const w = clauses.length ? `WHERE ${clauses.join(' AND ')}` : '';
+      const from = `FROM ${BASE} b LEFT JOIN ${GOLD}.qry_immediate_intervention i ON i.Account_ID = b.Account_ID`;
+      const value = await cached('accounts:' + JSON.stringify({ applied, stage, collector }), async () => {
+        const [[totals], rows] = await Promise.all([
+          runSql(`SELECT COUNT(*) AS accounts, SUM(b.Outstanding_Balance) AS balance, SUM(b.Incremental_Recovery_Opportunity) AS recoverable ${from} ${w}`),
+          runSql(`SELECT b.Account_ID, b.Product, b.DPD, b.DPD_Bucket, b.Region, b.Outstanding_Balance, b.Incremental_Recovery_Opportunity,
+                         b.Payment_Propensity, b.Nonpayment_Risk, b.PTP_Amount, CAST(b.PTP_Due_Date AS STRING) AS PTP_Due_Date, b.Broken_PTP_Flag,
+                         b.Attempts_MTD, b.RPC_Flag, b.Primary_Nonpayment_Driver, b.Preferred_Channel, b.Vulnerability_Type, b.Collector_ID,
+                         i.Recommended_Action
+                    ${from} ${w} ORDER BY b.Incremental_Recovery_Opportunity DESC LIMIT 1000`),
+        ]);
+        return { totals, rows, truncated: Number(totals?.accounts ?? 0) > rows.length };
+      });
+      res.json(value);
+    } catch (err) { fail(res, err); }
   });
 
   /**
