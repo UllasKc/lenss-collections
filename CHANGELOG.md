@@ -13,6 +13,19 @@ Versions match git tags where one exists. Dates are when the change was committe
 
 ## Unreleased
 
+### End-to-end test before the client demo
+- **Deployed smoke test (personal): 27/27 passed**: APIs, quick-answer questions, the guardrail block, sessions and feedback, platform questions with follow-up context, answer cache, audit trail.
+- **Browser pass of every tab, 23/23 passed**:
+  - Account menu.
+  - The Command Center's five chapters and their opening lines (no "NaN", "undefined" or "—").
+  - **All 27 "View accounts" lists** open with rows, and the ones checked match their cards: 610, 999, 9,393, 879, 604, 229, 5,993.
+  - Hover tooltips, KPI definitions, the story bar.
+  - The Explorer: preloaded; reconciles to the Command Center at 19,035 accounts; a Personal Loan filter and reset; funnel, heatmap, driver and collector lists matching their charts.
+  - The Assistant: a platform question answered from the guide.
+  - All 7 Observability areas render, with no internal IDs.
+  - Phone width.
+- **Fixed:** at phone width the Command Center scrolled sideways, because the arrears-stage table (wider since its "View" column) wasn't in a scroll box. It is now.
+
 ### Explorer charts open their accounts too; the other tabs load in the background
 - **Every Explorer chart item has a "View" button** that opens its accounts in the same window as the Command Center (totals, Export CSV), within the current filters:
   - achievement by product;

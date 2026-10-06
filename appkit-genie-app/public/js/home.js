@@ -223,7 +223,7 @@ function renderRisk(cc) {
     ${rows.map((r, i) => `<tr><td><span class="dot" style="background:${colors[i]}"></span>${hEsc(r.DPD_Bucket)} days</td><td>${count(r.Accounts)}</td><td>${money(r.Outstanding_Balance)}</td><td>${pct(r.Account_Share)}</td><td>${pct(r.Recovery_Rate, 2)}</td><td>${viewBtn('bucket', 'View', r.DPD_Bucket, `${r.DPD_Bucket} days past due`, true)}</td></tr>`).join('')}
     <tr class="tot"><td>Total</td><td>${count(total)}</td><td>${money(rows.reduce((a, r) => a + num(r.Outstanding_Balance), 0), 2)}</td><td>100%</td><td></td><td></td></tr></tbody></table>`;
   panel('pnlRisk', 'Portfolio risk snapshot', 'Accounts and balance by days past due',
-    { q: 'How is our portfolio distributed across DPD buckets, and where is the risk concentrated?', mode: 'chat' }, stack + table);
+    { q: 'How is our portfolio distributed across DPD buckets, and where is the risk concentrated?', mode: 'chat' }, stack + `<div class="table-scroll flat">${table}</div>`);
 }
 
 
