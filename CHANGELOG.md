@@ -11,6 +11,10 @@ Versions match git tags where one exists. Dates are when the change was committe
 
 ---
 
+## Unreleased
+
+- **Client demo playbook** saved in the repo as `docs/LensS_Client_Demo_Playbook.html` (open it in any browser). It holds the scene-by-scene pitch script for a room with several clients, what to show each role, ready answers to client questions, a pre-demo checklist, the 10 pre-answered questions and the lines to avoid. It's the same content as the shared playbook page.
+
 ## v1.9.0 — Command Center as one story; every figure opens the accounts behind it (2026-10-06, `31d6a1b`)
 
 ### End-to-end test before the client demo

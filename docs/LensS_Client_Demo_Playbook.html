@@ -1,0 +1,326 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>LensS Client Demo Playbook</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Manrope:wght@600;700;800&family=Inter:wght@400;500;600&family=JetBrains+Mono:wght@500&display=swap">
+<style>
+/* Layout: a presenter's run sheet. Sticky section bar, a run-of-show timeline, then scene cards
+   with SAY / DO / LAND lines, so it can be followed live on a second screen. */
+:root {
+  --bg: #F4F7F9; --surface: #FFFFFF; --ink: #0B2231; --muted: #52687A; --line: #DCE5EC;
+  --brand: #003B5C; --aqua: #0E9F8E; --aqua-soft: #E2F5F2; --say: #EAF2F8; --warn: #9A4B00; --warn-soft: #FFF3E3;
+  --display: 'Manrope', 'Segoe UI', system-ui, sans-serif; --body: 'Inter', 'Segoe UI', system-ui, sans-serif; --mono: 'JetBrains Mono', ui-monospace, Consolas, monospace;
+}
+@media (prefers-color-scheme: dark) { :root:not([data-theme="light"]) {
+  --bg: #0A1820; --surface: #102633; --ink: #E6EEF3; --muted: #9DB2C1; --line: #20394A;
+  --brand: #8FD3F5; --aqua: #4FE0CC; --aqua-soft: #0F3A38; --say: #13324A; --warn: #FFC37A; --warn-soft: #3A2A12; color-scheme: dark } }
+:root[data-theme="dark"] {
+  --bg: #0A1820; --surface: #102633; --ink: #E6EEF3; --muted: #9DB2C1; --line: #20394A;
+  --brand: #8FD3F5; --aqua: #4FE0CC; --aqua-soft: #0F3A38; --say: #13324A; --warn: #FFC37A; --warn-soft: #3A2A12; color-scheme: dark }
+* { box-sizing: border-box }
+body { background: var(--bg); color: var(--ink); font: 400 15px/1.65 var(--body); padding-inline: 16px; padding-block: 0 64px }
+.wrap { max-width: 980px; margin: 0 auto }
+h1, h2, h3 { font-family: var(--display); text-wrap: balance; margin: 0 }
+h1 { font-size: clamp(28px, 4vw, 38px); font-weight: 800; letter-spacing: -.02em; color: var(--brand) }
+h2 { font-size: 23px; font-weight: 800; letter-spacing: -.01em; margin-bottom: 6px }
+h3 { font-size: 17px; font-weight: 700 }
+p { margin: 0 }
+.lede { font-size: 17px; color: var(--muted); max-width: 68ch; margin-top: 10px }
+header.top { padding-block: 40px 22px; display: grid; gap: 14px }
+.meta { display: flex; flex-wrap: wrap; gap: 8px }
+.chip { font: 500 12.5px var(--body); border: 1px solid var(--line); background: var(--surface); border-radius: 999px; padding: 4px 11px; color: var(--muted) }
+.chip b { color: var(--ink); font-weight: 600 }
+nav.bar { position: sticky; top: env(safe-area-inset-top, 0px); z-index: 5; background: var(--bg); border-bottom: 1px solid var(--line); padding-block: 10px; display: flex; gap: 6px; overflow-x: auto; scrollbar-width: none }
+nav.bar a { flex: none; font: 600 13px var(--body); color: var(--muted); text-decoration: none; padding: 6px 11px; border-radius: 8px }
+nav.bar a:hover, nav.bar a:focus-visible { background: var(--surface); color: var(--brand); outline: none }
+section { padding-top: 38px; scroll-margin-top: 60px; display: grid; gap: 14px }
+.sub { color: var(--muted); max-width: 70ch }
+.panel { background: var(--surface); border: 1px solid var(--line); border-radius: 12px; padding: 18px 20px; min-width: 0 }
+.oneline { font: 700 19px/1.5 var(--display); color: var(--ink); border-left: 4px solid var(--aqua); padding: 4px 0 4px 16px }
+.three { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 12px }
+.three .panel h3 { font-size: 15px; margin-bottom: 4px; color: var(--brand) }
+.three .panel p { font-size: 14px; color: var(--muted) }
+.scroll { overflow-x: auto; border: 1px solid var(--line); border-radius: 12px; background: var(--surface) }
+table { border-collapse: collapse; width: 100%; font-size: 14px }
+th, td { text-align: left; padding: 10px 14px; border-bottom: 1px solid var(--line); vertical-align: top }
+th { font: 600 11.5px var(--body); letter-spacing: .06em; text-transform: uppercase; color: var(--muted); background: var(--bg) }
+tr:last-child td { border-bottom: 0 }
+td.t { font: 500 13px var(--mono); white-space: nowrap; font-variant-numeric: tabular-nums; color: var(--brand) }
+.scene { background: var(--surface); border: 1px solid var(--line); border-radius: 12px; overflow: hidden }
+.scene-h { display: flex; align-items: baseline; gap: 12px; padding: 14px 20px; border-bottom: 1px solid var(--line); flex-wrap: wrap }
+.scene-h .n { font: 800 14px var(--display); color: var(--aqua) }
+.scene-h .time { margin-left: auto; font: 500 12.5px var(--mono); color: var(--muted) }
+.scene-b { padding: 16px 20px; display: grid; gap: 12px }
+.line { display: grid; grid-template-columns: 64px minmax(0, 1fr); gap: 12px; align-items: start }
+.tag { font: 600 10.5px var(--body); letter-spacing: .1em; text-transform: uppercase; padding: 3px 0; color: var(--muted) }
+.tag.say { color: var(--brand) } .tag.land { color: var(--aqua) } .tag.watch { color: var(--warn) }
+.say-t { background: var(--say); border-radius: 8px; padding: 10px 14px; font-size: 15px }
+.say-t + .say-t { margin-top: 6px }
+ul { margin: 0; padding-left: 20px } li + li { margin-top: 4px }
+.land-t { font-weight: 600 }
+.watch-t { background: var(--warn-soft); color: var(--ink); border-radius: 8px; padding: 8px 12px; font-size: 14px }
+.qa { display: grid; gap: 10px }
+details.panel { padding: 0 }
+details.panel summary { cursor: pointer; padding: 14px 20px; font: 700 15px var(--display); list-style: none; display: flex; gap: 10px }
+details.panel summary::before { content: "+"; color: var(--aqua); font-weight: 800; width: 12px }
+details[open].panel summary::before { content: "–" }
+details.panel summary:focus-visible { outline: 2px solid var(--aqua); outline-offset: -2px; border-radius: 12px }
+details.panel .a { padding: 0 20px 16px 42px; color: var(--ink) }
+.check { list-style: none; padding: 0; display: grid; gap: 8px }
+.check li { display: grid; grid-template-columns: 22px minmax(0, 1fr); gap: 8px }
+.check li::before { content: ""; width: 14px; height: 14px; border: 2px solid var(--aqua); border-radius: 4px; margin-top: 4px }
+.mono { font-family: var(--mono); font-size: 13px }
+.qlist { display: grid; gap: 8px }
+.q { display: grid; grid-template-columns: 110px minmax(0, 1fr); gap: 12px; background: var(--surface); border: 1px solid var(--line); border-radius: 10px; padding: 10px 14px; font-size: 14px }
+.q .m { font: 600 11px var(--body); letter-spacing: .06em; text-transform: uppercase; color: var(--aqua); padding-top: 2px }
+.avoid li { color: var(--ink) }
+.note { font-size: 13px; color: var(--muted) }
+footer { margin-top: 40px; font-size: 13px; color: var(--muted) }
+@media (max-width: 760px) { .three { grid-template-columns: 1fr } .line { grid-template-columns: 1fr; gap: 4px } .q { grid-template-columns: 1fr; gap: 2px } }
+@media (prefers-reduced-motion: no-preference) { html { scroll-behavior: smooth } }
+</style>
+<style>body{margin:0}</style>
+</head>
+<body>
+
+<div class="wrap">
+<header class="top">
+  <h1>LensS client demo playbook</h1>
+  <p class="lede">A 20-minute pitch of LensS Collections Intelligence to a room with several prospective clients: what to say, what to click, and what to land at each step, plus the questions you will get.</p>
+  <div class="meta">
+    <span class="chip"><b>20 min</b> + Q&amp;A</span>
+    <span class="chip">Audience: <b>collections, finance, risk and data leaders</b></span>
+    <span class="chip">Data: <b>sample portfolio</b>, snapshot 15 Sep 2026, ₹</span>
+    <span class="chip">App: <b>Command Center · Explorer · Assistant · Observability</b></span>
+  </div>
+</header>
+
+<nav class="bar" aria-label="Sections">
+  <a href="#pitch">The pitch</a><a href="#run">Run of show</a><a href="#scenes">Scene by scene</a><a href="#room">Tailor to the room</a><a href="#qa">Questions</a><a href="#before">Before you go live</a><a href="#safe">Safe live questions</a><a href="#avoid">Lines to avoid</a>
+</nav>
+
+<section id="pitch">
+  <h2>The pitch in one breath</h2>
+  <p class="oneline">LensS turns governed collections data into a decision you can act on today: where you stand, why, which customers to call, and an AI assistant whose every answer is checked, explained and audited.</p>
+  <div class="three">
+    <div class="panel"><h3>Decide, not just report</h3><p>The Command Center reads as one story, from "are we on track?" to "which 610 promises to save today". Every number opens the exact accounts behind it.</p></div>
+    <div class="panel"><h3>Ask in plain language</h3><p>The Assistant answers questions about the data in about 20 seconds, or runs a multi-step analysis in 1 to 3 minutes, and remembers the conversation.</p></div>
+    <div class="panel"><h3>Trust you can show an auditor</h3><p>Every figure comes from certified views. Every AI answer shows its SQL, is scored for faithfulness, passes guardrails and lands in an audit trail.</p></div>
+  </div>
+  <p class="note">Say early, once: the portfolio on screen is a sample data pack (Indian rupees, one month-to-date snapshot), not any client's data.</p>
+</section>
+
+<section id="run">
+  <h2>Run of show</h2>
+  <div class="scroll"><table>
+    <thead><tr><th>Time</th><th>Segment</th><th>What the room should take away</th></tr></thead>
+    <tbody>
+      <tr><td class="t">00:00</td><td>Opening</td><td>The problem: collections leaders get reports, not decisions, and can't trust AI on their numbers.</td></tr>
+      <tr><td class="t">02:00</td><td>Command Center, chapters 1–5</td><td>One page goes from "are we on track?" to "which customers do we call today", with every number traceable to accounts.</td></tr>
+      <tr><td class="t">10:00</td><td>Explorer</td><td>Anyone can slice the portfolio themselves, without writing a query.</td></tr>
+      <tr><td class="t">13:00</td><td>Assistant</td><td>Plain-language questions, real analysis, shown with its SQL and a quality score.</td></tr>
+      <tr><td class="t">17:00</td><td>Observability</td><td>The governance story: every AI answer is traced, scored, guarded and auditable.</td></tr>
+      <tr><td class="t">19:00</td><td>Close</td><td>What a pilot on their data looks like, and the next step.</td></tr>
+      <tr><td class="t">20:00</td><td>Q&amp;A</td><td>See <a href="#qa">Questions you will get</a>.</td></tr>
+    </tbody>
+  </table></div>
+</section>
+
+<section id="scenes">
+  <h2>Scene by scene</h2>
+  <p class="sub">SAY is your line, DO is the click, LAND is the one point the room should remember. Each Command Center chapter opens with a bold sentence written from the data; when in doubt, read that sentence.</p>
+
+  <article class="scene">
+    <div class="scene-h"><span class="n">0</span><h3>Opening</h3><span class="time">2 min</span></div>
+    <div class="scene-b">
+      <div class="line"><span class="tag say">Say</span><div><p class="say-t">"Every collections leader starts the day with five questions: are we on track, how healthy is the book, what's holding us back, where's the money, and what do we do this week? Most teams answer them from five reports and a spreadsheet. LensS answers them on one page, in that order, and lets you ask anything else in plain language, with AI you can actually audit."</p></div></div>
+      <div class="line"><span class="tag">Do</span><div>Start on the Command Center, scrolled to the top. Point at the strip: built by the Concentrix Data &amp; Analytics Practice.</div></div>
+      <div class="line"><span class="tag land">Land</span><div class="land-t">Decisions, not reports; AI you can trust.</div></div>
+    </div>
+  </article>
+
+  <article class="scene">
+    <div class="scene-h"><span class="n">1</span><h3>Are we on track? (the banner)</h3><span class="time">1.5 min</span></div>
+    <div class="scene-b">
+      <div class="line"><span class="tag say">Say</span><div>
+        <p class="say-t">"The verdict first: we're on track to hit this month's target, but only if customers keep their promises, and 65% of the promises already due were broken."</p>
+        <p class="say-t">"₹53.4M collected of ₹59.2M with 15 days left. Promises due before month-end should bring in about ₹30M at today's keep rate, five times what we still need. Outlook ₹83.7M, likelihood High."</p>
+      </div></div>
+      <div class="line"><span class="tag">Do</span><div>Point at the small print under the tiles: how the outlook is calculated, and "Data refreshed on".</div></div>
+      <div class="line"><span class="tag land">Land</span><div class="land-t">It tells you the answer and how it got there: a pipeline view, not a black-box forecast.</div></div>
+    </div>
+  </article>
+
+  <article class="scene">
+    <div class="scene-h"><span class="n">2</span><h3>How healthy is the book?</h3><span class="time">1.5 min</span></div>
+    <div class="scene-b">
+      <div class="line"><span class="tag say">Say</span><div><p class="say-t">"₹1.93B is overdue across 19,035 accounts. A third of them slipped to a later arrears stage this month, and recovery drops from about 4% of the balance in early arrears to 0.3% at 180-plus. The earlier we act, the more we recover."</p></div></div>
+      <div class="line"><span class="tag">Do</span><div>On <b>High-risk accounts</b> (879), click <b>View accounts</b>: the exact 879 accounts appear, with balance, risk, promise and reason for non-payment. Mention <b>Export CSV</b>. Close.</div></div>
+      <div class="line"><span class="tag land">Land</span><div class="land-t">Every number on this page opens the accounts behind it. Nothing is a dead end.</div></div>
+    </div>
+  </article>
+
+  <article class="scene">
+    <div class="scene-h"><span class="n">3</span><h3>What is holding us back?</h3><span class="time">1.5 min</span></div>
+    <div class="scene-b">
+      <div class="line"><span class="tag say">Say</span><div><p class="say-t">"Five issues, ranked by risk and money. The critical one is broken promises. And look at the last one: over 9,000 customers are already contacted four and a half times a month, so calling harder isn't the answer."</p></div></div>
+      <div class="line"><span class="tag">Do</span><div>Hover <b>Ask LensS why</b> on the critical card to show the exact question it will ask, then click it. Say: "This runs a deep analysis in the background; we'll come back to it." Return to the Command Center.</div></div>
+      <div class="line"><span class="tag land">Land</span><div class="land-t">Diagnosis and conduct risk side by side: performance without pushing customers too hard.</div></div>
+      <div class="line"><span class="tag watch">Watch</span><div class="watch-t">Deep analysis takes 1 to 3 minutes. Click it here so it is ready by the Assistant scene.</div></div>
+    </div>
+  </article>
+
+  <article class="scene">
+    <div class="scene-h"><span class="n">4</span><h3>Where is the money?</h3><span class="time">1 min</span></div>
+    <div class="scene-b">
+      <div class="line"><span class="tag say">Say</span><div><p class="say-t">"₹6.4M can be recovered now from 604 priority accounts: high-risk customers who are still likely to pay. Here are the eight worth the most, why they aren't paying, and the next step for each."</p></div></div>
+      <div class="line"><span class="tag">Do</span><div>Point at the accounts table. Optionally <b>View all 604</b>.</div></div>
+      <div class="line"><span class="tag land">Land</span><div class="land-t">From portfolio to named accounts in one scroll. Account IDs only: no personal details are held.</div></div>
+    </div>
+  </article>
+
+  <article class="scene">
+    <div class="scene-h"><span class="n">5</span><h3>What should we do this week?</h3><span class="time">2 min</span></div>
+    <div class="scene-b">
+      <div class="line"><span class="tag say">Say</span><div>
+        <p class="say-t">"This is the plan. Today: save the 610 promises likely to break, ₹27.2M. This week: remind the 588 other promises due and work 492 high-value accounts likely to pay. This month: stop 999 accounts reaching 180-plus."</p>
+        <p class="say-t">"And every priority customer gets one next step from the business rules, with disputes and vulnerable customers supported first, never pushed."</p>
+      </div></div>
+      <div class="line"><span class="tag">Do</span><div>On <b>Today</b>, click <b>View accounts</b>: 610 promises with amounts and due dates. "This is the call list for this morning."</div></div>
+      <div class="line"><span class="tag land">Land</span><div class="land-t">The page ends in a prioritised, fair work plan your team can start on today.</div></div>
+    </div>
+  </article>
+
+  <article class="scene">
+    <div class="scene-h"><span class="n">6</span><h3>Explorer</h3><span class="time">3 min</span></div>
+    <div class="scene-b">
+      <div class="line"><span class="tag say">Say</span><div><p class="say-t">"The Command Center tells you what. The Explorer lets anyone find where, without writing a query."</p></div></div>
+      <div class="line"><span class="tag">Do</span><div><ul>
+        <li>Set <b>Product = Personal Loan</b>. The KPI tiles show the difference against the whole portfolio, in green or red.</li>
+        <li>Scroll to the <b>heatmap</b> and click a red cell: those exact accounts.</li>
+        <li>In the <b>funnel</b>, click <b>View</b> on "Kept the promise": 652 of the 3,945 who promised.</li>
+        <li>Press <b>Reset</b>.</li>
+      </ul></div></div>
+      <div class="line"><span class="tag land">Land</span><div class="land-t">Self-service analysis that reconciles to the Command Center to the account (19,035 accounts with no filters).</div></div>
+    </div>
+  </article>
+
+  <article class="scene">
+    <div class="scene-h"><span class="n">7</span><h3>Assistant</h3><span class="time">4 min</span></div>
+    <div class="scene-b">
+      <div class="line"><span class="tag say">Say</span><div><p class="say-t">"Now just ask. Auto decides whether a question needs a quick answer or a deeper analysis."</p></div></div>
+      <div class="line"><span class="tag">Do</span><div><ul>
+        <li>Open the analysis started in scene 3 (it shows a notification when ready). Walk through the answer, its chart, <b>Details</b> → the SQL and the quality score.</li>
+        <li>Ask a follow-up in the same chat: <span class="mono">Which of those should we fix first?</span> It understands "those" from the conversation.</li>
+        <li>Optional crowd-pleaser: <span class="mono">What is LensS?</span> It explains the platform itself.</li>
+      </ul></div></div>
+      <div class="line"><span class="tag land">Land</span><div class="land-t">Plain-language answers grounded in the same certified data, with the working shown.</div></div>
+      <div class="line"><span class="tag watch">Watch</span><div class="watch-t">Prefer the <a href="#safe">pre-answered questions</a>: they return in seconds. A brand-new deep question can take up to 3 minutes; fill the time by showing the SQL of the previous answer.</div></div>
+    </div>
+  </article>
+
+  <article class="scene">
+    <div class="scene-h"><span class="n">8</span><h3>Observability: the trust story</h3><span class="time">2 min</span></div>
+    <div class="scene-b">
+      <div class="line"><span class="tag say">Say</span><div><p class="say-t">"This is what your risk and compliance teams will ask about. Every question is traced end to end: who asked, what was checked, which SQL ran, how long it took, and how faithful the answer was to the data."</p></div></div>
+      <div class="line"><span class="tag">Do</span><div><ul>
+        <li><b>Pipeline traces</b>: open the trace for the question you just asked: the stages from Ask to Log.</li>
+        <li><b>Answer quality &amp; faithfulness</b>: the faithfulness and figure-reconciliation scores.</li>
+        <li><b>Security &amp; guardrails</b>: personal data masked, prompt injection blocked.</li>
+        <li><b>Responsible AI</b>: which models are used and for what.</li>
+      </ul></div></div>
+      <div class="line"><span class="tag land">Land</span><div class="land-t">Governed AI: measurable, explainable and auditable, not a chatbot bolted on.</div></div>
+    </div>
+  </article>
+
+  <article class="scene">
+    <div class="scene-h"><span class="n">9</span><h3>Close</h3><span class="time">1 min</span></div>
+    <div class="scene-b">
+      <div class="line"><span class="tag say">Say</span><div><p class="say-t">"In twenty minutes: where you stand, why, where the money is, and who to call today, on one page, with every number traceable and every AI answer audited. The natural next step is a pilot on your own portfolio, in your own Databricks workspace. Which of the five questions would you want answered first?"</p></div></div>
+      <div class="line"><span class="tag land">Land</span><div class="land-t">A concrete next step: a pilot on their data.</div></div>
+      <div class="line"><span class="tag watch">Watch</span><div class="watch-t">Agree pilot scope, timelines and commercials with the account lead before the session; don't improvise them in a room with several clients.</div></div>
+    </div>
+  </article>
+</section>
+
+<section id="room">
+  <h2>Tailor to the room</h2>
+  <p class="sub">With several clients present, address each role in one sentence and move on.</p>
+  <div class="scroll"><table>
+    <thead><tr><th>Who</th><th>What they care about</th><th>Show them</th></tr></thead>
+    <tbody>
+      <tr><td>Head of collections / COO</td><td>Hitting target, team productivity</td><td>Chapter 5 queues and their account lists; recommended next step per customer</td></tr>
+      <tr><td>CFO / finance</td><td>Cash, outlook, cost</td><td>Chapter 1 outlook and how it is calculated; cost to collect by stage (late stage costs 13× more)</td></tr>
+      <tr><td>Risk / compliance</td><td>Conduct, vulnerable customers, auditability</td><td>Over-contact issue; hardship and dispute routing first; Observability traces and guardrails</td></tr>
+      <tr><td>CIO / CDO / data</td><td>Architecture, governance, security</td><td>Certified views, SQL behind every answer, models listed in Responsible AI, runs on Databricks</td></tr>
+      <tr><td>Operations managers</td><td>Who to call, through which channel</td><td>Explorer: best channel per arrears stage, collector performance, View on any segment</td></tr>
+    </tbody>
+  </table></div>
+</section>
+
+<section id="qa">
+  <h2>Questions you will get</h2>
+  <div class="qa">
+    <details class="panel"><summary>Is the AI making up these numbers?</summary><div class="a">No. Every figure on the Command Center and Explorer is SQL on certified views; no AI computes them. In the Assistant, each answer shows the SQL it ran, and a faithfulness judge checks the figures in the answer against the query results (Observability → Answer quality).</div></details>
+    <details class="panel"><summary>Does our data leave our environment?</summary><div class="a">LensS is built on Databricks: Unity Catalog for governed data, Genie for questions, Databricks-served models for checks and summaries, Lakebase for chat history, and a Databricks App for the interface. It is designed to be deployed in the client's own workspace. Confirm any specific security or residency requirement with the solution architect.</div></details>
+    <details class="panel"><summary>What about customer personal data?</summary><div class="a">The demo data holds account IDs only, no names or contact details. Guardrails mask personal data in questions before they reach the engine and in answers before they are shown. A question asking for customer names and phone numbers is refused (it's in the automated test suite).</div></details>
+    <details class="panel"><summary>Can you forecast next month?</summary><div class="a">Not honestly from a single snapshot, and LensS says so instead of guessing. The outlook shown is a pipeline view for this month: collected so far plus promises due, at the rate promises are being kept. With monthly history loaded, trend and forecast views become possible.</div></details>
+    <details class="panel"><summary>Which strategy works best? Can it prove uplift?</summary><div class="a">It compares strategies like-for-like (same product, arrears stage, balance band and vulnerability), but that is observational. Proving causal uplift needs a champion/challenger test with random assignment; LensS states that limit rather than claiming a number.</div></details>
+    <details class="panel"><summary>Where do the rules come from (priority accounts, next steps)?</summary><div class="a">From the business rules in the data pack, for example priority = non-payment risk ≥ 0.70 and payment propensity ≥ 0.25. Thresholds are configurable, and because each rule lives in one certified view, a change applies everywhere at once.</div></details>
+    <details class="panel"><summary>How long to set up on our data? What does it cost?</summary><div class="a">Don't quote either in the room. Say: "It depends on your data model and environment; we'd scope that in a short discovery," and take it offline with the account lead.</div></details>
+    <details class="panel"><summary>Does it only work for collections?</summary><div class="a">Collections is the first use case built. The pattern (certified views, a story-driven command center, a governed assistant with full observability) is general; whether and how it applies to another domain is a discussion for discovery.</div></details>
+    <details class="panel"><summary>What if an answer is wrong?</summary><div class="a">Each answer carries a quality score and its SQL, users can give thumbs up or down, and low scores and negative feedback appear in Observability for review. Suggested questions are pre-answered and checked, and refreshed whenever the data changes.</div></details>
+  </div>
+</section>
+
+<section id="before">
+  <h2>Before you go live</h2>
+  <div class="panel"><ul class="check">
+    <li><span>Deploy the latest version the day before, and check the deploy log ends with the app URL and no errors.</span></li>
+    <li><span>Confirm the 10 suggested questions are pre-answered: in the app's Logs, look for <span class="mono">pre-warm finished: 10/10 answered</span>.</span></li>
+    <li><span>Open the app 10 minutes early, so the database is warm and the Command Center loads instantly; click through all four tabs once.</span></li>
+    <li><span>Check the Command Center numbers match this playbook (₹53.4M, ₹59.2M, 610, 604). If they differ, use the screen; the story is the same.</span></li>
+    <li><span>Clear old test chats from the Assistant's history, and start a fresh chat.</span></li>
+    <li><span>Set the browser zoom to 100% and close other tabs; on a large monitor the pages use the full width.</span></li>
+    <li><span>Have a backup: screenshots of each chapter and one completed deep analysis, in case the network fails.</span></li>
+  </ul></div>
+</section>
+
+<section id="safe">
+  <h2>Safe live questions</h2>
+  <p class="sub">These ten are pre-answered after every data refresh, so they return in seconds. Quick answers take about 20 seconds when asked live; deep analyses take 1 to 3 minutes.</p>
+  <div class="qlist">
+    <div class="q"><span class="m">Quick</span><span>What is my MTD collections performance versus target by product?</span></div>
+    <div class="q"><span class="m">Quick</span><span>Which accounts require immediate intervention?</span></div>
+    <div class="q"><span class="m">Quick</span><span>Which portfolios are contributing most to the shortfall?</span></div>
+    <div class="q"><span class="m">Quick</span><span>Which channel should we use for each DPD bucket?</span></div>
+    <div class="q"><span class="m">Quick</span><span>Which non-payment drivers have the lowest recovery rate?</span></div>
+    <div class="q"><span class="m">Deep</span><span>Why are collections lagging this month and what should we do about it?</span></div>
+    <div class="q"><span class="m">Deep</span><span>Are our current collections policies too aggressive? Look at over-contact risk, complaints and vulnerable customers.</span></div>
+    <div class="q"><span class="m">Deep</span><span>Where is the biggest recovery opportunity and which channel should we use for each segment?</span></div>
+    <div class="q"><span class="m">Deep</span><span>Why are so many promises to pay being broken, and which segments should we prioritise to fix it?</span></div>
+    <div class="q"><span class="m">Deep</span><span>Which channels and contact times work best for reaching customers, and how should we change our contact strategy?</span></div>
+  </div>
+  <p class="note">Type them exactly, or click them from the Assistant's suggestions, to get the pre-answered version.</p>
+</section>
+
+<section id="avoid">
+  <h2>Lines to avoid</h2>
+  <div class="panel"><ul class="avoid">
+    <li>"It predicts…" or "it forecasts next month". It doesn't; it shows a pipeline outlook for this month.</li>
+    <li>"Switching to strategy X will lift recovery by Y%". Comparisons are observational, not causal.</li>
+    <li>"This is real customer data." It is a sample portfolio.</li>
+    <li>Any timeline, price or named reference client. Take those offline.</li>
+    <li>"The AI calculates the KPIs." Certified SQL does; the AI explains and answers questions.</li>
+    <li>Reading every number aloud. Read each chapter's bold first line, then click one "View accounts".</li>
+  </ul></div>
+</section>
+
+<footer>LensS Collections Intelligence · prepared for client demonstrations · figures from the sample data pack, snapshot 15 September 2026.</footer>
+</div>
+</body>
+</html>
