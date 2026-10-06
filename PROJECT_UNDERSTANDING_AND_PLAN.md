@@ -1,5 +1,8 @@
 # LensS Collections — Project Understanding & Project Plan
 
+> **Status (2026-10-06): historical.** This is the original scope, inventory and plan from 2026-09-25, kept for background. The plan has been delivered and extended: the current product is described in [README.md](README.md) and [LensS_Collections_Leadership_Summary.md](LensS_Collections_Leadership_Summary.md), how it was built in [DATABRICKS_IMPLEMENTATION_GUIDE.md](DATABRICKS_IMPLEMENTATION_GUIDE.md), and every change since in [CHANGELOG.md](CHANGELOG.md).
+
+
 *Compiled from all files in `all_details_and _data/` on 2026-09-23. No code, notebooks, or Databricks assets exist in this repo yet — everything below is derived purely from the specification documents and the sample workbook.*
 
 ---

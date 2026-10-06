@@ -1,5 +1,8 @@
 # Convert a UI-created Genie app to service-principal authorization
 
+> **When you need this (2026-10-06):** only if an app was created by hand in the Databricks UI. Apps deployed with `deploy/deploy.py` already run as their service principal with these grants applied (the `app` step does it); see [SETUP_GUIDE.md](SETUP_GUIDE.md).
+
+
 For a Databricks App created from the **AppKit – Genie** template in the UI (**Compute → Apps → Create app**). Out of the box that template calls Genie **as each signed-in user** (user authorization, scope `dashboards.genie`), so every user needs their own Genie, warehouse and table permissions.
 
 After these steps the app calls Genie **as its own service principal**. Users need only **Can use** on the app, plus the **Consumer access** entitlement, and no data access at all.

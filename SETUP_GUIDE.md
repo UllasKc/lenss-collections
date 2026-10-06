@@ -12,7 +12,7 @@ This guide takes you from a fresh laptop to a running app in any Databricks work
 | The source workbook | Unity Catalog volume `<catalog>.lenss_collections_bronze.raw_files` |
 | Genie space "LensS Collections Analytics" (instructions, 19 examples, 7 benchmarks) | Genie |
 | Chat-history and usage database | Lakebase Postgres project `lenss-collections-app` |
-| The web app (Command Center, Assistant, Monitoring, Evals, Responsible AI) | Databricks Apps |
+| The web app: Command Center, Explorer, Assistant, Observability (with Evaluations and Responsible AI) | Databricks Apps |
 
 ---
 
@@ -172,10 +172,16 @@ It should print JSON containing your `userName` (email). If it errors, fix this 
 
 ## 7. Point the config at your workspace
 
-Configs live in `deploy/config/`. There are two:
+Configs live in `deploy/config/`:
 
-- `personal.json` — the original Free Edition workspace this was built in. Don't use it for a new workspace.
-- `org.json` — a template for an organisation workspace. **Edit this one**, or copy it to a new name such as `deploy/config/myteam.json`.
+| File | What it is |
+|---|---|
+| `personal.json` | The original Free Edition workspace this was built in. Don't use it for a new workspace |
+| `org.json` | A template for an organisation workspace. **Edit this one**, or copy it to a new name such as `deploy/config/myteam.json` |
+| `org-v2.json` | A template for a second version running next to the first (section 11.1) |
+| `org2-v2.json` | The current organisation deployment, app `lenss-collections-v2` (catalog `collectionanalytics1`, profile `lenss-org2`) |
+
+`org2.json` (the first app in that organisation workspace) exists only on the laptops that deploy it and is deliberately kept out of git.
 
 Open it in any editor (Notepad works):
 
@@ -319,24 +325,27 @@ It ends with `23/23 checks passed`. It covers the UI, the dashboard and executiv
 
 ### 9.3 Things to try in the app
 
-- **Command Center:** portfolio KPIs, achievement by product, segment table.
-- **Command Center:**
-  - **Hero:** a greeting with progress to target, plus recoverable amount, arrears, high-risk accounts and over-contacted segments.
-  - **Today's priorities:** four action cards.
-  - **Metrics:** 10 key metrics with plain-English context.
-  - **Panels:** 12 insight panels (target, shortfall, heatmap, funnel, channels, top accounts, next steps, opportunity, drivers, strategies, regions, collectors).
-  - **Ask AI:** every card and panel has an **Ask AI** button that opens the Assistant and asks the right question.
+- **Command Center**, one story in five chapters, each opening with its answer in one sentence written from the data. The story bar under the banner jumps between chapters.
+  1. **Are we on track?** The verdict (on track / within reach / at risk), progress to target with days left, and tiles for still to collect, expected from promises, month-end outlook and likelihood. Underneath: how the outlook is calculated, and **Data refreshed on**.
+  2. **How healthy is the book?** Five vital signs (overdue balance, recovery rate, high-risk accounts, accounts worsening, cost to collect), five more on demand, and the arrears-stage snapshot.
+  3. **What is holding us back?** Five issues ranked by risk and money (broken promises first), each with its likely driver.
+  4. **Where is the money?** Recoverable now by product, and the priority accounts worth the most.
+  5. **What should we do this week?** Four work queues numbered Today → This month, then the next step for each priority customer.
+- **View accounts:** every card, issue, queue, stage and next step opens the exact accounts behind its number, with totals and **Export CSV**.
+- **Ask LensS:** each issue, queue and panel has an **Ask LensS** button; hover it to see the question it will ask.
+- **KPI definitions** (in the banner and at the foot of the page): what each figure means and how it is calculated.
+- **Explorer:** filters (product, arrears stage, region, channel, strategy, driver, team, balance band, vulnerability, contact and promise dates); 12 KPI tiles compared with the whole portfolio; a dimension × measure workspace; diagnostic panels (achievement, shortfall, heatmap, drivers, strategies, funnel, channels, regions, collectors); the accounts behind the numbers with CSV export. Every chart item has **View** to open its accounts; heatmap cells are clickable.
 - **Assistant:**
   - **Layout:** a full-screen chat in the style of Microsoft Copilot. The chat list (New chat, Search, Chats) is on the left and can be collapsed. The lightbulb (top right) opens suggested questions.
-  - **Modes:** the picker at the top-left offers **Auto** (the default; it chooses for each question), **Quick answer** (~20 s) or **Deep analysis** (step by step with charts and recommendations, 1–3 min).
-  - **Under each answer:** copy, 👍/👎, regenerate and **Details**. Details holds the quality score, sources, safety checks and how the answer was made.
-  - **Charts:** answers include charts with **Chart / Table / SQL** tabs.
-  - **PDF:** **PDF** (top right) saves the whole conversation as it looks on screen, charts included, with page numbers.
-- **Currency:** all amounts are in Indian rupees (₹), matching the data model. The query engine is instructed to use ₹ too.
-- **Observability** (formerly Monitoring): questions, success rate, latency by mode, cache hits, quality scores, AI usage and cost, the feedback review queue, per-user activity, the answer cache, and a per-question audit trail with the request trace.
-- **Under each answer:** the quality badge, data sources and safety checks; click **How this answer was made** for the full breakdown. See 9.6.
-- **Evals:** run the evaluation suite and compare runs. **Responsible AI:** what the AI does, with which models, and its limits. See 9.6.
-- **Answer cache:** within about 10 minutes of a deploy, the app answers the 10 suggested questions in the background. From then on, clicking one shows the answer at once, marked **⚡ Answered from cache · generated &lt;time&gt;**, with a **↻ Refresh** button that asks Genie live. The first question of any chat is cached for 24 hours the same way. Loading new data (`ingest`, `transform` or `summary`) or changing Genie (`genie`) invalidates every cached answer automatically. See section 9.4.
+  - **Modes:** **Auto** (the default) chooses per question; **Quick answer** (~20 s); **Deep analysis** (step by step with charts and recommendations, 1–3 min). A follow-up to a deep analysis stays deep.
+  - **Conversation:** follow-ups such as "which of those is the lowest?" are understood; older turns are summarised every 5 questions.
+  - **About LensS:** questions about the platform itself ("What is LensS?", "How do I filter in the Explorer?") are answered from the platform guide.
+  - **Under each answer:** copy, 👍/👎, regenerate and **Details** (quality score, sources, safety checks, how the answer was made). Charts have **Chart / Table / SQL** tabs; tables that came back empty are replaced by a one-line reason.
+  - **PDF:** saves the conversation as it looks on screen.
+- **Observability:** seven areas: pipeline traces, answer quality and faithfulness, performance and latency, data and model drift, security and guardrails, evaluations, Responsible AI. Service accounts show as "Automated test"; no internal IDs are shown.
+- **Loading:** the Command Center loads first (its data is prepared when the app starts); the Explorer and Observability then load in the background, so they open instantly.
+- **Currency:** all amounts are in Indian rupees (₹), matching the data model.
+- **Answer cache:** within about 10 minutes of a deploy that changed the data, the app answers the 10 suggested questions in the background. Clicking one then shows the answer at once, marked **⚡ Answered from cache**, with **↻ Refresh** to ask again live. See 9.4.
 
 ### 9.4 The answer cache
 
@@ -492,6 +501,10 @@ The first three are switched on per workspace in the config (step 7); leaving a 
 | `WARNING: serving endpoint '…' not found` during `--only app` | The model in `semantic_cache`, `guardrails` or `faithfulness_judge` isn't enabled in this workspace | Enable it under **Serving** (or change the name in the config to one that exists), then re-run `--only app`. Until then that feature runs without the model, or stays off |
 | Faithfulness shows "Judge model error" in Monitoring | The judge model timed out or replied without valid JSON | The numbers check still scores the answer. A larger judge model is more reliable, as is lowering `sample_percent` if it's being rate-limited |
 | Warehouse takes minutes on the first command | Warehouse was stopped; the script starts it | Wait. Serverless starts in seconds, Pro in a few minutes |
+| `git pull`: *Your local changes to … app.yaml would be overwritten* | `deploy.py` rewrites `appkit-genie-app/app.yaml` on every app deploy, so each laptop has its own copy | Safe to discard: `git checkout -- appkit-genie-app/app.yaml`, then `git pull`. The next deploy writes it again |
+| `Cannot update app … compute is in STARTING state`, or *a pending deployment in progress* | The app was starting (e.g. after an idle stop) or another deploy is running | Wait a few minutes until **Apps → (your app)** shows Running, then re-run `--only app` |
+| Command Center shows no "Data refreshed on" line | The `summary` step hasn't run since v1.9 (it now records when the data was loaded) | `--only summary` |
+| Smoke test crashes with `UnicodeEncodeError … '\u20b9'` on Windows | The console can't print ₹ | Run it with `set PYTHONIOENCODING=utf-8` first |
 
 ---
 
@@ -499,10 +512,10 @@ The first three are switched on per workspace in the config (step 7); leaving a 
 
 | You changed… | Run |
 |---|---|
-| Pulled new code from GitHub (`git pull`) | `python deploy/deploy.py --config deploy/config/org.json` (or `--only app` if only the app changed) |
+| Pulled new code from GitHub (`git pull`) | `--only app` if only the app changed; the CHANGELOG entry for each version says which steps it needs (e.g. v1.8 needs `lakebase` once) |
 | The app (`appkit-genie-app/`) | `--only app` |
 | Genie instructions / examples / benchmarks (`deploy/genie/space.py`) | `--only genie` |
-| The workbook (new data, same sheets) | `--only ingest,transform,summary` (this also invalidates the answer cache) |
+| The workbook (new data, same sheets) | `--only ingest,transform,views,summary` (this also invalidates the answer cache and pre-warms again) |
 | Any SQL in `deploy/sql/` | `--only context,transform` |
 | The Command Center and Explorer views (`deploy/sql/70_command_center_views.sql`) | `--only views,genie,app` |
 
@@ -528,7 +541,10 @@ Everything else, including the catalog, gold schema, warehouse and models, is sh
    ```bash
    python deploy/deploy.py --config deploy/config/org-v2.json --only genie,lakebase,app
    ```
-   Don't run `schemas`, `ingest`, `transform` or `summary`. They rebuild the shared data that v1 also reads.
+   Don't run `schemas`, `ingest` or `transform`. They rebuild the shared data that v1 also reads. `views` and `summary` are safe on the shared gold schema (they only add views and rewrite the same summary from the same data). For later releases, the organisation deployment uses:
+   ```bash
+   python deploy/deploy.py --config deploy/config/org2-v2.json --only lakebase,views,summary,genie,app
+   ```
 4. If the deploy prints a `GRANT USE CATALOG …` warning, an admin runs that one statement for the new app's service principal.
 5. Open the URL printed at the end and give people access (`readers_group`, or **Permissions** on the app).
 

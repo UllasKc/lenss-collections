@@ -1362,3 +1362,5 @@ h2.sect::before{content:"";width:3px;height:12px;border-radius:2px;background:va
 .card-btns .ask-link{margin:0}
 .hbar .view-btn{margin-left:8px}
 .heat-c[data-xpview]{cursor:pointer}.heat-c[data-xpview]:hover{outline:2px solid var(--brand-2);outline-offset:-2px}.chan .view-btn{margin-top:6px}.flabel .view-btn{margin-left:6px}.coll .view-btn{margin-left:8px}
+/* Observability panels show "Loading…" until their data arrives, instead of an empty box */
+#tab-obs .panel:empty::before,#tab-obs .metric-grid:empty::before{content:"Loading…";display:block;padding:18px 20px;color:var(--muted);font-size:13px}

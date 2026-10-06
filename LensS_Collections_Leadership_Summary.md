@@ -1,68 +1,63 @@
 # LensS Collections — What We Built and Why
 
-*2026-09-25*
+*Updated 2026-10-06 (version 1.9). First written 2026-09-25.*
 
 ## The problem
 
-Collections teams need to answer questions like *"are we going to hit this month's target?"* or *"why are we falling behind?"* quickly, using real portfolio data. Today, getting these answers usually means waiting on an analyst to pull a report or build a dashboard for one specific question — and if the question changes even slightly, someone has to build a new report.
+Collections leaders need quick answers to questions like *"are we going to hit this month's target?"*, *"why are we falling behind?"* and *"who should my teams call today?"*. Today those answers usually mean waiting for an analyst to build a report for one specific question, and a slightly different question means another report. AI assistants could help, but most can't be trusted with the numbers.
 
-We wanted a faster, self-service way for collections leaders to ask questions in plain English and get trustworthy answers directly from the data — no analyst in the loop, no waiting.
+We set out to give collections leaders a self-service way to see where they stand, understand why, and act, with answers drawn directly from governed data that they can check and audit.
 
 ## What we built
 
-We built a conversational assistant — think of it like a chatbot, but one that looks up real numbers from the collections portfolio instead of guessing. A collections manager can type a question like *"What's my month-to-date collections versus target?"* or *"Which accounts need immediate attention?"* and get back a real, data-backed answer in seconds.
+**LensS Collections Intelligence**, a web application in four parts:
 
-It currently covers the two use cases we scoped in:
+- **Command Center.** One page that reads as a story in five steps: *are we on track this month, how healthy is the book, what is holding us back, where is the money, and what should we do this week?* Each step opens with its answer in one sentence. Every number opens the exact list of accounts behind it, which can be exported, so a figure such as "610 promises likely to break this week" becomes a call list.
+- **Explorer.** Self-service drill-down: filter by product, arrears stage, region, channel, strategy, team and more, see how a segment compares with the whole portfolio, and open the accounts behind any chart.
+- **Assistant.** Ask questions in plain English. A quick answer takes about 20 seconds; a deeper, multi-step analysis with charts and recommendations takes 1–3 minutes, and *Auto* picks the right one. It remembers the conversation, so follow-ups like "which of those is the lowest?" work, and it can explain the platform itself.
+- **Observability.** Every question is traced end to end: who asked, which checks ran, which SQL was used, how long it took, and how faithful the answer was to the data. It also covers evaluations, guardrails and responsible-AI information.
 
-- **Performance & Forecasting** — tracking progress against monthly targets, understanding why performance is ahead or behind, and a basic outlook for the rest of the month.
-- **Policy & Strategy Effectiveness** — comparing which collection strategies, channels, and customer segments are working best, and flagging accounts that need attention.
-
-It's built on Databricks, the same platform already used elsewhere in the company — the Command Center project follows this identical pattern — using "Genie," Databricks' own natural-language-to-answer technology.
+It covers the two use cases in scope: **performance and forecasting** (progress against target and the month-end outlook) and **policy and strategy effectiveness** (which strategies, channels and segments work, and which accounts need attention). It runs on Databricks: Unity Catalog for governed data, Genie for questions in plain language, Lakebase for chat history and logs, and Databricks Apps for the interface.
 
 ## Why we built it this way
 
-The tempting shortcut would have been to point an AI directly at the raw data tables and let it write its own queries on the fly. We didn't do that, for a specific reason: an AI answering directly off raw data has no guardrails — it can misinterpret a column, double-count a number, or simply produce an answer that sounds right but isn't.
+Pointing an AI straight at raw tables is tempting, but it can misread a column, double-count a number, or give an answer that sounds right and isn't. So the application sits on a governed foundation:
 
-Instead, we built a layered, governed foundation underneath the assistant:
+- **Raw data**, kept exactly as received.
+- **Cleaned, typed data**: one consistent version of the truth.
+- **Certified metrics**: every important number (collection rate, cost to collect, promises kept and so on) defined once and reused everywhere, so the same question always gets the same answer.
 
-- **Raw data**, kept exactly as received, untouched.
-- **Cleaned, typed data** — one consistent version of the truth everything else is built from.
-- **Governed business metrics**, where every important number (collections rate, cure rate, cost to collect, etc.) is defined once, correctly, and reused everywhere — so the same question always gets the same, correct answer, no matter how it's phrased.
+On top of that:
 
-We also explicitly taught the assistant the business's own rules — for example, how targets should be calculated, and what counts as a "cured" account — and, importantly, what it is not allowed to claim (more on that below).
+- **The dashboards use no AI at all.** Every Command Center and Explorer figure is a governed SQL query. AI is used only to answer questions, and every AI answer shows the query behind it.
+- **AI answers are checked.** A second model scores each answer for faithfulness to the data, and personal data, offensive language and prompt-injection attempts are caught before a question reaches the data and before an answer reaches the user.
+- **Business rules live in the data.** Which accounts are priorities, and what to do with each, come from the business rules in the specification pack, with disputed and vulnerable customers routed to support first.
 
-## Proof this approach actually matters
+## Proof this approach matters
 
-This isn't just a design preference — we have direct, measured evidence for it. A related project inside the company (the same Databricks + Genie pattern, built earlier for a different team) ran a documented comparison: the same underlying AI model, tested twice — once pointed directly at raw data, once given a governed foundation like the one described above.
+A related internal project (the same Databricks and Genie pattern) measured the same AI model twice: once on raw data, once on a governed foundation. On raw data it fabricated an answer and got only 52–69% of test questions right; on the governed foundation it reached **88.9%**.
 
-- **Without** the governed foundation: it fabricated an answer, confidently stating something that wasn't true, and used none of the safeguards available to it.
-- **With** the governed foundation: it went from getting only 52–69% of test questions right to **88.9%** — a large, measured jump, on the exact same AI model.
+On this project:
 
-We ran our own version of this test on this project: **7 real acceptance-test questions**, covering the actual scenarios a collections leader would ask — including two deliberately tricky ones, asking for customer personal information, and asking for a causal "this strategy definitely caused better results" claim. **All 7 now pass.**
+- **All 7 acceptance-test questions pass**, including two deliberately tricky ones: a request for customers' personal details (refused) and a request to claim that one strategy *caused* better results (answered with an honest, observational comparison).
+- **Answer quality is measured continuously** (Observability → Answer quality). In the test workspace, over about 140 judged answers, faithfulness runs at about 97% and the figures in answers reconcile to the query results about 95% of the time. The organisation deployment builds its own record from its first questions.
+- **Before each release**, an automated end-to-end test of the deployed application passes 27 of 27 checks, and a click-through of every screen passes 23 of 23.
 
-## What we deliberately didn't build — and why that's the right call, not a shortfall
+## What it deliberately doesn't do
 
-Three things the assistant will not do, on purpose:
+- **No made-up probabilities or forecasts.** With one month-to-date snapshot, there is no history to forecast from. LensS shows a transparent pipeline outlook for this month (collected so far plus promises due, at the rate promises are being kept) and says plainly that it isn't a statistical forecast.
+- **No causal claims without a controlled test.** Strategies are compared like-for-like and labelled as observed, not proven.
+- **No personal data.** The data holds account IDs only, and requests for names or contact details are refused.
 
-- **It won't guess a probability of hitting target.** We don't have enough historical data to calculate this honestly, so instead of making up a confidence number, it gives a straightforward projection and says plainly that a calibrated probability isn't available yet.
-- **It won't claim one strategy definitely caused better results than another**, unless that claim comes from a real controlled test. We don't have randomized test/control data yet, so it shows an honest side-by-side comparison instead, clearly labeled as observational, not proof of cause and effect.
-- **It won't forecast next month.** With only one point-in-time snapshot of data, there's no trend to project from — asking it will get an honest "I don't have enough history for that" instead of an invented number.
+The dataset is entirely synthetic; no real customer data has been used.
 
-We also caught and fixed a real privacy near-miss during testing: when asked for personal information the system correctly doesn't have, an early version declined to share it but then suggested how someone could look the person up elsewhere. We closed that — it now declines cleanly, full stop.
+## Where things stand
 
-The dataset itself is entirely synthetic — no real customer data has been used anywhere in this build.
+**Done and verified:** the data foundation, the four-tab application, the governed AI assistant with its checks and audit trail, and a client demonstration playbook. The application is deployed in the organisation workspace and in a separate test workspace, and every release is recorded in the change log with what was verified.
 
-## Where things stand, and what's next
+**What it isn't yet:** a production system on real customer data. It is a proof of concept on synthetic data, built with the rigour a real deployment needs, so that moving to real data means connecting a new data source to a proven foundation rather than starting over.
 
-**Done and verified**: the full data foundation is built, the assistant is live and tested, and it correctly handles the real business questions from both in-scope use cases, including the tricky edge cases above.
-
-**Optional next steps**, not required for what exists today to work:
-
-- A custom-branded chat screen (instead of Databricks' own interface) for a more polished look, using pre-built components — most of this is configuration, not a from-scratch build.
-- Pre-written daily summaries for a dashboard view, generated on a schedule rather than computed live.
-
-**What this isn't yet**: a production system on real customer data. This is a proof-of-concept on synthetic data, deliberately built with the same rigor a real deployment would need — so that moving to real data later is a matter of connecting a new data source to a foundation that's already proven, not starting over.
-
----
-
-*Also published as a Claude Doc: https://claude.ai/artifact/9xKQtqi1JQhaUmg1qbByiV*
+**Natural next steps:**
+- A pilot on a client's own portfolio, in their own Databricks workspace.
+- Monthly data loads, which unlock trends and an honest forecast.
+- A champion/challenger test design, to measure the real uplift of strategy changes.

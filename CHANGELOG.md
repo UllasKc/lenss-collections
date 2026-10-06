@@ -13,6 +13,21 @@ Versions match git tags where one exists. Dates are when the change was committe
 
 ## Unreleased
 
+- **Documentation brought up to date for v1.9; duplicates removed.**
+  - **`README.md`:** current four-tab product, a documentation index, step combinations for common updates, configs including `org2-v2.json`, and the 27-check smoke test.
+  - **`SETUP_GUIDE.md`:** the config files table, "things to try" rewritten for the five-chapter Command Center, View accounts, the Explorer, Assistant memory and platform questions, and Observability. Plus troubleshooting rows (the `app.yaml` pull conflict, an app still starting, the missing "Data refreshed" line, `UnicodeEncodeError` in the smoke test) and the update steps for v2 deployments.
+  - **`DATABRICKS_IMPLEMENTATION_GUIDE.md`:** the feature catalogue updated (Auto, memory, platform answers, empty tables, the story layout, account lists, loading), new Steps 8j (v1.8) and 8k (v1.9), and the older Command Center sections marked as superseded.
+  - **`LensS_Collections_Leadership_Summary.md`:** rewritten for the current product, with test results.
+  - **`appkit-genie-app/README.md`:** the AppKit template text replaced with this app's structure, API routes and local run.
+  - **`PROJECT_UNDERSTANDING_AND_PLAN.md`** (historical) and **`APP_SERVICE_PRINCIPAL_SETUP.md`** (only for apps created by hand) now open with a status note.
+  - **`docs/LensS_Figures_Reference.md`** (new): every Command Center and Explorer figure with how it is calculated, replacing the untracked cheat sheet that described the old layout.
+  - **Removed duplicates:** `docs/LensS_Demo_Story.md` (covered by the client demo playbook) and the untracked cheat sheet.
+  - **New Word guide, `docs/LensS_Collections_Product_and_Demo_Guide.docx`** (29 pages). It replaces both older demo guides, which described the app before v1.7 and quoted amounts in $.
+    - **Contents:** product overview; architecture with a redrawn diagram (model serving and the four tabs); data foundation; the AI and its safeguards, with a redrawn question flow; every screen, with fresh screenshots (each Command Center chapter, an account list, the Explorer, the Assistant, Observability); deployment; a pre-demo checklist; a 20-minute demo script; safe questions; boundaries; Q&A; key figures in ₹; glossary.
+    - **Build:** generated with docx-js, the contents filled in by Word, and checked page by page as a PDF. Emails are masked in the screenshots.
+  - **Removed `refernce_ui_code/`:** the reference UI the first design was ported from, no longer used by anything.
+- **Observability panels show "Loading…"** until their data arrives. On a slow connection the quality area used to show empty boxes for several seconds while its usage data loaded.
+
 - **Client demo playbook** saved in the repo as `docs/LensS_Client_Demo_Playbook.html` (open it in any browser). It holds the scene-by-scene pitch script for a room with several clients, what to show each role, ready answers to client questions, a pre-demo checklist, the 10 pre-answered questions and the lines to avoid. It's the same content as the shared playbook page.
 
 ## v1.9.0 — Command Center as one story; every figure opens the accounts behind it (2026-10-06, `31d6a1b`)

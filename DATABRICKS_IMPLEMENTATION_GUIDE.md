@@ -26,23 +26,27 @@ Every capability in LensS Collections Intelligence, one line each: what it is an
 | Instructions and guardrails in the space (MTD rules, scope, PII refusal, uplift caveat) | Answers follow the business rules and refuse what they must |
 | Fixes for the month-to-date (MTD) conflict and the uplift guardrail | Benchmark questions now return the correct SQL, and uplift answers carry the "observed, not causal" caveat |
 | Quick answer (the engine's Chat mode) | A fast, direct answer in about 20 seconds |
-| Deep analysis (the engine's Agent mode), the default | Multi-step "why / what should we do" analysis with charts and recommendations, in 1–3 minutes |
-| Both modes mixed in one conversation, with context carried across | Users can switch depth without starting over |
+| Deep analysis (the engine's Agent mode) | Multi-step "why / what should we do" analysis with charts and recommendations, in 1–3 minutes |
+| Auto (the default): an AI classifier or a word rule picks the mode, reading the conversation | People never have to choose; a follow-up to a deep analysis stays deep |
+| Conversation memory: a summary of older turns plus recent turns, across modes and cached or platform answers, compacted every 5 questions | Follow-ups such as "which of those is the lowest?" are understood |
+| Questions about LensS itself answered from a platform guide (switchable) | One assistant answers both "what is LensS?" and data questions |
+| Empty result tables removed, with a one-line reason | Answers never show a table of headers with no rows |
 
 ### The app
 
 | What | Why |
 |---|---|
-| Command Center hero: greeting, progress to target, recoverable amount, arrears, high-risk and over-contact figures | A leader sees where the month stands in five seconds |
-| Today's priorities: four action cards worked out from the data | Turns numbers into what to do today, ranked by impact |
-| 10 key metrics with plain-English context (contact, promise, kept, cost to collect, roll-forward…) | The health of the operation, without jargon |
-| 12 insight panels: product bars, shortfall sources, heatmap, funnel, best channel, top accounts, next steps, opportunity, drivers, strategies, regions, collectors | Answers the questions a collections head asks, on one page |
-| "Ask AI" on every card and panel | One click from any insight to a full AI analysis of it, in the right mode |
-| Core metrics with "show more", executive brief (where we stand / drivers / actions) and priority watchouts with a severity filter | Leadership reads the month in one screen, and expands only when needed |
-| Portfolio risk snapshot by arrears bucket, and a target outlook (achieved + promises due × honour rate, with a likelihood) | Shows where the money is at risk and whether the month will land |
-| Driver analysis (Pareto of non-payment reasons) and an Action Center of 5 queues (high-propensity high-balance, top 250 recoverable, promises due in 7 days, break risk, rolling to 180+) | Every insight ends in a list of accounts someone can work today |
-| Channel effectiveness, region tabs (recovery / contact / risk) and top and bottom 10 collectors | Where to put people and channels next |
-| KPI dictionary (15 definitions, with the population each one uses) | Anyone can check exactly how a figure is calculated |
+| Command Center as one story in five chapters (on track? → book health → what is holding us back → where the money is → what to do this week), each opening with its answer in one sentence; a story bar jumps between chapters | A presenter can tell it top to bottom, and each figure appears once |
+| Chapter 1 (banner): verdict, progress with days left, still to collect, expected from promises, month-end outlook and likelihood, how the outlook is calculated, data refresh time | Where the month stands, and how sure we can be, in five seconds |
+| Chapter 2: five vital signs (+5 on demand) and the arrears-stage snapshot | The health of the book, without jargon |
+| Chapter 3: five issues ranked by risk and money, each with its metric and likely driver | Priorities and watchouts in one list, no repeats |
+| Chapter 4: recoverable now by product and the priority accounts worth the most | Where the money is, down to accounts |
+| Chapter 5: four work queues numbered Today → This month, and one next step per priority customer | Every insight ends in work someone can start today |
+| **View accounts** on every card, issue, queue, stage, product and next step (same rule and count as the figure, with CSV export) | No number is a dead end; "610 promises" becomes a call list |
+| **Ask LensS** on issues, queues and panels, with a hover tooltip showing the exact question | One click from any insight to an analysis of it, in the right mode |
+| Explorer: filters, 12 KPI tiles against the portfolio, a dimension × measure workspace, diagnostic panels, and **View** on every chart item (including heatmap cells, funnel steps and collectors) | Self-service "where and why" that reconciles to the Command Center |
+| KPI dictionary (18 definitions, with the population each one uses) | Anyone can check exactly how a figure is calculated |
+| Loading: Command Center data prepared at app start, drawn top to bottom; Explorer and Observability preloaded in the background | Every tab opens instantly |
 | AI Assistant tab: ChatGPT-style conversations with history, auto-naming, rename and delete | A familiar experience; people can return to past analyses |
 | Mode dropdown (Deep analysis by default, or Quick answer) with plain descriptions | People choose by what they get, not by technical names |
 | Progress bar and "keep working, we'll notify you" during deep analysis | Long answers feel managed, not stuck |
@@ -96,7 +100,6 @@ Every capability in LensS Collections Intelligence, one line each: what it is an
 | Run history with the change from the previous run | Shows whether a change helped or hurt quality |
 | Feedback review queue (👎 with reasons → Fixed, Dismiss, Add to evals) | Human-in-the-loop: complaints get reviewed and become permanent tests |
 | Responsible AI (Observability, area 7: purpose, models, data, protections, limits, NIST AI RMF / EU AI Act alignment) | Answers the risk and compliance questions clients ask |
-| Explorer tab: filters (product, stage, region, channel, strategy, driver, team, balance band, vulnerability, contact and promise dates), a dimension × measure slicer with drill-down, the why panels and account records with CSV export | Lets a leader see why the numbers are what they are, on governed data |
 
 ### Monitoring (now Observability)
 
@@ -136,14 +139,14 @@ Every capability in LensS Collections Intelligence, one line each: what it is an
 
 | What | Why |
 |---|---|
-| One-command deploy (schemas, ingest, transform, summary, Genie, Lakebase, app, smoke test) | Any workspace is set up the same way, repeatably |
-| Separate configs per workspace (personal, org, org2) | The same code deploys to every environment |
+| One-command deploy (schemas, ingest, context, transform, views, summary, Genie, Lakebase, app, smoke test) | Any workspace is set up the same way, repeatably |
+| Separate configs per workspace (personal, org, org-v2, org2-v2) | The same code deploys to every environment |
 | Optional AI features: a missing config section means off, and missing models give a warning | Safe to deploy anywhere, with features chosen per client |
 | Parallel version deploy (v2 with its own app, Genie space and database) | New versions can be tried without disturbing the live one |
 | Early config validation (Lakebase and app names) | Bad names fail at once, not halfway through a deploy |
 | Shared-catalog handling (USE CATALOG check, admin warning) | Deploys into catalogs you don't own don't fail |
 | End-to-end smoke test, run as a non-admin identity | Catches missing permissions before users do |
-| Lakebase Postgres for chats, cache, logs and evals (schema v6) | Fast, durable app data inside the same platform |
+| Lakebase Postgres for chats, cache, logs, evals and conversation memory (schema v8) | Fast, durable app data inside the same platform |
 
 ### Documentation
 
@@ -151,7 +154,7 @@ Every capability in LensS Collections Intelligence, one line each: what it is an
 |---|---|
 | CHANGELOG.md, updated with every change | A full history of what changed, why, and what was verified |
 | SETUP_GUIDE.md and DATABRICKS_IMPLEMENTATION_GUIDE.md | Anyone can deploy, operate and understand the design |
-| This demo guide (Word document) | A ready-made walkthrough for presenters |
+| Product and demo guide (`docs/LensS_Collections_Product_and_Demo_Guide.docx`), client demo playbook (`docs/LensS_Client_Demo_Playbook.html`) and figures reference (`docs/LensS_Figures_Reference.md`) | A shareable Word guide with screenshots, a ready-made pitch script, and an answer for every "how is this calculated?" |
 
 ---
 
@@ -1275,7 +1278,7 @@ plus an app resource `sql-warehouse` with `CAN_USE`. **Lesson**: "it works" must
 - An earlier "GET / returned 200" check was a false pass: it was the SSO login page. The smoke test now asserts real UI content.
 - Result against `https://appkit-genie-7474660150071734.aws.databricksapps.com`: **13/13 checks passed** — UI, 4 dashboard APIs, 4 Chat questions (incl. PII refusal), 2 Agent questions (~12 s and ~110 s), usage API.
 
-### New UI (ported from `refernce_ui_code/`)
+### New UI (ported from a reference UI, `refernce_ui_code/`, since removed from the repository)
 
 The React client was replaced with a static `public/` UI (HTML/CSS/vanilla JS + Chart.js) built on the reference design, with three tabs:
 
@@ -1493,6 +1496,8 @@ See `CHANGELOG.md` (Unreleased / v1.5.0): one live question end to end; a blocke
 Leadership found the first demo too analyst-oriented: the Command Center was thin, and "Chat + Agent" meant nothing to an end user. This step rebuilt both screens and Monitoring around what a collections leader needs.
 
 ### Command Center (`public/js/home.js`, `GET /api/dashboard/overview`)
+
+*Superseded: the Command Center layout described here was replaced by the five-chapter story in Step 8k (v1.9). Kept as build history.*
 - **One API call,** 16 certified-view or metric-view queries run in parallel and cached per data version like the other dashboard panels. A failing panel returns empty instead of breaking the page. The app still reads **gold only**: account-level cuts (strategy, region, vulnerability, totals) come from `mv_collections_funnel` with `MEASURE()`, not from silver.
 - **Layout, top to bottom:**
   - hero (greeting, progress to target, 4 headline stats);
@@ -1558,6 +1563,8 @@ After the first build, leadership asked for the benchmark's four tabs and a clea
 A "Built by the Concentrix Data & Analytics Practice" strip and a footer frame every page except the full-screen Assistant. Every "Ask AI" link is now "Ask LensS", and answers are signed "LensS Intelligence Engine".
 
 ### Command Center (`public/js/home.js`)
+
+*Superseded: the Command Center layout described here was replaced by the five-chapter story in Step 8k (v1.9). Kept as build history.*
 The page runs top to bottom:
 - hero (target progress, outlook, recoverable now / 604 priority accounts, customers in arrears, 879 high-risk, over-contact);
 - executive summary (the narrative written by the `summary` step);
@@ -1593,6 +1600,23 @@ Each renderer is isolated, so one failing panel can't blank the page. A KPI dict
 - **Account menu:** `/api/me` returns `{ email, name, workspaceUrl }`; the name comes from the workspace SCIM directory (cached per email, 4 s timeout) or is derived from the email. Log out is app-side only, because Databricks Apps has no supported way to end the platform session.
 
 ---
+
+## Step 8j — One assistant: platform answers, conversation memory, routing (v1.8)
+
+The Assistant behaves as one assistant, whichever path answers.
+
+- **Platform answers** (`server/lib/platformGuide.ts`, `platformHelp.ts`). A written guide covers what LensS is, each tab, exact how-to steps, the modes, how answers are checked, navigation and limits; it holds no data figures, so it never goes stale. A word check picks candidate questions; with a model, the model answers from the guide only or replies `DATA_QUESTION` and the question goes to the engine as usual. `platform_help` in the config: `ai`, `guide` (no model) or `enabled: false`.
+- **Conversation memory** (`server/lib/memory.ts`, Lakebase schema v8: `chat_sessions.context_summary`, `context_summary_upto`). Each follow-up carries a summary of older turns plus up to 7 recent question-and-answer pairs, across both modes and including cached and platform answers. Every 5 pairs, older turns are folded into the summary after the answer is sent, keeping the last 2 verbatim. The engine's own conversation only remembers its own mode, which is why this is needed.
+- **Routing.** Auto reads the conversation (`routeFollowUp` in `server/lib/autoMode.ts`): a short follow-up to a deep analysis stays deep, a "why" after a quick answer can go deeper, and the AI router gets the previous question. A short follow-up after a platform answer goes back to the guide unless it names data (accounts, products, regions, rates…). Retries in a fresh engine conversation keep the same context.
+- **Empty tables** (`server/lib/emptyResults.ts`). A chart or table with no rows is dropped; where nothing else explains it, a small model writes one line saying what found nothing. Escaped pipes in Agent result tables no longer drop rows.
+
+## Step 8k — Command Center as one story, account drill-down, loading (v1.9)
+
+- **Story layout** (`public/index.html`, `public/js/home.js`). Five chapters, each with an opening line computed from the figures (`setTake`). Removed as repeats: the executive summary paragraph, the decision brief, the target panel, the duplicate hero tiles and the top-250 queue. The "remind the other promises" queue excludes the at-risk ones, so the two promise queues don't double-count.
+- **Account lists.** `GET /api/dashboard/accounts?list=…&value=…` (fixed list definitions in `server/routes/dashboard.ts`, values checked against the data) and `GET /api/explorer/accounts` (the Explorer's own validated filters plus a funnel `stage` or a `collector`). Both read `qry_explorer_base` joined to `qry_immediate_intervention`, return totals and up to 1,000 rows, and are cached per data version. Each list uses the same rule as its figure; all were checked to match their card or chart exactly.
+- **Data refresh time.** The `summary` step reads the silver fact table's `last_altered` from `information_schema` (the app can read gold only) and stores it in `exec_summary.data_refreshed_at`; the table is rewritten each run.
+- **Loading.** The Command Center's data is prepared when the app starts and whenever the data version changes (a Lakebase check every 5 minutes); concurrent visitors share one computation; its queries run in one parallel round. The browser draws the banner from the small summary first, then each chapter in order; scripts are deferred. Once it has drawn, the Explorer and Observability load in the background while the browser is idle (Observability refreshes when opened if older than a minute).
+- **Verified.** Deployed smoke test 27/27; a browser pass of every tab 23/23, including all 27 Command Center account lists and the Explorer lists against their charts.
 
 ## Step 9 — Version control and deployment
 
