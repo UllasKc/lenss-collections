@@ -117,7 +117,7 @@ const nextFrame = () => new Promise(r => (document.hidden ? setTimeout(r, 0) : r
 /**
  * One story, top to bottom, each chapter answering one question and leading to the next:
  *   1. Are we on track? (hero)  2. How healthy is the book?  3. What is holding us back?
- *   4. Where is the money?  5. What should we do this week?
+ *   4. What should we do this week?  5. What more can we recover from high-risk customers?
  * Each figure appears in one place only. Both requests start at once; the hero is drawn
  * from the (small) summary first, then the chapters follow in page order, one per frame.
  */
@@ -135,8 +135,8 @@ async function loadHome() {
     () => renderHero(summary, o, cc),
     () => renderBookHealth(summary, o, cc), () => renderRisk(cc),
     () => renderIssues(summary, o, cc),
-    () => renderMoney(summary, o), () => renderOpportunity(o), () => renderAccounts(summary, o),
-    () => renderActionCenter(cc, o), () => renderActions(o),
+    () => renderActionCenter(cc, o),
+    () => renderMoney(summary, o), () => renderOpportunity(o), () => renderAccounts(summary, o), () => renderActions(o),
   ];
   for (const fn of steps) { run(fn); await nextFrame(); }
   // Then the other tabs load in the background while the browser is idle, so they open
@@ -327,21 +327,25 @@ function renderIssues(s, o, cc) {
     </div>`).join('');
 }
 
-/** 4. Where is the money? The priority accounts: high-risk customers who are still likely to pay. */
+/**
+ * 5. What more can we recover from high-risk customers? Beyond this week's plan: the
+ * priority accounts (high-risk, still likely to pay), what they are worth, and one next step each.
+ */
 function renderMoney(s, o) {
   const top = (o.opportunity || [])[0];
-  setTake('ch4Take', `<b>${money(s.recovery_opportunity)}</b> can be recovered now from <b>${count(s.immediate_intervention_accounts)}</b> priority accounts: the high-risk customers (${count(s.immediate_intervention_accounts)} of ${count(((o.cc || {}).kpis || {}).High_Risk_Accounts)}) who are still likely to pay` +
-    (top ? `. ${hEsc(top.Product)} holds the most (${money(top.opportunity)}).` : '.'));
+  setTake('ch5Take', `Beyond this week's plan, don't write off high-risk customers: <b>${count(s.immediate_intervention_accounts)}</b> of the ${count(((o.cc || {}).kpis || {}).High_Risk_Accounts)} are still likely to pay, ` +
+    `and <b>${money(s.recovery_opportunity)}</b> more can be recovered from them` + (top ? `, most of it in ${hEsc(top.Product)} (${money(top.opportunity)})` : '') +
+    `. Each gets one next step, with disputing and vulnerable customers supported first.`);
 }
 
-/** 5. What should we do this week? The work queues, most urgent first; together they are the plan. */
+/** 4. What should we do this week? The work queues, most urgent first; together they are the plan. */
 function renderActionCenter(cc, o) {
   const a = cc.actions || {};
   const otherDue = num(a.PTP_Due_7d_Accounts) !== null ? num(a.PTP_Due_7d_Accounts) - num(a.PTP_Break_Risk_7d_Accounts) : null;
   const otherAmt = num(a.PTP_Due_7d_Amount) !== null ? num(a.PTP_Due_7d_Amount) - num(a.PTP_Break_Risk_7d_Amount) : null;
-  setTake('ch5Take', `First save the <b>${ofN(a.PTP_Break_Risk_7d_Accounts, a.PTP_Due_7d_Accounts)}</b> promises due this week that are likely to break (${money(a.PTP_Break_Risk_7d_Amount)}), ` +
+  setTake('ch4Take', `First save the <b>${ofN(a.PTP_Break_Risk_7d_Accounts, a.PTP_Due_7d_Accounts)}</b> promises due this week that are likely to break (${money(a.PTP_Break_Risk_7d_Amount)}), ` +
     `then work the <b>${count(a.HighProp_HighBal_Accounts)}</b> high-value accounts likely to pay (${money(a.HighProp_HighBal_Recoverable)}), ` +
-    `and stop <b>${count(a.Rolling_To_180_Accounts)}</b> accounts reaching 180+ days. Every priority customer gets one next step, with vulnerable and disputing customers supported first.`);
+    `and stop <b>${count(a.Rolling_To_180_Accounts)}</b> accounts reaching 180+ days.`);
   const cards = [
     { ic: 'alert', when: 'Today', list: 'ptp_at_risk', t: 'Save promises likely to break', v: count(a.PTP_Break_Risk_7d_Accounts), unit: 'promises',
       d: `${ofN(a.PTP_Break_Risk_7d_Accounts, a.PTP_Due_7d_Accounts)} promises due in the next 7 days (${money(a.PTP_Break_Risk_7d_Amount)}), from customers with low propensity (< 0.35) or high risk (≥ 0.60). Call before the due date.`,
@@ -400,7 +404,7 @@ function renderActions(o) {
 function renderOpportunity(o) {
   const rows = o.opportunity || [];
   const max = Math.max(...rows.map(r => num(r.opportunity) || 0), 1);
-  panel('pnlOpportunity', 'Recoverable now, by product', 'From the priority accounts: high-risk customers who are still likely to pay.',
+  panel('pnlOpportunity', 'Recoverable from high-risk customers, by product', 'The priority accounts: high-risk customers who are still likely to pay.',
     { q: 'Where is the biggest recovery opportunity and which channel should we use for each segment?', mode: 'agent' },
     rows.map(r => bar(hEsc(r.Product), num(r.opportunity), max, money(r.opportunity), 'good',
       `${count(r.accounts)} accounts ${viewBtn('priority_product', 'View', r.Product, `Priority accounts: ${r.Product}`, true)}`)).join('') || '<div class="empty-note">No data.</div>');

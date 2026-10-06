@@ -185,7 +185,9 @@ export function buildChatRouter(appkit: ChatAppKit): express.Router {
       names.set(email, name ?? '');
     }
     const host = (process.env.DATABRICKS_HOST ?? '').replace(/\/$/, '');
-    res.json({ email, name: name || nameFromEmail(email), workspaceUrl: host ? (host.startsWith('http') ? host : `https://${host}`) : null });
+    // Some directories store the email as the display name: then the name is built from the email.
+    const display = name && !name.includes('@') ? name : nameFromEmail(email);
+    res.json({ email, name: display, workspaceUrl: host ? (host.startsWith('http') ? host : `https://${host}`) : null });
   });
 
   // One list for the tiles, the side panel and the cache pre-warm.

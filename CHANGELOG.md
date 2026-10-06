@@ -11,6 +11,14 @@ Versions match git tags where one exists. Dates are when the change was committe
 
 ---
 
+## Unreleased
+
+- **Chapters 4 and 5 swapped, so the plan comes before the extra opportunity.** Presenters mixed up "Where is the money?" (₹6.4M from 604 accounts) and "What should we do this week?" (queues with different, overlapping groups and amounts).
+  - **Chapter 4 is now "What should we do this week?"**: the four queues only.
+  - **Chapter 5 is now "What more can we recover from high-risk customers?"**, framed as extra recovery on top of the plan: "Beyond this week's plan, don't write off high-risk customers: 604 of the 879 are still likely to pay, and ₹6.4M more can be recovered from them…". It holds recoverable by product, the accounts worth the most, and the next step for each priority customer (moved here from chapter 4, since it is about these same customers).
+  - **Updated to match:** the story bar, the README, the setup guide, the implementation guide, the leadership summary, the figures reference, the client demo playbook (shared page republished, `docs/` copy refreshed) and the Word guide (text, demo script and new screenshots).
+- **Greeting uses the first name, never the email.** In the organisation workspace, the user directory returns the email address as the display name, so the banner said "Good Evening, saurabh.kumar34@concentrix.com". `/api/me` now builds the name from the email when the directory's name contains "@" ("Saurabh Kumar"), and the greeting uses the first word only ("Good Evening, Saurabh"). The browser also never uses a name containing "@" (account menu, initial letter, tooltip).
+
 ## v1.9.1 — Figures that explain themselves: "X of Y", the month's promises as one whole, attempts vs reached (2026-10-06, `766f48f`)
 
 - **Documents updated for these changes.**

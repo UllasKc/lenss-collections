@@ -36,12 +36,12 @@ Every capability in LensS Collections Intelligence, one line each: what it is an
 
 | What | Why |
 |---|---|
-| Command Center as one story in five chapters (on track? → book health → what is holding us back → where the money is → what to do this week), each opening with its answer in one sentence; a story bar jumps between chapters | A presenter can tell it top to bottom, and each figure appears once |
+| Command Center as one story in five chapters (on track? → book health → what is holding us back → what to do this week → what more can be recovered from high-risk customers), each opening with its answer in one sentence; a story bar jumps between chapters | A presenter can tell it top to bottom, and each figure appears once |
 | Chapter 1 (banner): verdict, progress with days left, still to collect, expected from promises, month-end outlook and likelihood, how the outlook is calculated, data refresh time | Where the month stands, and how sure we can be, in five seconds |
 | Chapter 2: five vital signs (+5 on demand) and the arrears-stage snapshot | The health of the book, without jargon |
 | Chapter 3: five issues ranked by risk and money, each with its metric and likely driver | Priorities and watchouts in one list, no repeats |
-| Chapter 4: recoverable now by product and the priority accounts worth the most | Where the money is, down to accounts |
-| Chapter 5: four work queues numbered Today → This month, and one next step per priority customer | Every insight ends in work someone can start today |
+| Chapter 4: four work queues numbered Today → This month | Every insight ends in work someone can start today |
+| Chapter 5: beyond this week, the high-risk customers still likely to pay: recoverable by product, the accounts worth the most, one next step each | Extra recovery, without writing high-risk customers off |
 | **View accounts** on every card, issue, queue, stage, product and next step (same rule and count as the figure, with CSV export) | No number is a dead end; "610 promises" becomes a call list |
 | **Ask LensS** on issues, queues and panels, with a hover tooltip showing the exact question | One click from any insight to an analysis of it, in the right mode |
 | Explorer: filters, 12 KPI tiles against the portfolio, a dimension × measure workspace, diagnostic panels, and **View** on every chart item (including heatmap cells, funnel steps and collectors) | Self-service "where and why" that reconciles to the Command Center |

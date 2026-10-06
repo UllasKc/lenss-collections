@@ -88,13 +88,15 @@ window.userFirstName = '';
 async function loadUser() {
   try {
     const me = await fetch('/api/me').then(r => r.json());
-    window.userFirstName = (me.name || '').split(' ')[0] || firstNameOf(me.email);
+    // Never greet with an email address (some directories return it as the name).
+    const name = me.name && !me.name.includes('@') ? me.name : '';
+    window.userFirstName = name.split(' ')[0] || firstNameOf(me.email);
     // One letter, like the Databricks account button, in the Concentrix colours.
-    const letter = ((me.name || me.email || '?').trim()[0] || '?').toUpperCase();
+    const letter = ((name || me.email || '?').trim()[0] || '?').toUpperCase();
     ['userAvatar', 'userAvatar2'].forEach(id => { const el = document.getElementById(id); if (el) el.textContent = letter; });
-    document.getElementById('userFullName').textContent = me.name || (me.email || '').split('@')[0];
+    document.getElementById('userFullName').textContent = name || (me.email || '').split('@')[0];
     document.getElementById('userEmail').textContent = me.email || '';
-    document.getElementById('userBtn').title = `${me.name || ''}${me.name ? ' · ' : ''}${me.email || ''}`;
+    document.getElementById('userBtn').title = `${name}${name ? ' · ' : ''}${me.email || ''}`;
     const ws = document.getElementById('workspaceLink');
     if (me.workspaceUrl) { ws.href = me.workspaceUrl; ws.hidden = false; }
     document.getElementById('assistantUserGreeting').textContent = me.email ? `Signed in as ${me.email}` : '';

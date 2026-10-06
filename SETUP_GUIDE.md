@@ -329,8 +329,8 @@ It ends with `23/23 checks passed`. It covers the UI, the dashboard and executiv
   1. **Are we on track?** The verdict (on track / within reach / at risk), progress to target with days left, and tiles for still to collect, expected from promises, month-end outlook and likelihood. Underneath: how the outlook is worked out, as a plain sum with the real figures, and **Data refreshed on**.
   2. **How healthy is the book?** Five vital signs (overdue balance, recovery rate, high-risk accounts, accounts worsening, cost to collect), five more on demand, and the arrears-stage snapshot.
   3. **What is holding us back?** Five issues ranked by risk and money, each with its likely driver. Broken promises comes first, with this month's 3,945 promises shown as one bar (kept, broken, due this week, at risk, later). Rates throughout the page say what they are out of ("1,234 of 1,886").
-  4. **Where is the money?** Recoverable now by product, and the priority accounts worth the most.
-  5. **What should we do this week?** Four work queues numbered Today → This month, then the next step for each priority customer.
+  4. **What should we do this week?** Four work queues numbered Today → This month.
+  5. **What more can we recover from high-risk customers?** Beyond this week's plan: the 604 high-risk customers still likely to pay, what they are worth by product, the accounts worth the most, and one next step for each.
 - **View accounts:** every card, issue, queue, stage and next step opens the exact accounts behind its number, with totals and **Export CSV**.
 - **Ask LensS:** each issue, queue and panel has an **Ask LensS** button; hover it to see the question it will ask.
 - **KPI definitions** (in the banner and at the foot of the page): what each figure means and how it is calculated.

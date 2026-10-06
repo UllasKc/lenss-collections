@@ -71,7 +71,7 @@ All the promise figures come from one set: **3,945 customers promised to pay thi
 | … kept | 652 | Promises honoured 34.6% (652 of 1,886) |
 | … broken | 1,234 | Issue 1; the broken-promise list |
 | Still to come this month | 2,059 (₹87.5M) | The month-end outlook in chapter 1 |
-| … due this week | 1,198 (₹52.6M) | Chapter 5 queues |
+| … due this week | 1,198 (₹52.6M) | Chapter 4 queues |
 | … of which likely to break | 610 (₹27.2M) | "Promises at risk" / Today queue |
 | … of which likely kept | 588 (₹25.4M) | "Remind the other promises due" |
 | … due later this month | 861 | Part of the outlook |
@@ -94,17 +94,7 @@ An over-contacted group is treatment strategy × product × arrears stage × vul
 
 **Where 4.5 comes from.** Not a client rule. The workbook's R14 is qualitative ("high attempts with low RPC/cure…"); the data pack's sample SQL flags groups averaging 6+ attempts, which finds nothing in this data (the highest group averages about 5.3), so it was recalibrated to 4.5 during the build. Because that sits on the book's average, it flags about half the customers; individually, 3,892 customers (20%) had 7+ attempts and 2,051 (11%) had 8+.
 
-### Chapter 4 · Where is the money?
-
-- **Priority accounts:** 604 accounts with non-payment risk ≥ 0.70 and payment propensity ≥ 0.25 (business rule R08 in the workbook's `Business_Rules` sheet). **Recoverable now** = their incremental recovery opportunity: ₹6.4M.
-- **Recoverable now, by product:** Credit Card ₹2.0M (170 accounts), Personal Loan ₹1.5M, Auto Loan ₹1.1M, SME Loan ₹973K, Mortgage ₹854K. Each has **View**.
-- **The priority accounts worth the most:** the 8 with the highest recoverable amount, with why they aren't paying and their next step. **View all 604** opens the full list. Account IDs only: the data holds no names or contact details.
-
-Why 879 high-risk but 604 priority? The 604 are the high-risk accounts still likely to pay, so they are worth intervening on now.
-
-Why does the Explorer's "Recovery opportunity" say ₹171.7M? That is the opportunity across **all** 19,035 accounts; ₹6.4M is the 604 priority accounts only.
-
-### Chapter 5 · What should we do this week?
+### Chapter 4 · What should we do this week?
 
 | # | When | Queue | Figures | Rule |
 |---|---|---|---|---|
@@ -112,6 +102,19 @@ Why does the Explorer's "Recovery opportunity" say ₹171.7M? That is the opport
 | 2 | This week | Remind the other promises due | 588 promises, ₹25.4M | Promise due in the next 7 days, from a customer likely to keep it (all 1,198 due this week minus the 610) |
 | 3 | This week | Work high-value accounts likely to pay | ₹18.0M from 492 accounts | Payment propensity ≥ 0.60 and balance ≥ ₹100K |
 | 4 | This month | Stop accounts reaching 180+ | ₹95.1M across 999 accounts | 150–180 days past due |
+
+### Chapter 5 · What more can we recover from high-risk customers?
+
+Beyond this week's plan: high-risk customers should not be written off, because many are still likely to pay. On screen: "Beyond this week's plan, don't write off high-risk customers: 604 of the 879 are still likely to pay, and ₹6.4M more can be recovered from them, most of it in Credit Card (₹2.0M)."
+
+
+- **Priority accounts:** 604 accounts with non-payment risk ≥ 0.70 and payment propensity ≥ 0.25 (business rule R08 in the workbook's `Business_Rules` sheet). **Recoverable now** = their incremental recovery opportunity: ₹6.4M.
+- **Recoverable from high-risk customers, by product:** Credit Card ₹2.0M (170 accounts), Personal Loan ₹1.5M, Auto Loan ₹1.1M, SME Loan ₹973K, Mortgage ₹854K. Each has **View**.
+- **The priority accounts worth the most:** the 8 with the highest recoverable amount, with why they aren't paying and their next step. **View all 604** opens the full list. Account IDs only: the data holds no names or contact details.
+
+Why 879 high-risk but 604 priority? The 604 are the high-risk accounts still likely to pay, so they are worth intervening on now.
+
+Why does the Explorer's "Recovery opportunity" say ₹171.7M? That is the opportunity across **all** 19,035 accounts; ₹6.4M is the 604 priority accounts only.
 
 **How to handle each priority customer.** Each of the 604 gets exactly one next step from the rule in the data pack's sample SQL (`qry_immediate_intervention`), checked in this order:
 
