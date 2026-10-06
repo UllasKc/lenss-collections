@@ -11,7 +11,7 @@ Versions match git tags where one exists. Dates are when the change was committe
 
 ---
 
-## v1.9.1 — Figures that explain themselves: "X of Y", the month's promises as one whole, attempts vs reached (2026-10-06)
+## v1.9.1 — Figures that explain themselves: "X of Y", the month's promises as one whole, attempts vs reached (2026-10-06, `766f48f`)
 
 - **Documents updated for these changes.**
   - **Figures reference:** "X of Y" values, the outlook sum, the promise breakdown, attempts vs reached, and where 4.5 comes from.
