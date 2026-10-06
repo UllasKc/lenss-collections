@@ -13,6 +13,8 @@ Versions match git tags where one exists. Dates are when the change was committe
 
 ## Unreleased
 
+- **Story bar:** the fifth link now reads "5 · What more can we recover" (it was "Recover more from high-risk"). Only the story bar changed; the chapter heading is the same.
+- **Chart changes below are commit `3c73319`, tagged `charts-followup-v1`** as a rollback point. To undo only them: `git revert charts-followup-v1`.
 - **Follow-ups no longer lose the charts.**
   - **The problem:** in a Deep-analysis chat, "Whats the best contact strategy for personal loans" asked a second time, then "Can you show visualizations again", came back as text only. The engine answered from its own memory without running a query ("Based on my previous analysis…", "Here are the visualizations…"), so there was nothing to chart.
   - **The fix:** when an answer has no charts and the question asks for charts ("chart", "graph", "visualisation", "plot", "again"), repeats an earlier question in the chat, or is a short follow-up, the chat's most recent charts are shown again, with the note "The charts below are from the earlier answer in this chat." No extra engine call.
