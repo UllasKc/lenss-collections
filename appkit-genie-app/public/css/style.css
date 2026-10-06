@@ -1364,3 +1364,11 @@ h2.sect::before{content:"";width:3px;height:12px;border-radius:2px;background:va
 .heat-c[data-xpview]{cursor:pointer}.heat-c[data-xpview]:hover{outline:2px solid var(--brand-2);outline-offset:-2px}.chan .view-btn{margin-top:6px}.flabel .view-btn{margin-left:6px}.coll .view-btn{margin-left:8px}
 /* Observability panels show "Loading…" until their data arrives, instead of an empty box */
 #tab-obs .panel:empty::before,#tab-obs .metric-grid:empty::before{content:"Loading…";display:block;padding:18px 20px;color:var(--muted);font-size:13px}
+/* This month's promises, as one bar (chapter 3, issue 1) */
+.pbar{display:flex;height:12px;border-radius:999px;overflow:hidden;background:var(--soft);margin-top:4px}
+.pbar span{display:block;height:100%}
+.pb-kept{background:#10B981}.pb-broken{background:#DC2626}.pb-week{background:#38BDF8}.pb-risk{background:#F59E0B}.pb-later{background:#CBD5E1}
+.pbar-legend{display:flex;flex-wrap:wrap;gap:4px 18px;font-size:12px;color:#475569;margin-top:6px}
+.pbar-legend i{display:inline-block;width:9px;height:9px;border-radius:2px;margin:0 4px 0 6px;vertical-align:0}
+.pbar-group{white-space:normal}
+.hero-note b{color:#E6F3F8;font-weight:600}.hero-refresh{margin-top:6px;opacity:.85}

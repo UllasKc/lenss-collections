@@ -1617,6 +1617,12 @@ The Assistant behaves as one assistant, whichever path answers.
 - **Data refresh time.** The `summary` step reads the silver fact table's `last_altered` from `information_schema` (the app can read gold only) and stores it in `exec_summary.data_refreshed_at`; the table is rewritten each run.
 - **Loading.** The Command Center's data is prepared when the app starts and whenever the data version changes (a Lakebase check every 5 minutes); concurrent visitors share one computation; its queries run in one parallel round. The browser draws the banner from the small summary first, then each chapter in order; scripts are deferred. Once it has drawn, the Explorer and Observability load in the background while the browser is idle (Observability refreshes when opened if older than a minute).
 - **Verified.** Deployed smoke test 27/27; a browser pass of every tab 23/23, including all 27 Command Center account lists and the Explorer lists against their charts.
+- **v1.9.1: figures that explain themselves.**
+  - **"X of Y" counts.** Rates say what they are out of where they are read: "1,234 of 1,886", "8,563 of 18,074", "604 of 879", "610 of 1,198". The function `counts()` in `home.js` reads the certified figures. The two counts not stored (promises already due; accounts worsening) are derived exactly from stored ones (broken ÷ broken share; rate × accounts) and reconcile (1,234 + 652 = 1,886).
+  - **Promises explained as one whole.** Issue 1 tells the story of the 3,945 promises this month in words, with one bar of five parts (kept, broken, this week likely kept, this week at risk, later); the parts sum to 3,945.
+  - **The outlook as plain arithmetic** under the banner tiles ("₹53.4M collected so far + ₹30.3M expected from promises = ₹83.7M …").
+  - **Attempts vs reached.** "Contact attempts" (answered or not) and "reached" (spoken to) are named separately. The over-contact issue headlines "4.5+ attempts" and says the customers are in groups *averaging* 4.5+. The 4.5 cut-off is a build-time recalibration of the sample SQL's 6+, which finds nothing in this data; it sits on the book's average.
+  - **Observability panels** show "Loading…" until their data arrives.
 
 ## Step 9 — Version control and deployment
 

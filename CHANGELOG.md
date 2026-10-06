@@ -11,7 +11,53 @@ Versions match git tags where one exists. Dates are when the change was committe
 
 ---
 
-## Unreleased
+## v1.9.1 — Figures that explain themselves: "X of Y", the month's promises as one whole, attempts vs reached (2026-10-06)
+
+- **Documents updated for these changes.**
+  - **Figures reference:** "X of Y" values, the outlook sum, the promise breakdown, attempts vs reached, and where 4.5 comes from.
+  - **Client demo playbook:** chapter 1 and 3 lines (the shared page republished, and the copy in `docs/` refreshed).
+  - **Word guide (v1.9.1):** text for chapters 1–3, key figures and boundaries, plus new screenshots of every Command Center chapter.
+  - **Implementation guide and setup guide:** updated to match; the README shows v1.9.1.
+
+- **Banner outlook note rewritten as plain arithmetic.** It now reads: "How the outlook is worked out: ₹53.4M collected so far + ₹30.3M expected from promises = ₹83.7M. The 2,059 promises still due this month (of 3,945 made) are worth ₹87.5M; so far 35% of the promises that fell due were kept, so we count 35% of that." The "pipeline view, not a forecast" line is gone, and "Data refreshed on …" is on its own line.
+
+- **Promises explained as one whole.** The page showed 1,234 of 1,886, 610 of 1,198 and 2,059 without ever saying how many promises were made.
+  - **Issue 1 now tells it in words:** "3,945 customers promised to pay this month. Of the 1,886 promises already due, 1,234 were broken and only 652 kept. Of the 2,059 still to come, 1,198 fall due this week, and 610 of those look likely to break (₹27.2M)."
+  - **One bar** shows the five parts: kept, broken, this week likely kept, this week at risk, later this month.
+  - **The banner's outlook note** now reads "the promises still to fall due this month (2,059 of the 3,945 made, worth ₹87.5M) × the 35% of due promises kept so far".
+  - **The parts reconcile:** 652 + 1,234 + 588 + 610 + 861 = 3,945. The figures reference has the breakdown.
+
+- **Over-contact wording corrected.**
+  - **What was wrong:** the issue said 9,393 customers "are contacted 4.5+ times a month", while the book's average is 4.5. That rule flags *customer groups* whose **average** is 4.5 or more, not customers who were each contacted that often.
+  - **What the data shows:** flagged groups average 4.67 contacts, the rest 4.37, the whole book 4.52, so a 4.5 cut-off flags about half the book by construction. Reach is 45.3% in flagged groups vs 44.7% elsewhere, so the stated driver ("low right-party contact") wasn't supported either.
+  - **Now:** the issue and chapter 3's opening say the customers are "in customer groups averaging 4.5+ contacts a month (the whole book averages 4.5)", and the driver reads "contact strategies that make more attempts per customer than the rest of the book".
+  - **Where 4.5 comes from:** it is not a client rule. The workbook's R14 is qualitative ("high attempts with low RPC/cure…"). The data pack's sample SQL flags groups of 50+ accounts averaging **6+** attempts, which returns nothing on this data (the highest group averages about 5.3). During the build we recalibrated it to 4.5 attempts and 30+ accounts (`business_rules_config.over_contact_attempts_threshold`). For reference, individually 3,892 customers (20%) had 7+ contacts and 2,051 (11%) had 8+. The rule is kept as it is.
+  - **The issue card now headlines "4.5+ attempts"** instead of 9,393; the customer count stays in the body, and the button reads "View these customers".
+  - **"Attempts" vs "reached" made explicit.** Issue 4 (47% reached) and issue 5 (4.5+ contacts) read as if they contradicted each other, but one counts customers actually spoken to and the other counts contact attempts, answered or not. The wording now separates them:
+    - issue 4: "We tried to contact 18,074 of 19,035 customers but spoke to only 8,563 of them (47.4%)";
+    - issue 5 and chapter 3's opening: "contact attempts (calls, SMS, WhatsApp, email)";
+    - "Contacts per customer" is renamed "Contact attempts per customer" in chapter 2, the KPI definitions and the Explorer;
+    - the figures reference is updated to match.
+
+- **Command Center figures say "X of Y" where they are read**, so nobody has to scroll up to find the base:
+  - **Verdict and chapter 3:** "65% of the promises already due were broken (1,234 of 1,886)". The base is promises that have *already fallen due*, not the 2,059 promises due later in the month that feed the outlook.
+  - **Chapter 2 cards:**
+    - recovery rate "₹53.4M collected this month of ₹1.93B overdue";
+    - high-risk "4.6% of 19,035 accounts";
+    - worsening "6,351 of 19,035";
+    - cost to collect "₹838K spent ÷ ₹53.4M collected";
+    - reached "8,563 of 18,074 we tried to contact";
+    - agreed to pay "3,945 of 8,563";
+    - promises honoured "652 of 1,886".
+  - **Chapter 3 issues:**
+    - broken promises "1,234 of 1,886 … 610 of 1,198 due this week";
+    - Personal Loan "₹14.5M collected of a ₹16.6M target";
+    - worsening "6,351 of 19,035";
+    - reach "8,563 of 18,074 … 3,945 of those 8,563";
+    - over-contact "9,393 of 19,035 (49%)".
+  - **Chapter 4:** priority accounts "604 of 879" high-risk.
+  - **Chapter 5:** "610 of 1,198" and "588 of 1,198" promises due this week.
+  - **How the counts are obtained:** each comes from the certified views. The count of promises already due and the count of accounts worsening aren't stored, so they are derived exactly from stored figures (broken ÷ broken share; rate × accounts). The derived counts reconcile: 1,234 broken + 652 kept = 1,886 due. Checked on the rendered page, with no NaN or undefined anywhere.
 
 - **Documentation brought up to date for v1.9; duplicates removed.**
   - **`README.md`:** current four-tab product, a documentation index, step combinations for common updates, configs including `org2-v2.json`, and the 27-check smoke test.

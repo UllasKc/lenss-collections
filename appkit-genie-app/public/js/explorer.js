@@ -193,7 +193,7 @@
       ['Accounts worsening', pct(t.roll_forward_rate), delta('roll_forward_rate', false)],
       ['Cost to collect', num(t.cost_to_collect) === null ? '—' : CUR + num(t.cost_to_collect).toFixed(3), delta('cost_to_collect', false)],
       ['Recovery opportunity', money(t.opportunity), share('opportunity')],
-      ['Contacts per customer', num(t.avg_attempts) === null ? '—' : num(t.avg_attempts).toFixed(1), ''],
+      ['Contact attempts per customer', num(t.avg_attempts) === null ? '—' : num(t.avg_attempts).toFixed(1), ''],
     ];
     document.getElementById('xpKpis').innerHTML = tiles.map(([l, v, sub]) => `<div class="xk"><div class="xk-l">${l}</div><div class="xk-v">${v}</div>${sub || ''}</div>`).join('');
   }

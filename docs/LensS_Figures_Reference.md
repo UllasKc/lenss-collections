@@ -24,11 +24,11 @@ One story in five chapters. Each chapter opens with a one-sentence answer writte
 
 | Element | Value | How it is worked out |
 |---|---|---|
-| Verdict | "We're **on track** … but only if customers keep their promises: **65%** of the promises already due were broken." | The likelihood (below) in words, plus the broken share of promises already due. Reads "within reach" (Medium), "at risk" (Low) or "achieved" |
+| Verdict | "We're **on track** … but only if customers keep their promises: **65%** of the promises already due were broken (1,234 of 1,886)." | The likelihood (below) in words, plus the broken share of promises already due. Reads "within reach" (Medium), "at risk" (Low) or "achieved" |
 | Progress bar | ₹53.4M collected of ₹59.2M · 90.2% · 15 days left | Collected this month ÷ monthly target; days left to month-end |
 | Still to collect | ₹5.8M | Monthly target − collected (never below zero) |
 | Expected from promises | ₹30.3M, 5.2× what we still need | Promises due between the snapshot and month-end (₹87.5M from 2,059 customers) × the share of due promises kept so far (34.6%) |
-| Month-end outlook | ₹83.7M, 141% of target | Collected so far + expected from promises. A pipeline view, not a statistical forecast |
+| Month-end outlook | ₹83.7M, 141% of target | Collected so far + expected from promises. The banner spells it out: "₹53.4M collected so far + ₹30.3M expected from promises = ₹83.7M. The 2,059 promises still due this month (of 3,945 made) are worth ₹87.5M; so far 35% of the promises that fell due were kept, so we count 35% of that." With one snapshot it is not a statistical forecast; say so if asked |
 | Likelihood of hitting target | High | High if expected promises cover the gap ≥ 1.5×; Medium 1.0–1.5×; Low below 1.0× |
 | Data refreshed on | e.g. 10/2/2026 | When the account data was last loaded (written by the deploy's `summary` step) |
 
@@ -49,29 +49,50 @@ One story in five chapters. Each chapter opens with a one-sentence answer writte
 | Card | Value | Calculation |
 |---|---|---|
 | Overdue balance | ₹1.93B, 19,035 accounts | Sum of outstanding balance; distinct accounts with DPD > 0 |
-| Recovery rate | 2.77% | Collected this month ÷ overdue balance. One month's cash over the whole book, including 180+ debt that barely pays; not a cure or settlement rate |
-| High-risk accounts | 879, of which 604 still likely to pay | Non-payment risk ≥ 0.70 (business rule R07). **View accounts** lists the 879 |
+| Recovery rate | 2.77% (₹53.4M collected of ₹1.93B overdue) | Collected this month ÷ overdue balance. One month's cash over the whole book, including 180+ debt that barely pays; not a cure or settlement rate |
+| High-risk accounts | 879 (4.6% of 19,035), of which 604 still likely to pay | Non-payment risk ≥ 0.70 (business rule R07). **View accounts** lists the 879 |
 | Accounts worsening | 33.4%, 6.4% improved | Share of accounts in a later arrears stage than before (`Roll_Forward_Flag`, the workbook's "Roll Rate"): 6,351 of 19,035. About 5 worsened for every 1 that improved; most of it is early (Current → 1–30: 2,459; 1–30 → 31–60: 1,915). **View accounts** lists them |
 | Cost to collect | ₹0.016 per ₹1 | Collection cost this month (₹838K) ÷ collected (₹53.4M). The workbook notes channel costs are demo assumptions (about ₹44 per account per month), so compare segments rather than quote the level: 1–30 days ₹0.010, 180+ ₹0.132 (13× more) |
-| *More:* Customers reached (RPC) | 47.4% | Right-party contacts ÷ accounts we attempted to contact |
-| *More:* Agreed to pay | 46.1% | Promises to pay ÷ customers reached |
-| *More:* Promises honoured | 34.6% | Promises already due that were kept ÷ promises already due (the inverse is the 65% broken) |
+| *More:* Customers reached (RPC) | 47.4% (8,563 of 18,074) | Customers actually spoken to ÷ customers we attempted to contact |
+| *More:* Agreed to pay | 46.1% (3,945 of 8,563) | Promises to pay ÷ customers reached |
+| *More:* Promises honoured | 34.6% (652 of 1,886) | Promises already due that were kept ÷ promises already due (the inverse is the 65% broken) |
 | *More:* Amount promised | | Sum of promise-to-pay amounts this month |
-| *More:* Contacts per customer | 4.5 | Average contact attempts per account this month |
+| *More:* Contact attempts per customer | 4.5 | Average contact attempts per account this month: calls, SMS, WhatsApp and email, answered or not. Not the same as "reached" (customers actually spoken to, 47%): we try often but reach about half |
 
 **Portfolio risk snapshot:** accounts, balance, share and recovery rate by arrears stage (1–30: 31% of accounts, 4.07% recovery … 180+: 9%, 0.33%). Each stage has **View**.
+
+### This month's promises, in one picture
+
+All the promise figures come from one set: **3,945 customers promised to pay this month.**
+
+| Part | Customers | Where it appears |
+|---|---|---|
+| Already due | 1,886 | "65% of promises already due were broken" |
+| … kept | 652 | Promises honoured 34.6% (652 of 1,886) |
+| … broken | 1,234 | Issue 1; the broken-promise list |
+| Still to come this month | 2,059 (₹87.5M) | The month-end outlook in chapter 1 |
+| … due this week | 1,198 (₹52.6M) | Chapter 5 queues |
+| … of which likely to break | 610 (₹27.2M) | "Promises at risk" / Today queue |
+| … of which likely kept | 588 (₹25.4M) | "Remind the other promises due" |
+| … due later this month | 861 | Part of the outlook |
+
+1,886 + 2,059 = 3,945. Issue 1 shows this as a single bar with the five parts.
 
 ### Chapter 3 · What is holding us back? (five ranked issues)
 
 | # | Severity | Issue | Figures | View opens |
 |---|---|---|---|---|
-| 1 | Critical | Customers are breaking their promises to pay | 65% of due promises broken; 1,234 broken; 610 more (₹27.2M) due this week likely to break | The 1,234 broken promises |
+| 1 | Critical | Customers are breaking their promises to pay | "3,945 customers promised to pay this month. Of the 1,886 promises already due, 1,234 were broken and only 652 kept. Of the 2,059 still to come, 1,198 fall due this week, and 610 of those look likely to break (₹27.2M)." Plus a bar of the five parts | The 1,234 broken promises |
 | 2 | High | Personal Loan is furthest behind target | 87.6% of target, ₹2.1M behind; largest single gap Personal Loan at 1–30 days (₹996K) | Personal Loan accounts |
 | 3 | High | Accounts are sliding into late arrears | 33% worsened; 999 accounts (₹95.1M) at 150–180 days | The 999 accounts |
-| 4 | Medium | Too few customers are reached | 47.4% reached; 46.1% of those agree to pay | Customers attempted but not reached |
-| 5 | Medium | Some customers are over-contacted | 9,393 customers in 83 groups at 4.5+ contacts a month | The 9,393 customers |
+| 4 | Medium | Too few customers are reached | "We tried to contact 18,074 of 19,035 customers but spoke to only 8,563 of them (47.4%), and 3,945 of those 8,563 agreed to pay (46.1%)" | Customers attempted but not reached |
+| 5 | Medium | Some customers are over-contacted | 9,393 customers in 83 groups averaging 4.5+ contact attempts a month (card headline: "4.5+ attempts") | The 9,393 customers |
 
 An over-contacted group is treatment strategy × product × arrears stage × vulnerability type, with at least 30 accounts and an average of 4.5+ attempts this month. Severities are set by design (business judgement); each "likely driver" line is a fixed explanation, not a computed result. **Ask LensS why** runs a deep analysis of the issue.
+
+**Attempts vs reached (issues 4 and 5 don't contradict).** Issue 5 counts contact *attempts* (calls, SMS, WhatsApp, email, answered or not): the book averages 4.5 a month. Issue 4 counts customers actually *spoken to*: 47% of those we tried. Together: we try often but reach only about half, so the fix is the right channel at the right time, not more calls.
+
+**Where 4.5 comes from.** Not a client rule. The workbook's R14 is qualitative ("high attempts with low RPC/cure…"); the data pack's sample SQL flags groups averaging 6+ attempts, which finds nothing in this data (the highest group averages about 5.3), so it was recalibrated to 4.5 during the build. Because that sits on the book's average, it flags about half the customers; individually, 3,892 customers (20%) had 7+ attempts and 2,051 (11%) had 8+.
 
 ### Chapter 4 · Where is the money?
 
@@ -115,7 +136,7 @@ A *specialist collector* is an experienced collector for the hardest, highest-va
 - Active filters show as chips; **Reset** clears them. Clicking a bar in the workspace adds that value as a filter.
 
 ### KPI strip (12 tiles for the filtered slice)
-Accounts · Outstanding · Collected this month · Recovery rate · Customers reached · Agreed to pay · Promises honoured · High-risk accounts · Accounts worsening · Cost to collect · Recovery opportunity · Contacts per customer. With a filter on, each tile shows "X% of portfolio" (amounts and counts) or "± pts vs portfolio" (rates), green when better and red when worse. With no filters it reconciles exactly to the Command Center (19,035 accounts).
+Accounts · Outstanding · Collected this month · Recovery rate · Customers reached · Agreed to pay · Promises honoured · High-risk accounts · Accounts worsening · Cost to collect · Recovery opportunity · Contact attempts per customer. With a filter on, each tile shows "X% of portfolio" (amounts and counts) or "± pts vs portfolio" (rates), green when better and red when worse. With no filters it reconciles exactly to the Command Center (19,035 accounts).
 
 ### Workspace (dimension × measure)
 Pick a dimension and a measure (outstanding, collected, recovery rate, RPC, PTP conversion, promises honoured, high-risk share, roll forward, cost to collect, recovery opportunity, accounts, average risk). Bars show each value, with the portfolio average marked for rates; green ≥ 5% better than the portfolio, red ≥ 5% worse. The table view lists every measure, with **View** per row.

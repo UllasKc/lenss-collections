@@ -9,7 +9,7 @@ Decision intelligence for collections, built on Databricks by the Concentrix Dat
 | **Assistant** | Plain-language questions answered by a Genie space ("LensS query engine"): Quick answer, Deep analysis or Auto, with conversation memory, answers about the platform itself, charts, SQL and a quality score |
 | **Observability** | Pipeline traces, answer quality and faithfulness, performance, drift, security and guardrails, Evaluations and Responsible AI |
 
-Every Command Center and Explorer figure comes from certified SQL views; no AI computes them. Current version: **v1.9.0** (see [CHANGELOG.md](CHANGELOG.md)).
+Every Command Center and Explorer figure comes from certified SQL views; no AI computes them. Current version: **v1.9.1** (see [CHANGELOG.md](CHANGELOG.md)).
 
 > **Deploying to a new workspace or a new laptop? Follow [SETUP_GUIDE.md](SETUP_GUIDE.md).** It covers every step from installing the tools to giving users access, plus troubleshooting.
 
