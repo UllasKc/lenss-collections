@@ -1055,15 +1055,32 @@ function compact(n) {
   return String(Math.round(n * 100) / 100);
 }
 
+/** Numeric columns whose name the chart title spells out (most of the name's words appear in the title). */
+function titledColumns(title, nums) {
+  const words = new Set(String(title || '').toLowerCase().match(/[a-z0-9]+/g) || []);
+  if (/%/.test(title || '')) ['pct', 'percent', 'percentage'].forEach(w => words.add(w));
+  const minor = new Set(['to', 'of', 'per', 'by', 'and', 'the', 'a', 'in', 'mtd']);
+  return nums.filter(c => {
+    const parts = c.name.toLowerCase().split(/[^a-z0-9]+/).filter(p => p && !minor.has(p));
+    return parts.length && parts.filter(p => words.has(p)).length / parts.length >= 0.66;
+  });
+}
+
 function chartPlan(chart) {
   const cols = analyse(chart);
   const labels = cols.filter(c => !c.numeric);
   const nums = cols.filter(c => c.numeric);
   if (chart.rows.length < 2 || !nums.length || !labels.length) return null;
-  const big = nums.filter(c => !c.ratio);
-  const ratios = nums.filter(c => c.ratio);
+  // The engine names a chart ("Cost to Collect by Strategy") but doesn't say which columns
+  // to plot, so plot the columns its title names; otherwise the first measures as before.
+  const focus = titledColumns(chart.title, nums);
+  const big = (focus.length ? focus : nums).filter(c => !c.ratio);
+  const ratios = (focus.length ? focus : nums).filter(c => c.ratio);
   let bars, line = null;
-  if (big.length) {
+  if (focus.length) {
+    bars = (big.length ? big : ratios).slice(0, 3);
+    line = big.length ? ratios[0] || null : null;
+  } else if (big.length) {
     const top = big[0].max || 1;
     bars = big.filter(c => c.max >= top / 25 && c.max <= top * 25).slice(0, 3);
     line = ratios[0] || null;

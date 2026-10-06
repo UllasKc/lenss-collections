@@ -559,6 +559,29 @@ export function buildChatRouter(appkit: ChatAppKit): express.Router {
           if (dropped.explained) trace.add('Empty results explained', 'model', emptyStart, trace.now() - emptyStart);
         }
       }
+      // A follow-up the engine answers from its own memory runs no query, so it comes back
+      // without charts ("show the visualizations again", or the same question repeated).
+      // Then the chat's most recent charts are shown again, labelled as such.
+      if (answer && run.success && !answer.charts.length && history.turns.length) {
+        const asksForCharts = /\b(charts?|graphs?|visuali[sz]\w*|plots?|diagrams?|again)\b/i.test(question);
+        const norm = (t: string) => t.toLowerCase().replace(/[^a-z0-9 ]+/g, ' ').replace(/\s+/g, ' ').trim();
+        const repeated = history.turns.some((t) => norm(t.q) === norm(question));
+        if (asksForCharts || repeated || isVagueFollowUp(question)) {
+          const { rows } = await appkit.lakebase.query(
+            `SELECT attachment_json->'charts' AS charts FROM chatapp.chat_messages
+              WHERE session_id = $1 AND role = 'assistant' AND jsonb_array_length(COALESCE(attachment_json->'charts', '[]'::jsonb)) > 0
+              ORDER BY created_at DESC LIMIT 1`,
+            [session.session_id],
+          ).catch(() => ({ rows: [] as Array<Record<string, unknown>> }));
+          const earlier = (rows[0]?.charts ?? []) as Answer['charts'];
+          if (earlier.length) {
+            answer.charts = earlier;
+            answer.text = answer.text.replace(/\[\[chart:[^\]]+\]\]/g, '');
+            notices.push('The charts below are from the earlier answer in this chat.');
+            details.reusedCharts = earlier.length;
+          }
+        }
+      }
       // Output guardrails before the answer is sent or cached.
       if (answer?.text) {
         const outStart = trace.now();

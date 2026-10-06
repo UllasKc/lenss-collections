@@ -11,6 +11,18 @@ Versions match git tags where one exists. Dates are when the change was committe
 
 ---
 
+## Unreleased
+
+- **Follow-ups no longer lose the charts.**
+  - **The problem:** in a Deep-analysis chat, "Whats the best contact strategy for personal loans" asked a second time, then "Can you show visualizations again", came back as text only. The engine answered from its own memory without running a query ("Based on my previous analysis…", "Here are the visualizations…"), so there was nothing to chart.
+  - **The fix:** when an answer has no charts and the question asks for charts ("chart", "graph", "visualisation", "plot", "again"), repeats an earlier question in the chat, or is a short follow-up, the chat's most recent charts are shown again, with the note "The charts below are from the earlier answer in this chat." No extra engine call.
+- **Charts plot the measure their title names.** The engine gives each visualisation only a title and the query it uses, not which columns to plot, so "Cost to Collect by Strategy" was plotting account count and recovery rate. A chart now plots the numeric columns its title spells out ("%" counts as a percentage column), and keeps the previous default when the title names none.
+- **Verified:**
+  - On your stored answer: "Cost to Collect by Strategy" now plots `cost_to_collect`, and "Personal Loan Strategy Performance Comparison" keeps the default (accounts as bars, recovery rate as a line).
+  - Title matching on 5 sample titles.
+  - Locally, a pre-answered question followed by "Can you show the charts again?" (Quick answer): the engine replied that it can't display charts, and the earlier chart was attached with the note.
+  - Deployed to personal.
+
 ## v1.9.2 — This week's plan before the high-risk opportunity; greeting by first name (2026-10-06, `1aab4ed`)
 
 - **Chapters 4 and 5 swapped, so the plan comes before the extra opportunity.** Presenters mixed up "Where is the money?" (₹6.4M from 604 accounts) and "What should we do this week?" (queues with different, overlapping groups and amounts).
