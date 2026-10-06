@@ -11,7 +11,7 @@ Versions match git tags where one exists. Dates are when the change was committe
 
 ---
 
-## v1.9.0 — Command Center as one story; every figure opens the accounts behind it (2026-10-06)
+## v1.9.0 — Command Center as one story; every figure opens the accounts behind it (2026-10-06, `31d6a1b`)
 
 ### End-to-end test before the client demo
 - **Deployed smoke test (personal): 27/27 passed**: APIs, quick-answer questions, the guardrail block, sessions and feedback, platform questions with follow-up context, answer cache, audit trail.
