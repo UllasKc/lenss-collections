@@ -13,6 +13,10 @@ Versions match git tags where one exists. Dates are when the change was committe
 
 ## Unreleased
 
+- **Fix: "Turn on" notifications gave no feedback and the banner never closed.**
+  - **Cause:** the banner closed only when the browser's permission prompt settled. A quiet prompt (an icon next to the address), a suppressed prompt, or a framed page can leave that promise pending forever, so after **Turn on** nothing visible happened. Older Safari also returns no promise.
+  - **Fix** (`public/js/notify.js`, `public/css/style.css`): on click the buttons are disabled and the banner says to choose "Allow" in the browser's prompt. The outcome is then shown in the banner (on / blocked / still off, with where to change it), and the banner closes 4 s later. If the browser never answers, it reports after 15 s. Both the promise and the callback forms of `requestPermission` are handled.
+  - **Verified:** a headless test of the real `notify.js` with four simulated browsers (allow, block, a prompt that never answers, callback-only): every case shows feedback at once, reports its outcome, closes, and throws no errors. Deployed to the personal workspace.
 - **Executive summary on the Command Center**, between the banner and chapter 2, separate from the five chapters. It is for a CEO-level reader, "The month in 30 seconds":
   - **A bottom line:** "On track to beat the ₹59.2M target, but only if customers keep their promises." It reads "within reach" or "at risk" when the outlook is weaker.
   - **Five plain lines, one per chapter**, each with its headline figure on the right and a click-through to that chapter:
