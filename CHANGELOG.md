@@ -13,6 +13,18 @@ Versions match git tags where one exists. Dates are when the change was committe
 
 ## Unreleased
 
+- **Executive summary on the Command Center**, between the banner and chapter 2, separate from the five chapters. It is for a CEO-level reader, "The month in 30 seconds":
+  - **A bottom line:** "On track to beat the ₹59.2M target, but only if customers keep their promises." It reads "within reach" or "at risk" when the outlook is weaker.
+  - **Five plain lines, one per chapter**, each with its headline figure on the right and a click-through to that chapter:
+    - where we stand (₹83.7M outlook);
+    - the book (₹1.93B overdue; a third slipped; early arrears recover about 12× better than the oldest debt);
+    - what is hurting us (2 in 3 promises broken; fewer than half of customers reached);
+    - this week (save 610 promises, work 492 high-value accounts, stop 999 reaching 180+);
+    - extra upside (₹6.4M from 604 high-risk customers).
+  - **Built from live figures:** everything comes from the same certified figures as the chapters. Fractions such as "a third", "2 in 3" and "fewer than half" are chosen from the actual values, so they stay true as the data changes.
+  - **Design:** a white card with a navy-to-aqua edge, matching the theme; on phones the figures sit under each line.
+  - **Verified locally:** the text and figures were read off the rendered page, there is no sideways scroll at 375px, and there were no console errors. (A class-name clash with the heatmap's colours was found and fixed during the check.) Deployed to personal.
+
 - **Story bar:** the fifth link now reads "5 · What more can we recover" (it was "Recover more from high-risk"). Only the story bar changed; the chapter heading is the same.
 - **Chart changes below are commit `3c73319`, tagged `charts-followup-v1`** as a rollback point. To undo only them: `git revert charts-followup-v1`.
 - **Follow-ups no longer lose the charts.**

@@ -132,7 +132,7 @@ async function loadHome() {
   const o = (await overviewReq) || {};
   const cc = o.cc || {};
   const steps = [
-    () => renderHero(summary, o, cc),
+    () => renderHero(summary, o, cc), () => renderExecSummary(summary, o, cc),
     () => renderBookHealth(summary, o, cc), () => renderRisk(cc),
     () => renderIssues(summary, o, cc),
     () => renderActionCenter(cc, o),
@@ -203,6 +203,55 @@ function renderHero(s, o, cc) {
       `The ${count(out.Promises_Rest_Of_Month)} promises still due this month (of ${count(counts(o, cc).promised)} made) are worth ${money(out.Promised_Rest_Of_Month)}; ` +
       `so far ${pct(out.Promise_Honour_Rate, 0)} of the promises that fell due were kept, so we count ${pct(out.Promise_Honour_Rate, 0)} of that.</div>`
     : '') + (s.data_refreshed_at ? `<div class="hero-refresh">Data refreshed on ${when(s.data_refreshed_at)}</div>` : '');
+}
+
+/**
+ * Executive summary: the five chapters in five plain lines, for a CEO, plus a bottom line.
+ * Written from the same certified figures as the chapters, so it can't drift from them.
+ * Each line jumps to its chapter.
+ */
+function renderExecSummary(s, o, cc) {
+  const out = cc.outlook || {}, k = cc.kpis || {}, a = cc.actions || {}, r = o.rates || {};
+  const c = counts(o, cc);
+  const likely = out.Target_Likelihood;
+  if (!likely) return;   // the overview hasn't arrived yet: the skeleton stays
+  const risk = cc.riskSnapshot || [];
+  const first = risk[0], last = risk[risk.length - 1];
+  const better = first && last && num(last.Recovery_Rate) ? Math.round(num(first.Recovery_Rate) / num(last.Recovery_Rate)) : null;
+  const brokenShare = num(k.Broken_Share_Of_Due_Promises);
+  const inThree = brokenShare !== null && Math.abs(brokenShare * 3 - Math.round(brokenShare * 3)) < 0.1 ? `${Math.round(brokenShare * 3)} in 3` : pct(brokenShare, 0);
+  const worst = (o.products || [])[0];
+  // Plain-language shares where they are close to a simple fraction, otherwise the percentage.
+  const share = (v) => { const x = num(v); if (x === null) return '—';
+    for (const [f, w] of [[1 / 4, 'a quarter'], [1 / 3, 'a third'], [1 / 2, 'half'], [2 / 3, 'two thirds'], [3 / 4, 'three quarters']]) if (Math.abs(x - f) < 0.02) return w;
+    return pct(x, 0); };
+  const rpc = num(r.RPC_Rate);
+  const reach = rpc === null ? '' : rpc < 0.5 ? 'we reach fewer than half the customers we try' : `we reach ${pct(rpc, 0)} of the customers we try`;
+  const verdict = {
+    Achieved: 'Target achieved.',
+    High: `On track to beat the ${money(s.monthly_target)} target, but only if customers keep their promises.`,
+    Medium: `The ${money(s.monthly_target)} target is within reach, but only if customers keep their promises.`,
+    Low: `The ${money(s.monthly_target)} target is at risk; this week's promises decide it.`,
+  }[likely];
+  document.getElementById('execSumBottom').innerHTML = `<span class="es-bl">Bottom line</span>${hEsc(verdict)}`;
+  const rows = [
+    ['ch1', 'Where we stand', `${money(s.mtd_collections)} of ${money(s.monthly_target)} collected with ${count(out.Days_Remaining)} days left; on today's promises we land near ${money(out.Outlook_EOM_Recovery)}.`,
+      money(out.Outlook_EOM_Recovery), 'month-end outlook', likely === 'Low' ? 'bad' : 'good'],
+    ['ch2', 'The book', `${money(k.Outstanding_Portfolio, 2)} overdue across ${count(c.accounts)} accounts. ${share(k.Roll_Forward_Rate).replace(/^./, (ch) => ch.toUpperCase())} slipped further behind this month${better ? `, and early arrears recover about ${better}× better than the oldest debt` : ''}.`,
+      money(k.Outstanding_Portfolio, 2), 'overdue', 'brand'],
+    ['ch3', 'What is hurting us', `${inThree} promises are broken, and ${reach}${worst ? `. ${hEsc(worst.Product)} is furthest behind target` : ''}. Calling harder won't fix it.`,
+      pct(brokenShare, 0), 'promises broken', 'bad'],
+    ['ch4', 'This week', `Save ${count(a.PTP_Break_Risk_7d_Accounts)} promises at risk (${money(a.PTP_Break_Risk_7d_Amount)}), work ${count(a.HighProp_HighBal_Accounts)} high-value accounts (${money(a.HighProp_HighBal_Recoverable)}), and stop ${count(a.Rolling_To_180_Accounts)} accounts sliding past 180 days.`,
+      count(a.PTP_Break_Risk_7d_Accounts), 'promises to save', 'warn'],
+    ['ch5', 'Extra upside', `${money(s.recovery_opportunity)} more from ${count(s.immediate_intervention_accounts)} high-risk customers who are still likely to pay. Don't write them off.`,
+      money(s.recovery_opportunity), 'more to recover', 'good'],
+  ];
+  document.getElementById('execSumList').innerHTML = rows.map(([id, label, line, fig, figLabel, tone], i) => `
+    <li><a class="es-row" href="#${id}">
+      <span class="es-n">${i + 1}</span>
+      <span class="es-text"><span class="es-label">${hEsc(label)}</span><span class="es-line">${hEsc(line)}</span></span>
+      <span class="es-fig es-${tone}"><b>${fig}</b><small>${hEsc(figLabel)}</small></span>
+    </a></li>`).join('');
 }
 
 /** 2. How healthy is the book? The portfolio's vital signs (the target figures are in chapter 1). */

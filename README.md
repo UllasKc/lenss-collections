@@ -4,7 +4,7 @@ Decision intelligence for collections, built on Databricks by the Concentrix Dat
 
 | Tab | What it does |
 |---|---|
-| **Command Center** | One story in five chapters: are we on track, how healthy is the book, what is holding us back, what to do this week, and what more can be recovered from high-risk customers. Every figure opens the accounts behind it |
+| **Command Center** | An executive summary ("the month in 30 seconds"), then one story in five chapters: are we on track, how healthy is the book, what is holding us back, what to do this week, and what more can be recovered from high-risk customers. Every figure opens the accounts behind it |
 | **Explorer** | Self-service drill-down with filters, diagnostic charts and the accounts behind each chart item, with CSV export |
 | **Assistant** | Plain-language questions answered by a Genie space ("LensS query engine"): Quick answer, Deep analysis or Auto, with conversation memory, answers about the platform itself, charts, SQL and a quality score |
 | **Observability** | Pipeline traces, answer quality and faithfulness, performance, drift, security and guardrails, Evaluations and Responsible AI |
