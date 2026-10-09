@@ -1,0 +1,402 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>LensS Question Routing</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Archivo:wdth,wght@85,600;85,800&family=Public+Sans:wght@400;600;700&family=JetBrains+Mono:wght@400;600&display=swap">
+<style>
+/* Layout: one vertical flow diagram (the pipeline) with an example picker; detail tables below it. */
+:root {
+  --bg: #F3F6F8;
+  --panel: #FFFFFF;
+  --ink: #12222E;
+  --muted: #5B6B78;
+  --line: #D5DEE5;
+  --navy: #0B3B5C;      /* Genie deep analysis */
+  --aqua: #127F92;      /* Genie quick answer */
+  --guide: #6D4FC2;     /* LensS guide */
+  --amber: #B45309;     /* escalation, rules */
+  --soft: #E8EFF4;
+  --hit: #FFF7E6;
+  --display: "Archivo", "Arial Narrow", system-ui, sans-serif;
+  --body: "Public Sans", system-ui, -apple-system, "Segoe UI", sans-serif;
+  --mono: "JetBrains Mono", ui-monospace, Consolas, monospace;
+  color-scheme: light;
+}
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) {
+    --bg: #0E171E; --panel: #15212B; --ink: #E4ECF2; --muted: #93A4B1; --line: #2A3A47;
+    --navy: #6FB2E0; --aqua: #4FC6D8; --guide: #A994F2; --amber: #F0A04B; --soft: #1C2B37; --hit: #2B2414;
+    color-scheme: dark;
+  }
+}
+:root[data-theme="dark"] {
+  --bg: #0E171E; --panel: #15212B; --ink: #E4ECF2; --muted: #93A4B1; --line: #2A3A47;
+  --navy: #6FB2E0; --aqua: #4FC6D8; --guide: #A994F2; --amber: #F0A04B; --soft: #1C2B37; --hit: #2B2414;
+  color-scheme: dark;
+}
+* { box-sizing: border-box; }
+body { background: var(--bg); color: var(--ink); font: 15px/1.55 var(--body); margin: 0; }
+.wrap { max-width: 1080px; margin: 0 auto; padding-inline: 20px; padding-block: 28px 64px; }
+h1, h2, h3 { font-family: var(--display); font-stretch: 85%; text-wrap: balance; margin: 0; }
+h1 { font-size: clamp(28px, 4.6vw, 40px); font-weight: 800; letter-spacing: -.01em; }
+h2 { font-size: 22px; font-weight: 800; margin-top: 44px; margin-bottom: 6px; }
+h3 { font-size: 16px; font-weight: 600; }
+p { margin: 6px 0; max-width: 72ch; }
+.lede { color: var(--muted); font-size: 16px; margin-top: 8px; }
+.eyebrow { font: 600 11px var(--mono); letter-spacing: .12em; text-transform: uppercase; color: var(--muted); }
+code, .mono { font-family: var(--mono); font-size: 12.5px; }
+.legend { display: flex; flex-wrap: wrap; gap: 8px 18px; margin-top: 14px; font-size: 13px; color: var(--muted); }
+.legend span { display: inline-flex; align-items: center; gap: 6px; }
+.sw { width: 12px; height: 12px; border-radius: 3px; display: inline-block; }
+
+/* example picker */
+.picker { margin-top: 26px; display: flex; flex-wrap: wrap; gap: 8px; }
+.picker button {
+  font: 600 13px var(--body); color: var(--ink); background: var(--panel); border: 1px solid var(--line);
+  border-radius: 999px; padding: 7px 14px; cursor: pointer; text-align: left;
+}
+.picker button:hover { border-color: var(--aqua); }
+.picker button[aria-pressed="true"] { background: var(--ink); color: var(--bg); border-color: var(--ink); }
+.picker button:focus-visible, .flow button:focus-visible { outline: 2px solid var(--aqua); outline-offset: 2px; }
+.convo { margin-top: 14px; background: var(--panel); border: 1px solid var(--line); border-radius: 12px; padding: 14px 16px; }
+.convo .turn { display: grid; grid-template-columns: 74px minmax(0, 1fr); gap: 10px; padding: 4px 0; }
+.convo .who { font: 600 11px var(--mono); letter-spacing: .08em; text-transform: uppercase; color: var(--muted); padding-top: 3px; }
+.convo .now { font-weight: 700; }
+.convo .now::after { content: "  ← routed below"; font: 600 11px var(--mono); color: var(--amber); }
+
+/* the flow */
+.flow { margin-top: 18px; display: grid; gap: 0; }
+.node {
+  position: relative; background: var(--panel); border: 1px solid var(--line); border-radius: 12px;
+  padding: 12px 14px; display: grid; grid-template-columns: 34px minmax(0, 1fr) minmax(0, 1.25fr); gap: 4px 14px; align-items: start;
+  transition: opacity .25s, border-color .25s, box-shadow .25s;
+}
+.node .n { font: 800 18px var(--display); color: var(--muted); }
+.node .what h3 { margin-bottom: 2px; }
+.node .what p { font-size: 13.5px; color: var(--muted); margin: 0; }
+.node .cost { font: 600 11px var(--mono); color: var(--muted); margin-top: 6px; display: block; }
+.node .ex { font-size: 13.5px; background: var(--hit); border-radius: 8px; padding: 8px 10px; min-height: 100%; }
+.node .ex b { font-weight: 700; }
+.node.off { opacity: .38; }
+.node.off .ex { background: transparent; color: var(--muted); }
+.node.on { border-color: var(--ink); box-shadow: 0 1px 0 var(--line); }
+.arrow { height: 26px; display: grid; place-items: center; }
+.arrow::before { content: ""; width: 2px; height: 100%; background: var(--line); }
+.arrow.lit::before { background: var(--ink); }
+.split { display: grid; gap: 10px; grid-template-columns: repeat(3, minmax(0, 1fr)); }
+.split.two { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+.dest { border-radius: 12px; padding: 12px 14px; border: 2px solid var(--line); background: var(--panel); transition: opacity .25s, border-color .25s, background .25s; }
+.dest h3 { font-size: 17px; }
+.dest p { font-size: 13px; color: var(--muted); margin: 2px 0 0; }
+.dest .tag { font: 600 10.5px var(--mono); letter-spacing: .1em; text-transform: uppercase; }
+.dest.guide .tag { color: var(--guide); } .dest.quick .tag { color: var(--aqua); } .dest.deep .tag { color: var(--navy); }
+.dest.own .tag, .dest.ctx .tag { color: var(--muted); }
+.dest.on.guide { border-color: var(--guide); } .dest.on.quick { border-color: var(--aqua); } .dest.on.deep { border-color: var(--navy); }
+.dest.on.own, .dest.on.ctx { border-color: var(--ink); }
+.dest.off { opacity: .35; }
+.dest .ex { margin-top: 8px; font-size: 13px; background: var(--hit); border-radius: 8px; padding: 7px 9px; }
+.dest.off .ex { display: none; }
+.skip { font: 600 12px var(--mono); color: var(--amber); text-align: center; padding: 4px 0; min-height: 24px; }
+
+/* tables */
+.tablebox { overflow-x: auto; margin-top: 10px; background: var(--panel); border: 1px solid var(--line); border-radius: 12px; }
+table { border-collapse: collapse; width: 100%; min-width: 620px; font-size: 14px; }
+th, td { text-align: left; vertical-align: top; padding: 10px 14px; border-bottom: 1px solid var(--line); }
+th { font: 600 11px var(--mono); letter-spacing: .08em; text-transform: uppercase; color: var(--muted); background: var(--soft); }
+tr:last-child td { border-bottom: 0; }
+td:first-child { font-weight: 600; }
+.pill { font: 600 11px var(--mono); padding: 2px 7px; border-radius: 6px; white-space: nowrap; }
+.p-guide { color: var(--guide); border: 1px solid var(--guide); }
+.p-quick { color: var(--aqua); border: 1px solid var(--aqua); }
+.p-deep { color: var(--navy); border: 1px solid var(--navy); }
+.p-amber { color: var(--amber); border: 1px solid var(--amber); }
+
+/* Genie memory */
+.mem { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); gap: 12px; margin-top: 12px; }
+.memcard { background: var(--panel); border: 1px solid var(--line); border-radius: 12px; padding: 14px 16px; }
+.memcard ul { margin: 6px 0 0; padding-left: 18px; font-size: 14px; }
+.memcard li { margin: 3px 0; }
+.chatbox { border: 1px dashed var(--muted); border-radius: 12px; padding: 12px; display: grid; grid-template-columns: 1fr 1fr; gap: 10px; margin-top: 10px; }
+.conv { border-radius: 10px; padding: 10px 12px; font-size: 13.5px; }
+.conv.q { border: 2px solid var(--aqua); } .conv.d { border: 2px solid var(--navy); }
+.conv b { display: block; font-family: var(--display); font-size: 15px; }
+.note { font-size: 13.5px; color: var(--muted); }
+.where { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 12px; margin-top: 12px; }
+.where div { background: var(--panel); border: 1px solid var(--line); border-radius: 12px; padding: 12px 14px; font-size: 14px; }
+
+@media (max-width: 760px) {
+  .node { grid-template-columns: 26px minmax(0, 1fr); }
+  .node .ex { grid-column: 1 / -1; }
+  .split, .split.two, .mem, .where { grid-template-columns: minmax(0, 1fr); }
+  .chatbox { grid-template-columns: 1fr; }
+}
+@media (prefers-reduced-motion: reduce) { .node, .dest { transition: none; } }
+</style>
+</head>
+<body>
+
+
+<div class="wrap">
+  <div class="eyebrow">LensS Collections Intelligence · Assistant</div>
+  <h1>LensS Question Routing</h1>
+  <p class="lede">How every question in the Assistant is sent to the right place: the LensS guide, a Genie Quick answer or a Genie Deep analysis. Pick a real example below. The steps it passes through light up and show what happened at each one.</p>
+  <div class="legend">
+    <span><i class="sw" style="background:var(--guide)"></i>LensS guide (questions about the app)</span>
+    <span><i class="sw" style="background:var(--aqua)"></i>Genie Quick answer (~20–30 s)</span>
+    <span><i class="sw" style="background:var(--navy)"></i>Genie Deep analysis (1–3 min)</span>
+    <span><i class="sw" style="background:var(--amber)"></i>Safety rule or escalation</span>
+  </div>
+
+  <h2>The routing path</h2>
+  <div class="picker" id="picker" role="group" aria-label="Examples"></div>
+  <div class="convo" id="convo" aria-live="polite"></div>
+
+  <div class="flow" id="flow">
+    <div class="node" data-step="ask">
+      <div class="n">1</div>
+      <div class="what"><h3>You ask</h3><p>Typed in the Assistant, or clicked: a suggested question, an Ask LensS button, a follow-up chip, Go deeper, Answer from the data instead.</p></div>
+      <div class="ex" data-ex="ask"></div>
+    </div>
+    <div class="arrow" data-a="1"></div>
+    <div class="node" data-step="clicked">
+      <div class="n">2</div>
+      <div class="what"><h3>Clicked or typed?</h3><p>A click already says where it goes, so it skips steps 3–5. Only typed questions are routed.</p><span class="cost">no model · instant</span></div>
+      <div class="ex" data-ex="clicked"></div>
+    </div>
+    <div class="arrow" data-a="2"></div>
+    <div class="node" data-step="signals">
+      <div class="n">3</div>
+      <div class="what"><h3>Signals</h3><p>Plain word checks on your message and the chat so far: is it a repeat of an earlier question? Does it ask for more ("not enough", "go deeper")? Is it pushback ("you do it")? Does it name the app (tab, filter, export)?</p><span class="cost">no model · instant</span></div>
+      <div class="ex" data-ex="signals"></div>
+    </div>
+    <div class="arrow" data-a="3"></div>
+    <div class="node" data-step="model">
+      <div class="n">4</div>
+      <div class="what"><h3>Router model</h3><p>Llama 3.3 70B reads your message and the last three turns (who answered each, and the latest answer's text). It returns where to send it, how deep, what kind of message it is, how sure it is, and the question rewritten to stand on its own.</p><span class="cost">1 model call · about 1 s · if it fails, the word rules decide</span></div>
+      <div class="ex" data-ex="model"></div>
+    </div>
+    <div class="arrow" data-a="4"></div>
+    <div class="node" data-step="rules">
+      <div class="n">5</div>
+      <div class="what"><h3>Safety rules</h3><p>Fixed rules over the model's decision so a chat can't get stuck: asking for more or asking again gets a fresh deep analysis; pushback never gets the guide twice; the guide is used only when the model is sure; your Quick or Deep setting is kept unless you ask for more.</p><span class="cost">no model · instant</span></div>
+      <div class="ex" data-ex="rules"></div>
+    </div>
+    <div class="arrow" data-a="5"></div>
+    <div class="split" id="dests">
+      <div class="dest guide" data-dest="guide"><div class="tag">Destination</div><h3>LensS guide</h3><p>Questions about the app. Answered from the platform guide, not the data.</p><div class="ex" data-ex="guide"></div></div>
+      <div class="dest quick" data-dest="quick"><div class="tag">Destination</div><h3>Genie · Quick answer</h3><p>One query: a lookup, list, ranking or a few figures.</p><div class="ex" data-ex="quick"></div></div>
+      <div class="dest deep" data-dest="deep"><div class="tag">Destination</div><h3>Genie · Deep analysis</h3><p>Several queries and reasoning: why, what to do, trade-offs.</p><div class="ex" data-ex="deep"></div></div>
+    </div>
+    <div class="skip" id="skipctx"></div>
+    <div class="node" data-step="ctx">
+      <div class="n">6</div>
+      <div class="what"><h3>Does Genie already have this chat?</h3><p>Genie remembers its own conversation, one per mode per chat. If Genie answered every earlier turn there itself, it already knows the chat.</p><span class="cost">no model · instant · Genie only</span></div>
+      <div class="ex" data-ex="ctx"></div>
+    </div>
+    <div class="arrow" data-a="6"></div>
+    <div class="split two" id="ctxs">
+      <div class="dest own" data-dest="own"><div class="tag">Yes, or a first question</div><h3>Send your own words</h3><p>Genie resolves "the second one" from its full history, including tables.</p><div class="ex" data-ex="own"></div></div>
+      <div class="dest ctx" data-dest="withctx"><div class="tag">No</div><h3>Send the chat so far + the rewrite</h3><p>When an earlier answer came from the cache, the guide, the other mode or a retry, or this is the first deep question in the chat.</p><div class="ex" data-ex="withctx"></div></div>
+    </div>
+    <div class="arrow" data-a="7"></div>
+    <div class="node" data-step="answer">
+      <div class="n">7</div>
+      <div class="what"><h3>Answer, and what you can do next</h3><p>Under the answer: Go deeper when a Quick answer falls short (says little, or the quality check finds it incomplete), or Answer from the data instead after a guide answer. Everything is logged to Observability.</p></div>
+      <div class="ex" data-ex="answer"></div>
+    </div>
+  </div>
+
+  <h2>The safety rules</h2>
+  <p class="note">These run after the router model and can overrule it. They are plain code, tested without a model.</p>
+  <div class="tablebox"><table>
+    <thead><tr><th>Situation</th><th>What happens</th><th>Example</th></tr></thead>
+    <tbody>
+      <tr><td>You say the answer wasn't enough, or ask the same thing again</td><td><span class="pill p-deep">Deep</span> <span class="pill p-amber">fresh</span> A new deep analysis, never the cached answer, and Genie is told to give the fuller answer. This overrides a Quick setting.</td><td>"This is not enough, I need more info"</td></tr>
+      <tr><td>You push back after a guide answer</td><td><span class="pill p-quick">Genie</span> Goes to the data. The guide is never used twice in a row.</td><td>"No, you do it"</td></tr>
+      <tr><td>The model isn't sure it's about the app</td><td><span class="pill p-quick">Genie</span> The guide needs at least 70% confidence, and a question naming collections data with nothing on screen goes to the data.</td><td>"Where is the risk concentrated?"</td></tr>
+      <tr><td>"Tell me more" after a real app question</td><td><span class="pill p-guide">Guide</span> Stays with the guide.</td><td>"What does Observability show?" → "Tell me more"</td></tr>
+      <tr><td>A new question about an answer</td><td>A follow-up, answered at your chosen depth. It escalates only with words like "more", "deeper", "not enough".</td><td>"why is the third one so high?"</td></tr>
+      <tr><td>You chose Quick or Deep yourself</td><td>Kept, unless your latest message asks for more.</td><td>Quick selected + "why are promises broken?" → Quick</td></tr>
+      <tr><td>Auto selected</td><td>The router model decides the depth of every question, follow-ups included.</td><td>"what's the total?" after a deep analysis can be Quick</td></tr>
+      <tr><td>The router model is off, slow or unreadable</td><td>The same rules decide on the signals alone. Anything uncertain goes to the data.</td><td>—</td></tr>
+    </tbody>
+  </table></div>
+
+  <h2>How Genie remembers</h2>
+  <p>Genie only remembers its own conversation. Each chat in the sidebar holds two of them, one per mode, and they never see each other.</p>
+  <div class="chatbox" aria-label="One chat holds two Genie conversations">
+    <div class="conv q"><b>Quick conversation</b>Every Quick answer Genie gives in this chat. Follow-ups in Quick go here.</div>
+    <div class="conv d"><b>Deep conversation</b>Every Deep analysis Genie gives in this chat. Follow-ups in Deep go here.</div>
+  </div>
+  <div class="mem">
+    <div class="memcard"><h3>Genie has the history when…</h3><ul>
+      <li>it's a follow-up in the same chat and the same mode</li>
+      <li>you reopen an old chat and keep asking in the same mode</li>
+      <li>you click a suggested question inside an existing chat</li>
+    </ul></div>
+    <div class="memcard"><h3>Genie starts fresh when…</h3><ul>
+      <li>you start a new chat, including every Ask LensS button</li>
+      <li>a chat uses Quick or Deep for the first time, such as the first escalation to Deep</li>
+      <li>a "service busy" retry runs (the chat switches to the new conversation)</li>
+      <li>the first question in a mode failed</li>
+    </ul></div>
+  </div>
+  <p class="note" style="margin-top:10px">Genie never sees answers from the cache, guide answers or blocked questions. Step 6 fills that gap by sending the chat so far and the rewrite.</p>
+
+  <h2>Where to see it in the app</h2>
+  <div class="where">
+    <div><b>Assistant</b><br>While answering: a line saying how it was routed. Under the answer: Go deeper, or Answer from the data instead.</div>
+    <div><b>Observability → Pipeline traces</b><br>Stage 1 of each trace: who routed it, where, how deep, why, the rules applied, the rewritten question and what context Genie was sent.</div>
+    <div><b>Observability → Performance and Evals</b><br>"How questions were routed" panel, and the Routing test suite (36 conversations, run on demand).</div>
+  </div>
+</div>
+
+<script>
+// Each example is a real conversation from testing on 9 October 2026. `path` lists the lit steps.
+const EXAMPLES = [
+  {
+    id: 'dpd', label: 'A data question that sounds like the app',
+    convo: [['You', 'How is our portfolio distributed across DPD buckets, and where is the risk concentrated?', true]],
+    path: ['ask', 'clicked', 'signals', 'model', 'rules', 'quick', 'ctx', 'own', 'answer'],
+    ex: {
+      ask: 'Typed, with <b>Auto</b> selected.',
+      clicked: 'Typed, so it is routed.',
+      signals: 'No repeat, no "more", no pushback. "where is" alone does not count as an app question.',
+      model: '<b>data · quick · new question</b>: "Asks for data analysis". Before today, the old word check sent this to the guide, which made up a "Portfolio tab".',
+      rules: 'None needed.',
+      quick: 'Genie runs one query on <code>qry_cc_risk_snapshot</code> (5 rows) and draws a chart.',
+      ctx: 'First question in the chat.',
+      own: 'Sent exactly as typed.',
+      answer: 'A chart plus one line of text, so <b>Go deeper with a deep analysis ›</b> is offered under it.',
+    },
+  },
+  {
+    id: 'more', label: '"This is not enough, I need more info"',
+    convo: [['You', 'How is our portfolio distributed across DPD buckets…?'], ['LensS', 'Quick answer: one line and a chart.'], ['You', 'This is not enough, I need more info', true]],
+    path: ['ask', 'clicked', 'signals', 'model', 'rules', 'deep', 'ctx', 'withctx', 'answer'],
+    ex: {
+      ask: 'Typed, with <b>Quick</b> selected.',
+      clicked: 'Typed, so it is routed.',
+      signals: '<b>Asks for more</b> ("not enough", "need more info").',
+      model: '<b>data · more depth</b>.',
+      rules: '<b>Asked for more → a deep analysis with a fresh answer.</b> Your latest message outranks the Quick setting.',
+      deep: 'Genie Deep analysis, told to give the fuller answer.',
+      ctx: '<b>No.</b> This chat has no Deep conversation yet: Genie has never seen the DPD question.',
+      withctx: 'Sends the chat so far and the rewrite: "How is our portfolio distributed across DPD buckets, and where is the risk concentrated?"',
+      answer: '117 s · 4 charts · a full breakdown of the ₹1.93B portfolio.',
+    },
+  },
+  {
+    id: 'push', label: '"No, you do it" after a guide answer',
+    convo: [['You', 'How is our portfolio distributed across DPD buckets…?'], ['LensS', 'From the guide: "Open the Explorer tab…" (the old mistake)'], ['You', 'No, you do it', true]],
+    path: ['ask', 'clicked', 'signals', 'model', 'rules', 'quick', 'ctx', 'withctx', 'answer'],
+    ex: {
+      ask: 'Typed, with <b>Auto</b> selected.',
+      clicked: 'Typed, so it is routed.',
+      signals: '<b>Pushback</b> ("you do it").',
+      model: 'Reads it as pushback and rewrites it as the DPD question.',
+      rules: '<b>Never the guide twice when the person pushes back</b> → the data.',
+      quick: 'Genie Quick answer on the DPD question.',
+      ctx: '<b>No.</b> The earlier answer came from the guide, which Genie never saw.',
+      withctx: 'Rewrite sent: "How is our portfolio distributed across DPD buckets, and where is the risk concentrated?"',
+      answer: 'The data answer the person wanted in the first place.',
+    },
+  },
+  {
+    id: 'own', label: '"why is the second one so low?" (Genie remembers)',
+    convo: [['You', 'List the three regions with the fewest promises kept this month, with the counts'], ['LensS', 'Quick answer from Genie: Chennai 469, Ahmedabad 476, Kolkata 485'], ['You', 'and why is the second one so low?', true]],
+    path: ['ask', 'clicked', 'signals', 'model', 'rules', 'quick', 'ctx', 'own', 'answer'],
+    ex: {
+      ask: 'Typed, with <b>Quick</b> selected.',
+      clicked: 'Typed, so it is routed.',
+      signals: 'No repeat, no "more", no pushback. It starts with "why", so it is a new question about the answer.',
+      model: '<b>data · follow-up</b>. Its rewrite: "Why is Ahmedabad\'s promises kept count so low?"',
+      rules: 'Quick setting kept: a new question about the answer is not "asked for more".',
+      quick: 'Genie Quick answer, in the same Quick conversation.',
+      ctx: '<b>Yes.</b> Genie answered the earlier turn itself in this conversation.',
+      own: 'Sent as typed: "and why is the second one so low?". Genie works out "the second one" = Ahmedabad from its own history. The rewrite is not needed.',
+      answer: 'About 27 s, an answer about Ahmedabad.',
+    },
+  },
+  {
+    id: 'guide', label: 'An app question, then "Tell me more"',
+    convo: [['You', 'What does the Observability tab show?'], ['LensS', 'From the guide: how every answer was made, its quality, cost and safety…'], ['You', 'Tell me more', true]],
+    path: ['ask', 'clicked', 'signals', 'model', 'rules', 'guide', 'answer'],
+    ex: {
+      ask: 'Typed, with <b>Auto</b> selected.',
+      clicked: 'Typed, so it is routed.',
+      signals: 'A short follow-up right after a guide answer about the app.',
+      model: '<b>app · more depth</b>: "follows guide answer".',
+      rules: 'None needed: the model chose the guide. Had it chosen the data, the rule <b>continues the answer about the app</b> would have brought it back, because the earlier question really was about the app and this one names no data.',
+      guide: 'More of the guide, the parts not shown yet. About 2 s.',
+      answer: '<b>Answer from the data instead ›</b> is offered under it, in case the guide was the wrong place.',
+    },
+    skip: 'Genie is not used, so step 6 is skipped',
+  },
+  {
+    id: 'click', label: 'A clicked suggested question',
+    convo: [['You', 'Clicks "Which accounts require immediate intervention?" on the Command Center', true]],
+    path: ['ask', 'clicked', 'quick', 'ctx', 'own', 'answer'],
+    ex: {
+      ask: 'Clicked an <b>Ask LensS</b> button. It opens a new chat.',
+      clicked: '<b>Clicked</b>: no signals, no router model, no rules. It goes straight to Genie in the button\'s own mode. Only "What can you help me with?" goes to the guide.',
+      quick: 'Genie Quick answer, or an instant answer from the cache if it was asked before.',
+      ctx: 'First question in a new chat.',
+      own: 'Sent exactly as written.',
+      answer: 'The accounts to act on, often in about a second when the answer is already in the cache.',
+    },
+    skipModel: true,
+  },
+];
+
+const picker = document.getElementById('picker');
+const convo = document.getElementById('convo');
+const esc = (s) => String(s).replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
+
+function show(id) {
+  const e = EXAMPLES.find((x) => x.id === id) || EXAMPLES[0];
+  picker.querySelectorAll('button').forEach((b) => b.setAttribute('aria-pressed', String(b.dataset.id === e.id)));
+  convo.innerHTML = e.convo.map(([who, text, now]) => `<div class="turn"><span class="who">${esc(who)}</span><span class="${now ? 'now' : ''}">${esc(text)}</span></div>`).join('');
+  const lit = new Set(e.path);
+  document.querySelectorAll('[data-step]').forEach((n) => {
+    const on = lit.has(n.dataset.step);
+    n.classList.toggle('on', on); n.classList.toggle('off', !on);
+  });
+  document.querySelectorAll('[data-dest]').forEach((n) => {
+    const on = lit.has(n.dataset.dest);
+    n.classList.toggle('on', on); n.classList.toggle('off', !on);
+  });
+  document.querySelectorAll('[data-ex]').forEach((n) => {
+    const k = n.dataset.ex;
+    n.innerHTML = e.ex[k] || (e.skipModel && ['signals', 'model', 'rules'].includes(k) ? 'Skipped: a click already says where it goes.' : 'Not used for this example.');
+  });
+  // Light the connectors between the steps this example passes through.
+  const order = ['ask', 'clicked', 'signals', 'model', 'rules'];
+  document.querySelectorAll('.arrow').forEach((a) => {
+    const i = Number(a.dataset.a);
+    const litArrow = i <= 4 ? lit.has(order[i]) && lit.has(order[i - 1]) : i === 5 ? true : i === 6 ? lit.has('ctx') : lit.has('answer') && lit.has('ctx');
+    a.classList.toggle('lit', litArrow);
+  });
+  document.getElementById('skipctx').textContent = e.skip || '';
+  try { localStorage.setItem('lenss-routing-example', e.id); } catch { /* per-viewer convenience only */ }
+}
+
+EXAMPLES.forEach((e, i) => {
+  const b = document.createElement('button');
+  b.type = 'button';
+  b.dataset.id = e.id;
+  b.textContent = `${i + 1}. ${e.label}`;
+  b.addEventListener('click', () => show(e.id));
+  picker.appendChild(b);
+});
+let start = 'dpd';
+try { start = localStorage.getItem('lenss-routing-example') || 'dpd'; } catch { /* ignore */ }
+show(start);
+</script>
+
+</body>
+</html>

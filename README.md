@@ -22,6 +22,8 @@ Every Command Center and Explorer figure comes from certified SQL views; no AI c
 | [CHANGELOG.md](CHANGELOG.md) | Everyone | Every change by version: what, why, what was verified |
 | [LensS_Collections_Leadership_Summary.md](LensS_Collections_Leadership_Summary.md) | Leadership | What was built, why, and where it stands, in plain language |
 | [docs/LensS_Client_Demo_Playbook.html](docs/LensS_Client_Demo_Playbook.html) | Presenters | Scene-by-scene client pitch script, Q&A, pre-demo checklist (open in a browser) |
+| [docs/LensS_Routing_Reference.html](docs/LensS_Routing_Reference.html) | Engineers, reviewers | Every rule that routes an Assistant question: diagrams, ~90 numbered rules with the functions that implement them, context and token budgets, Genie conversations, cache, guardrails, settings, files, FAQ and search (open in a browser; online copy: https://claude.ai/artifact/HyZSsXXrSw7f3Z5E4pFTXo) |
+| [docs/LensS_Routing_Examples.html](docs/LensS_Routing_Examples.html) | Everyone | The routing path stepped through six real conversations (online copy: https://claude.ai/artifact/5f4tqq53k4eXzLoLb5ZTw1) |
 | [docs/LensS_Figures_Reference.md](docs/LensS_Figures_Reference.md) | Presenters, analysts | Every Command Center and Explorer figure: what it shows and how it is calculated |
 | [docs/LensS_Collections_Product_and_Demo_Guide.docx](docs/LensS_Collections_Product_and_Demo_Guide.docx) | Presenters, clients, leadership | The full Word guide (v1.9): product, architecture, data, AI safeguards, every screen with screenshots, deployment, a 20-minute demo script, safe questions, Q&A, key figures, glossary |
 | [PROJECT_UNDERSTANDING_AND_PLAN.md](PROJECT_UNDERSTANDING_AND_PLAN.md) | Background | The original scope, inventory and plan (historical) |

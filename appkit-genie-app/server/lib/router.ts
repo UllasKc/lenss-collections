@@ -197,14 +197,23 @@ export function decide(question: string, selected: Selected, turns: Turn[], s: S
   }
   // After a genuine app question ("What does Observability show?"), a short "tell me more" with no data words
   // continues the guide, whatever the model read. After a data question the guide answered by mistake, it doesn't.
-  const guideQuestion = afterGuide && (platformCandidate(last.q, true) || !DATA_WORDS.test(last.q));
+  // The guide's question was really about the app: app wording, or a data word next to something on screen
+  // ("Where is the DPD filter?"), or no data words at all. Not a data question the guide answered by mistake.
+  const guideQuestion = afterGuide && (platformCandidate(last.q, false) || !DATA_WORDS.test(last.q));
   const continuesGuide = guideQuestion && (s.vague || intent === 'more_depth' || intent === 'follow_up') && !s.dataWords && !s.pushback && !s.repeat;
   if (destination === 'data' && continuesGuide) {
     destination = 'platform';
     rules.push('continues the answer about the app');
   }
+  // Pushback after a genuine app question, naming no data ("Where is the DPD filter?" → "No, you do it"), stays
+  // with the guide: the person wants the app done for them, which the guide can answer; the data can't.
+  const pushbackOnGuide = guideQuestion && intent === 'pushback' && !s.dataWords;
+  if (pushbackOnGuide && destination === 'data') {
+    destination = 'platform';
+    rules.push('pushback on an answer about the app stays with the guide');
+  }
   // Otherwise pushback, a repeat or asking for more never gets the guide again.
-  if (destination === 'platform' && ['pushback', 'more_depth', 'repeat'].includes(intent) && !continuesGuide && (afterGuide || !s.platformWording)) {
+  if (destination === 'platform' && ['pushback', 'more_depth', 'repeat'].includes(intent) && !continuesGuide && !pushbackOnGuide && (afterGuide || !s.platformWording)) {
     destination = 'data';
     rules.push(afterGuide ? 'never the guide twice when the person pushes back' : 'pushback goes to the data');
   }
@@ -256,7 +265,12 @@ export async function routeMessage(question: string, selected: Selected, history
 }
 
 /** Clicked questions and buttons skip the model: the click says where they go. */
-export function fixedRoute(question: string, how: 'preset' | 'deeper' | 'data', mode: Mode, turns: Turn[]): RouteDecision {
+export function fixedRoute(question: string, how: 'preset' | 'deeper' | 'data' | 'guide', mode: Mode, turns: Turn[]): RouteDecision {
+  if (how === 'guide') {
+    // Regenerate on a guide answer: the guide again.
+    return { destination: 'platform', mode: 'chat', intent: 'platform_help', standalone: question, escalated: false, confidence: null,
+      reason: 'Regenerate on a guide answer', rules: [], method: 'button', selected: mode };
+  }
   if (how === 'preset') {
     const platform = platformCandidate(question, true);
     return { destination: platform ? 'platform' : 'data', mode: platform ? 'chat' : mode, intent: platform ? 'platform_help' : 'new_question',

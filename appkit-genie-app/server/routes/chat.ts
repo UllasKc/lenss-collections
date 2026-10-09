@@ -381,7 +381,7 @@ export function buildChatRouter(appkit: ChatAppKit): express.Router {
     // Where it goes and how deep. Clicked suggestions and the Go deeper / Ask the data buttons say so
     // themselves; a typed question was routed when the browser asked (or is routed now, for API callers).
     // A refresh re-asks the same question the same way.
-    const force = req.body?.force === 'deeper' || req.body?.force === 'data' ? req.body.force as 'deeper' | 'data' : null;
+    const force = ['deeper', 'data', 'guide'].includes(req.body?.force) ? req.body.force as 'deeper' | 'data' | 'guide' : null;
     const selected: Selected = ['chat', 'agent', 'auto'].includes(req.body?.selected) ? req.body.selected : mode;
     let route: RouteDecision | null = refreshOf ? null
       : req.body?.preset === true ? fixedRoute(question, 'preset', mode, history.turns)
@@ -394,7 +394,7 @@ export function buildChatRouter(appkit: ChatAppKit): express.Router {
     // The guide's model can still hand a typed question back as a data question (a safety net under the router).
     let platform: PlatformAnswer | null = null;
     if (route?.destination === 'platform' && !patterns.blocked) {
-      const forced = route.method === 'preset';
+      const forced = route.method === 'preset' || route.method === 'button';   // a click says it's for the guide
       platform = await trace.time('Platform guide', aiConfig.platformHelp?.model ? 'model' : 'cache',
         () => answerPlatform(question, history.turns, { force: forced, context: historyWindow(history, aiConfig.contextBudgets.guide) })).catch(() => null);
       if (!platform) route = { ...route, destination: 'data', rules: [...route.rules, 'the guide said it was a data question'] };

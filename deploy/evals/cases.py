@@ -72,6 +72,8 @@ ROUTING_CASES = [
     (f"[guide] {_DPD}\nCan you please answer yourself, I can't do it myself?", "chat", "data", "Pushback (logged failure)"),
     (f"[guide] {_DPD}\nThat's not what I asked, show me the numbers", "auto", "data", "Pushback"),
     (f"[guide] {_DPD}\nThis is not enough, I need more info", "auto", "data:deep:fresh", "Asked for more after a misrouted guide answer"),
+    ("[guide] Where is the DPD filter?\nNo, you do it", "auto", "platform", "Pushback on a genuine app answer stays with the guide"),
+    ("[guide] Where is the DPD filter?\nNo, just show me the DPD numbers", "auto", "data", "A data request after an app answer goes to the data"),
     # More depth, or the same question again: a fresh deep analysis.
     (f"[quick] {_IMM}\nThis is not enough, I need more info", "auto", "data:deep:fresh", "Asked for more"),
     (f"[quick] {_IMM}\nnot enough, need more detail", "chat", "data:deep:fresh", "Asked for more, with Quick selected"),

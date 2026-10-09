@@ -1,0 +1,712 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>LensS Routing Reference</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Archivo:wdth,wght@85,600;85,800&family=Public+Sans:wght@400;600;700&family=JetBrains+Mono:wght@400;600&display=swap">
+<style>
+/* Layout: a reference manual. Sticky contents rail + search on the left, numbered rule tables and diagrams on the right. */
+:root {
+  --bg: #F3F6F8; --panel: #FFFFFF; --ink: #12222E; --muted: #5B6B78; --line: #D5DEE5; --soft: #E8EFF4;
+  --navy: #0B3B5C; --aqua: #127F92; --guide: #6D4FC2; --amber: #B45309; --hit: #FFF3C4; --code: #F1F5F8;
+  --display: "Archivo", "Arial Narrow", system-ui, sans-serif;
+  --body: "Public Sans", system-ui, -apple-system, "Segoe UI", sans-serif;
+  --mono: "JetBrains Mono", ui-monospace, Consolas, monospace;
+  color-scheme: light;
+}
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) {
+    --bg: #0E171E; --panel: #15212B; --ink: #E4ECF2; --muted: #93A4B1; --line: #2A3A47; --soft: #1C2B37;
+    --navy: #6FB2E0; --aqua: #4FC6D8; --guide: #A994F2; --amber: #F0A04B; --hit: #4A3D10; --code: #101B24; color-scheme: dark;
+  }
+}
+:root[data-theme="dark"] {
+  --bg: #0E171E; --panel: #15212B; --ink: #E4ECF2; --muted: #93A4B1; --line: #2A3A47; --soft: #1C2B37;
+  --navy: #6FB2E0; --aqua: #4FC6D8; --guide: #A994F2; --amber: #F0A04B; --hit: #4A3D10; --code: #101B24; color-scheme: dark;
+}
+* { box-sizing: border-box; }
+html { scroll-behavior: smooth; }
+@media (prefers-reduced-motion: reduce) { html { scroll-behavior: auto; } }
+body { background: var(--bg); color: var(--ink); font: 15px/1.55 var(--body); margin: 0; }
+.shell { max-width: 1240px; margin: 0 auto; padding-inline: 20px; padding-block: 24px 80px; display: grid; grid-template-columns: 240px minmax(0, 1fr); gap: 32px; }
+nav.rail { position: sticky; top: calc(env(safe-area-inset-top, 0px) + 16px); align-self: start; max-height: calc(100vh - 32px); overflow: auto; font-size: 13.5px; }
+nav.rail a { display: block; color: var(--muted); text-decoration: none; padding: 3px 0; }
+nav.rail a:hover, nav.rail a:focus-visible { color: var(--ink); }
+nav.rail .grp { font: 600 10.5px var(--mono); letter-spacing: .12em; text-transform: uppercase; color: var(--muted); margin: 14px 0 4px; }
+.search { margin-bottom: 8px; }
+.search input { width: 100%; font: 14px var(--body); padding: 8px 10px; border-radius: 8px; border: 1px solid var(--line); background: var(--panel); color: var(--ink); }
+.search input:focus-visible { outline: 2px solid var(--aqua); outline-offset: 1px; }
+.search small { display: block; color: var(--muted); margin-top: 4px; min-height: 18px; }
+main { min-width: 0; }
+h1, h2, h3 { font-family: var(--display); font-stretch: 85%; text-wrap: balance; margin: 0; }
+h1 { font-size: clamp(30px, 4.5vw, 42px); font-weight: 800; letter-spacing: -.01em; }
+h2 { font-size: 24px; font-weight: 800; margin-top: 52px; padding-top: 8px; border-top: 1px solid var(--line); }
+h3 { font-size: 17px; font-weight: 600; margin-top: 22px; }
+p { margin: 8px 0; max-width: 78ch; }
+.eyebrow { font: 600 11px var(--mono); letter-spacing: .12em; text-transform: uppercase; color: var(--muted); }
+.lede { color: var(--muted); font-size: 16px; }
+code, kbd { font-family: var(--mono); font-size: 12.5px; background: var(--code); border-radius: 4px; padding: 1px 5px; }
+pre.code { font: 12px/1.5 var(--mono); background: var(--code); border: 1px solid var(--line); border-radius: 10px; padding: 12px 14px; overflow-x: auto; white-space: pre; margin: 8px 0; }
+.diagram { background: var(--panel); border: 1px solid var(--line); border-radius: 12px; padding: 14px; overflow-x: auto; margin: 12px 0; }
+.diagram pre.mermaid { margin: 0; background: transparent; }
+.cap { font-size: 13px; color: var(--muted); margin-top: 6px; }
+.tablebox { overflow-x: auto; background: var(--panel); border: 1px solid var(--line); border-radius: 12px; margin: 12px 0; }
+table { border-collapse: collapse; width: 100%; min-width: 680px; font-size: 14px; }
+th, td { text-align: left; vertical-align: top; padding: 9px 12px; border-bottom: 1px solid var(--line); }
+th { font: 600 10.5px var(--mono); letter-spacing: .08em; text-transform: uppercase; color: var(--muted); background: var(--soft); position: sticky; top: 0; }
+tr:last-child td { border-bottom: 0; }
+td.id { font: 600 12px var(--mono); white-space: nowrap; color: var(--amber); }
+td.fn { font: 12px var(--mono); color: var(--muted); white-space: nowrap; }
+tr.hidden, details.hidden, .faq-item.hidden { display: none; }
+mark { background: var(--hit); color: inherit; border-radius: 3px; padding: 0 1px; }
+.tag { font: 600 10.5px var(--mono); padding: 1px 6px; border-radius: 5px; border: 1px solid currentColor; white-space: nowrap; }
+.t-guide { color: var(--guide); } .t-quick { color: var(--aqua); } .t-deep { color: var(--navy); } .t-amber { color: var(--amber); }
+.grid2 { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); gap: 12px; }
+.card { background: var(--panel); border: 1px solid var(--line); border-radius: 12px; padding: 14px 16px; }
+.card h3 { margin-top: 0; }
+.card ul { margin: 6px 0 0; padding-left: 18px; }
+.card li { margin: 3px 0; }
+.note { border-left: 3px solid var(--amber); background: var(--panel); padding: 10px 14px; border-radius: 0 10px 10px 0; margin: 12px 0; font-size: 14px; }
+.faq-item { background: var(--panel); border: 1px solid var(--line); border-radius: 10px; margin: 8px 0; }
+.faq-item summary { cursor: pointer; padding: 10px 14px; font-weight: 600; }
+.faq-item div { padding: 0 14px 12px; font-size: 14.5px; }
+.faq-item summary:focus-visible { outline: 2px solid var(--aqua); outline-offset: 2px; border-radius: 10px; }
+@media (max-width: 900px) {
+  .shell { grid-template-columns: minmax(0, 1fr); }
+  nav.rail { position: static; max-height: none; border-bottom: 1px solid var(--line); padding-bottom: 12px; }
+  nav.rail .links { display: none; }
+  .grid2 { grid-template-columns: minmax(0, 1fr); }
+}
+</style>
+</head>
+<body>
+
+
+<div class="shell">
+<nav class="rail" aria-label="Contents">
+  <div class="search">
+    <label class="eyebrow" for="q">Find a rule, file or term</label>
+    <input id="q" type="search" placeholder="e.g. repeat, 2500, cache, pushback" autocomplete="off">
+    <small id="qcount"></small>
+  </div>
+  <div class="links">
+    <div class="grp">Overview</div>
+    <a href="#map">1. System map</a>
+    <a href="#journey">2. One question, end to end</a>
+    <a href="#entry">3. Every way a question starts</a>
+    <div class="grp">The router</div>
+    <a href="#router">4. Router decision flow</a>
+    <a href="#signals">5. Signals (no model)</a>
+    <a href="#model">6. Router model</a>
+    <a href="#rules">7. Every routing rule</a>
+    <a href="#fallback">8. Word-rule fallback</a>
+    <a href="#fixed">9. Clicks and buttons</a>
+    <div class="grp">After routing</div>
+    <a href="#pipeline">10. Send pipeline</a>
+    <a href="#context">11. Context and memory</a>
+    <a href="#genie">12. Genie conversations</a>
+    <a href="#cache">13. Answer cache</a>
+    <a href="#guard">14. Guardrails</a>
+    <a href="#ui">15. What you see in the app</a>
+    <div class="grp">Reference</div>
+    <a href="#obs">16. Logging and Observability</a>
+    <a href="#evals">17. Tests</a>
+    <a href="#config">18. Settings</a>
+    <a href="#files">19. Files and functions</a>
+    <a href="#limits">20. Known limits</a>
+    <a href="#faq">21. Questions and answers</a>
+  </div>
+</nav>
+
+<main>
+  <div class="eyebrow">LensS Collections Intelligence · Assistant · as of router-v1.1 + testing fixes</div>
+  <h1>LensS Routing Reference</h1>
+  <p class="lede">Every rule that decides where an Assistant question goes, how deep it is answered, and what Genie is sent with it, written from the code. Rule IDs (like <code>R7</code>) are used in the diagrams and tables. The right-hand column of each table names the function that implements the rule.</p>
+  <div class="note">Three destinations: <span class="tag t-guide">LensS guide</span> questions about the app, answered from the platform guide · <span class="tag t-quick">Genie Quick</span> Genie's Chat mode, one query, ~20–30 s · <span class="tag t-deep">Genie Deep</span> Genie's Agent mode, several queries and reasoning, 1–3 min.</div>
+
+  <!-- 1 -->
+  <h2 id="map">1. System map</h2>
+  <p>Who talks to whom. The browser never calls a model directly; the Express server does.</p>
+  <div class="diagram"><pre class="mermaid">
+flowchart LR
+  subgraph Browser["Browser · public/js/chat.js"]
+    UI["Assistant tab"]
+  end
+  subgraph Server["App server · server/routes/chat.ts"]
+    RT["/api/chat/route · router decision"]
+    SEND["/api/chat/sessions/:id/messages · send pipeline, streams the answer"]
+  end
+  subgraph Models["Databricks model serving"]
+    ROUTER["Router · Llama 3.3 70B"]
+    GUARD["Guardrail classifier"]
+    GUIDE["Platform guide model"]
+    EMB["Question embeddings · GTE"]
+    JUDGE["Quality judge"]
+    FU["Follow-up suggestions"]
+    MEM["Memory summariser"]
+  end
+  subgraph Genie["Genie space"]
+    CHAT["Chat mode · Quick"]
+    AGENT["Agent mode · Deep"]
+  end
+  WH[("SQL warehouse · certified gold views")]
+  LB[("Lakebase · chatapp · messages, sessions, usage_log, · answer_cache, eval tables")]
+  UI -->|"1 typed question"| RT --> ROUTER
+  UI -->|"2 send"| SEND
+  SEND --> GUARD & GUIDE & EMB & FU & JUDGE & MEM
+  SEND --> CHAT & AGENT
+  CHAT --> WH
+  AGENT --> WH
+  RT --- LB
+  SEND --- LB
+  </pre></div>
+
+  <!-- 2 -->
+  <h2 id="journey">2. One question, end to end</h2>
+  <p>A typed question in the Assistant. Clicked questions skip the first two arrows (<a href="#fixed">section 9</a>).</p>
+  <div class="diagram"><pre class="mermaid">
+sequenceDiagram
+  autonumber
+  actor P as Person
+  participant B as Browser
+  participant R as /api/chat/route
+  participant M as Router model
+  participant S as Send pipeline
+  participant G as Genie
+  participant L as Lakebase
+  P->>B: types a question, presses Send
+  B->>R: question + setting (Auto/Quick/Deep) + chat id
+  R->>L: load the chat's history
+  R->>R: mask personal details, compute signals
+  R->>M: history window + latest message
+  M-->>R: destination, depth, intent, rewrite, confidence
+  R->>R: safety rules, decision kept 10 min
+  R-->>B: destination, mode, reason, confirm?
+  alt asked again after a good answer
+    B->>P: Run a deep analysis / Show the earlier answer
+  end
+  B->>S: send (mode, setting, flags)
+  S->>S: guardrails, cache, context for Genie
+  alt guide
+    S->>S: answer from the platform guide
+  else cache hit
+    S->>L: saved answer
+  else Genie
+    S->>G: missed turns (if any) + question
+    G-->>S: answer, tables, SQL (streamed progress)
+  end
+  S-->>B: answer, then saved, follow-ups, title, done
+  S->>L: save messages, write the usage log
+  S->>S: after the answer: quality judge, memory summary
+  </pre></div>
+
+  <!-- 3 -->
+  <h2 id="entry">3. Every way a question starts</h2>
+  <div class="tablebox"><table>
+    <thead><tr><th>ID</th><th>Entry point</th><th>What the browser sends</th><th>Routed by</th><th>Function</th></tr></thead>
+    <tbody>
+      <tr><td class="id">E1</td><td>Typing in the Assistant (or voice, which fills the box)</td><td>Asks <code>/api/chat/route</code> first, then sends with <code>selected</code> = your setting</td><td>The router (sections 4–8)</td><td class="fn">sendMessage · routeTyped</td></tr>
+      <tr><td class="id">E2</td><td>Suggested question in the Assistant (welcome cards, prompts panel, library)</td><td><code>preset: true</code>, <code>standalone: true</code>, the card's own mode, same chat</td><td>Fixed route F1</td><td class="fn">askFromPanel</td></tr>
+      <tr><td class="id">E3</td><td><b>Ask LensS</b> button on the Command Center or Explorer</td><td>Opens a <b>new chat</b>, then <code>preset: true</code>, <code>standalone: true</code>, the button's mode</td><td>Fixed route F1</td><td class="fn">askAssistant</td></tr>
+      <tr><td class="id">E4</td><td>Follow-up chip under an answer</td><td><code>preset: true</code> in the mode of the answer it follows</td><td>Fixed route F1</td><td class="fn">addFollowups</td></tr>
+      <tr><td class="id">E5</td><td><b>Go deeper with a deep analysis</b> button</td><td><code>force: 'deeper'</code>, mode Deep, the question the answer was for</td><td>Fixed route F2</td><td class="fn">renderAnswer · _offerDeeper</td></tr>
+      <tr><td class="id">E6</td><td><b>Answer from the data instead</b> (under a guide answer)</td><td><code>force: 'data'</code>, mode Deep if Deep is selected, else Quick</td><td>Fixed route F3</td><td class="fn">renderAnswer</td></tr>
+      <tr><td class="id">E7</td><td><b>Run a deep analysis</b> in "You asked this before"</td><td><code>force: 'deeper'</code>, mode Deep</td><td>Fixed route F2</td><td class="fn">chooseOnRepeat</td></tr>
+      <tr><td class="id">E8</td><td><b>Show the earlier answer</b> in "You asked this before"</td><td>Nothing: scrolls to and highlights the earlier answer. If it isn't on screen, the question is sent normally.</td><td>—</td><td class="fn">showEarlierAnswer</td></tr>
+      <tr><td class="id">E9</td><td><b>Refresh</b> on a cached answer</td><td><code>refreshOf</code>, the answer's mode; replaces the cached answer in place</td><td>Not routed: same question, same mode, live</td><td class="fn">addCacheNote</td></tr>
+      <tr><td class="id">E10</td><td><b>Regenerate</b> on a live answer</td><td>Data answer: <code>preset: true</code> in the answer's mode. Guide answer: <code>force: 'guide'</code>.</td><td>Fixed route F1 or F4: the same question, same mode, never read as "asked again"</td><td class="fn">renderAnswer (regen)</td></tr>
+      <tr><td class="id">E11</td><td><b>Try again</b> after an error</td><td><code>preset: true</code> in the same mode</td><td>Fixed route F1</td><td class="fn">sendMessage (fail-retry)</td></tr>
+      <tr><td class="id">E12</td><td>API callers (smoke test)</td><td>Send only, no route request</td><td>The router runs inside the send step</td><td class="fn">handleSend</td></tr>
+    </tbody>
+  </table></div>
+
+  <!-- 4 -->
+  <h2 id="router">4. Router decision flow</h2>
+  <p>For a typed question. Each diamond is a rule from <a href="#rules">section 7</a>; the order is the order in the code (<code>decide()</code> in <code>router.ts</code>).</p>
+  <div class="diagram"><pre class="mermaid">
+flowchart TD
+  A["Typed message"] --> PII["Mask personal details · inputPatterns"]
+  PII --> SIG["Signals S1-S6 · no model"]
+  SIG --> MOD{"Router model on and answered?"}
+  MOD -- yes --> READ["Model reading: destination, depth, intent, rewrite, confidence"]
+  MOD -- "no / slow / unreadable" --> NOM["No reading: word rules decide"]
+  READ --> INT
+  NOM --> INT
+  INT["Intent I1-I5 · signals outrank the model"] --> DEST["Destination D1-D4"]
+  DEST --> CG{"D5 · short follow-up to a real app question?"}
+  CG -- yes --> PLAT["Guide"]
+  CG -- no --> PG{"D5b · pushback on a real app answer, no data words?"}
+  PG -- yes --> PLAT
+  PG -- no --> PB{"D6 · guide chosen but pushback, asked for more or asked again?"}
+  PB -- yes --> DATA["Data"]
+  PB -- no --> KEEP["keep destination"]
+  KEEP --> DQ{"Destination"}
+  DATA --> DQ
+  PLAT --> DQ
+  DQ -- guide --> MQ["M1 · Quick"]
+  DQ -- data --> REP{"Intent is repeat?"}
+  REP -- "yes, earlier answer good" --> CONF["E2 · confirm: the person chooses"]
+  REP -- "yes, earlier answer weak" --> ESC["E3 · escalate: fresh Deep"]
+  REP -- no --> MORE{"more depth, or pushback not after a guide answer?"}
+  MORE -- yes --> ESC
+  MORE -- no --> SET{"Setting"}
+  SET -- "Quick or Deep" --> KEEPM["M3 · keep the setting"]
+  SET -- Auto --> AUTO["M4 · model depth, or M5 word rule"]
+  ESC --> W["W1 · standalone rewrite (kept for logs)"]
+  CONF --> W
+  KEEPM --> W
+  AUTO --> W
+  MQ --> OUT["Decision: destination · mode · intent · escalated · confirm · rules · reason"]
+  W --> OUT
+  </pre></div>
+
+  <!-- 5 -->
+  <h2 id="signals">5. Signals (no model)</h2>
+  <p>Plain checks on the message and the chat, computed before the model is asked (<code>signalsOf()</code>). They are always available, even when the model is down.</p>
+  <div class="tablebox"><table>
+    <thead><tr><th>ID</th><th>Signal</th><th>How it is detected</th><th>Matches / doesn't match</th><th>Function</th></tr></thead>
+    <tbody>
+      <tr><td class="id">S1</td><td>Repeat of an earlier question</td><td>Content words (stop words removed) of the message vs each of the last 8 questions; a match when shared words ÷ all words ≥ 0.75 and the message has ≥ 3 content words</td><td>"Which accounts require immediate intervention?" twice ✓ · "Top 10 collectors in Mumbai" then "…in Delhi" ✗ (0.67)</td><td class="fn">repeatOf</td></tr>
+      <tr><td class="id">S2</td><td>Asks for more</td><td><code>MORE_DEPTH</code> pattern, below</td><td>"not enough", "need more info", "go deeper", "too high-level", "elaborate" ✓ · "why is X so high?" ✗</td><td class="fn">MORE_DEPTH</td></tr>
+      <tr><td class="id">S3</td><td>Pushback</td><td><code>PUSHBACK</code> pattern, below</td><td>"you do it", "answer it yourself", "just tell me", "that's not what I asked", "wrong answer" ✓</td><td class="fn">PUSHBACK</td></tr>
+      <tr><td class="id">S4</td><td>Platform wording (strict)</td><td><code>STRONG</code> pattern in platformGuide.ts</td><td>"LensS", "this app", "what can you do", "Command Center", "observability", "Quick answer", "log out", "how do I export/filter/…", "which tab" ✓</td><td class="fn">platformCandidate(q, true)</td></tr>
+      <tr><td class="id">S5</td><td>Data words</td><td><code>DATA_WORDS</code>: collections terms, "month", "week", "top", "lowest/highest", any digit or ₹</td><td>"DPD", "portfolio", "accounts", "recovery" ✓</td><td class="fn">DATA_WORDS</td></tr>
+      <tr><td class="id">S6</td><td>Vague follow-up</td><td>Only when the chat has earlier turns: ≤ 12 words and starts with "tell me more / more / explain / elaborate / go on / continue / what about / and / why / how so / details / example / can you / could you / I am asking / what do you mean / meaning", or contains "this, that, it, these, those, previous, above, last one/answer/question, you said"</td><td>"and for Mumbai?", "Tell me more" ✓</td><td class="fn">isVagueFollowUp</td></tr>
+      <tr><td class="id">S7</td><td>Starts like a new question</td><td>Message begins with why / what / which / how / where / when / who / whose / is / are / was / were / does / do / did / show / list / compare / rank / give me the</td><td>Used by I2 only</td><td class="fn">ASKS_NEW</td></tr>
+    </tbody>
+  </table></div>
+  <details class="card"><summary><b>The exact patterns</b> (for developers)</summary>
+<pre class="code">MORE_DEPTH  /\b(not (enough|sufficient|detailed|complete)|isn'?t enough|need (more|a lot more|much more|further)|
+             want (more|a fuller|a deeper)|more (detail|details|info|information|depth|insight|analysis)|go (deeper|further)|
+             dig (deeper|into)|deep(er)? (dive|analysis|research)|in (more )?(depth|detail)|full(er)? (analysis|picture|answer|breakdown)|
+             elaborate|too (short|brief|shallow|vague|high[- ]level)|that'?s (it|all)\?|incomplete|superficial|explain (more|further|in detail))\b/i
+
+PUSHBACK    /\b(you do it|do it (yourself|for me)|answer (it |this |that )?(yourself|for me|directly)|(i )?(can'?t|cannot|don'?t want to) do (it|this|that)|
+             just (tell|show|give) me|not the steps|i asked (for|about) the (data|numbers)|show me the (data|numbers|answer)|
+             that'?s not what i asked|not what i (asked|wanted|meant)|wrong answer|you (didn'?t|did not) answer)\b/i
+
+ASKS_NEW    /^\s*(why|what|which|how|where|when|who|whose|is|are|was|were|does|do|did|show|list|compare|rank|give me the)\b/i
+
+DATA_WORDS  /\b(accounts?|collect(ed|ions?)?|recover(y|ed)?|targets?|dpd|buckets?|arrears|promises?|ptp|products?|mortgages?|loans?|cards?|
+             sme|regions?|branch(es)?|rates?|balances?|outstanding|collectors?|channels?|segments?|strateg(y|ies)|customers?|portfolio|
+             month|week|lowest|highest|top|figures?|numbers?)\b|₹|\d/i
+
+On-screen words (rule D3, and UI_WORDS for presets): tabs, pages, buttons, filters, drop-downs, menus, click, screen, export,
+             download, explorer, assistant, observability, dashboard, settings (UI_WORDS also: chart type)</pre>
+  </details>
+
+  <!-- 6 -->
+  <h2 id="model">6. Router model</h2>
+  <div class="grid2">
+    <div class="card"><h3>What it is given</h3><ul>
+      <li>A fixed prompt describing the two destinations, two depths and six intents, with examples ("Where is the risk concentrated?" is data; "Where is the DPD filter?" is the guide).</li>
+      <li><b>The chat so far</b> from <code>historyWindow()</code>: the whole chat when it is under 2,000 tokens; otherwise the stored summary, the newest whole question-and-answer pairs within 2,000 tokens, and one-line summaries for older turns the summary doesn't reach. Each turn says who answered it ("the LensS guide", "a quick answer", "a saved quick answer", "a deep analysis").</li>
+      <li>The latest message (first 1,000 characters), with personal details already masked.</li>
+    </ul></div>
+    <div class="card"><h3>What it returns</h3><ul>
+      <li>JSON: <code>destination</code> (data | platform), <code>depth</code> (quick | deep), <code>intent</code>, <code>standalone</code> (the request rewritten to stand alone, ≤ 40 words), <code>confidence</code> 0–1, <code>reason</code>.</li>
+      <li>Up to 220 tokens of output, timeout 8 s (<code>auto_mode.timeout_ms</code>).</li>
+      <li>If the reply has no valid destination or depth, or the call fails or times out: <b>no reading</b>, and the word rules decide (<code>fallback</code> is logged). An unknown intent becomes <code>new_question</code>; a missing confidence becomes 0.5.</li>
+    </ul></div>
+  </div>
+  <div class="tablebox"><table>
+    <thead><tr><th>Intent</th><th>Meaning (as told to the model)</th><th>Example</th></tr></thead>
+    <tbody>
+      <tr><td>new_question</td><td>A fresh question</td><td>"Which products are behind target?"</td></tr>
+      <tr><td>follow_up</td><td>Continues the conversation, including a new question about something in the answer</td><td>"and for Mumbai?", "why is the third one so high?"</td></tr>
+      <tr><td>more_depth</td><td>Only when the person says the answer was not enough or asks to go deeper on the same thing</td><td>"This is not enough, I need more info"</td></tr>
+      <tr><td>repeat</td><td>Asks again something already asked in this chat</td><td>The same question, or the same in other words</td></tr>
+      <tr><td>pushback</td><td>Rejects the previous answer</td><td>"No, you do it", "that's not what I asked"</td></tr>
+      <tr><td>platform_help</td><td>About the app itself</td><td>"How do I export?"</td></tr>
+    </tbody>
+  </table></div>
+
+  <!-- 7 -->
+  <h2 id="rules">7. Every routing rule</h2>
+  <p>In the order the code applies them. "Signals outrank the model" means a plain-word signal overrides the model's reading.</p>
+  <div class="tablebox"><table id="ruletable">
+    <thead><tr><th>ID</th><th>Rule</th><th>Effect</th><th>Function</th></tr></thead>
+    <tbody>
+      <tr><td class="id">I1</td><td>Start from the model's intent. Without a model: platform wording (S4) → platform_help; a vague follow-up (S6) → follow_up; otherwise new_question.</td><td>Intent</td><td class="fn">decide</td></tr>
+      <tr><td class="id">I2</td><td>The model said more_depth, but the message has no "more" words (S2) and starts like a new question (S7)</td><td>Intent becomes follow_up: answered at your chosen depth, not escalated</td><td class="fn">decide</td></tr>
+      <tr><td class="id">I3</td><td>"More" words present (S2)</td><td>Intent = more_depth, whatever the model said</td><td class="fn">decide</td></tr>
+      <tr><td class="id">I4</td><td>Otherwise, pushback words present (S3)</td><td>Intent = pushback</td><td class="fn">decide</td></tr>
+      <tr><td class="id">I5</td><td>Otherwise, a repeat (S1) and the intent isn't more_depth</td><td>Intent = repeat</td><td class="fn">decide</td></tr>
+      <tr><td class="id">D1</td><td>With a model: start from its destination</td><td>Destination</td><td class="fn">decide</td></tr>
+      <tr><td class="id">D2</td><td>Model chose the guide with confidence below 0.7</td><td>→ data ("unsure whether it was about the app")</td><td class="fn">decide</td></tr>
+      <tr><td class="id">D3</td><td>Model chose the guide, but the message names collections data (S5), has no strict platform wording (S4) and no on-screen words</td><td>→ data ("names collections data and nothing on screen")</td><td class="fn">decide</td></tr>
+      <tr><td class="id">D4</td><td>Without a model: platform wording (S4), or a vague follow-up (S6) with no data words right after a guide answer</td><td>→ guide; otherwise → data</td><td class="fn">decide</td></tr>
+      <tr><td class="id">D5</td><td>The last answer came from the guide and its question really was about the app (<b>genuine app question</b>: app wording, or a data word next to something on screen like "Where is the DPD filter?", or no data words), and this message is vague / more_depth / follow_up with no data words, no pushback and no repeat</td><td>→ guide ("continues the answer about the app"), even if the model said data</td><td class="fn">decide (guideQuestion, continuesGuide)</td></tr>
+      <tr><td class="id">D5b</td><td>Pushback after a genuine app question, naming no data ("Where is the DPD filter?" → "No, you do it")</td><td>→ guide ("pushback on an answer about the app stays with the guide"). "No, just show me the DPD numbers" names data, so it goes to the data.</td><td class="fn">decide (pushbackOnGuide)</td></tr>
+      <tr><td class="id">D6</td><td>Guide chosen, intent is pushback / more_depth / repeat, neither D5 nor D5b applied, and either the last answer came from the guide or the message has no platform wording</td><td>→ data ("never the guide twice when the person pushes back"): the case of a data question the guide answered by mistake</td><td class="fn">decide</td></tr>
+      <tr><td class="id">D7</td><td>At send time: the guide's model replies "DATA_QUESTION" (typed questions only; never for a clicked suggestion), or platform help is switched off</td><td>→ data ("the guide said it was a data question")</td><td class="fn">answerPlatform · handleSend</td></tr>
+      <tr><td class="id">R1</td><td>Intent repeat: the earlier turn is the repeated one (S1), or else the last turn</td><td>Picks the answer to judge</td><td class="fn">decide</td></tr>
+      <tr><td class="id">R2</td><td>Data + repeat + the earlier answer was <b>good</b> (not weak, see <a href="#weak">W-rules</a>)</td><td><b>confirm</b>: the Assistant asks "Run a deep analysis / Show the earlier answer"</td><td class="fn">decide</td></tr>
+      <tr><td class="id">R3</td><td>Data, not confirm, and intent is more_depth, repeat (after a weak answer), or pushback not after a guide answer</td><td><b>escalated</b>: Deep analysis, fresh (never cached), Genie told to give the fuller answer</td><td class="fn">decide · DEEPER_NOTE</td></tr>
+      <tr><td class="id">M1</td><td>Destination guide</td><td>Quick (the mode is recorded; the guide doesn't use Genie)</td><td class="fn">decide</td></tr>
+      <tr><td class="id">M2</td><td>Escalated</td><td>Deep, even with Quick selected ("the latest message outranks the Quick answer setting")</td><td class="fn">decide</td></tr>
+      <tr><td class="id">M3</td><td>Quick or Deep selected, not escalated</td><td>Your setting is kept, even for a "why" question</td><td class="fn">decide</td></tr>
+      <tr><td class="id">M4</td><td>Auto, with a model</td><td>The model's depth, for every question including follow-ups ("what's the total?" after a deep analysis can be Quick)</td><td class="fn">decide</td></tr>
+      <tr><td class="id">M5</td><td>Auto, without a model</td><td>The word rule (<a href="#fallback">section 8</a>); a vague follow-up to a Deep answer stays Deep</td><td class="fn">decide · rulesMode</td></tr>
+      <tr><td class="id">W1</td><td>Data and not a new question: build the standalone rewrite. Use the model's rewrite if it is ≥ 8 characters and not the same words as the message; otherwise, for more_depth / repeat / pushback, the repeated question or the last data question; otherwise the message itself.</td><td>Recorded in the decision and the trace</td><td class="fn">decide · lastDataQuestion</td></tr>
+      <tr><td class="id">W2</td><td>At send time, the rewrite goes to Genie <b>only</b> when the last turn was a guide answer and the intent isn't new_question</td><td>"No, you do it" → the question it refers to; otherwise Genie gets your own words</td><td class="fn">handleSend (refersToGuide)</td></tr>
+      <tr><td class="id">X1</td><td>Reason shown to you: the first rule that applied, else the model's reason, else "a question about the LensS app" / "needs analysis" / "a direct lookup"</td><td>The route line and traces</td><td class="fn">decide</td></tr>
+    </tbody>
+  </table></div>
+
+  <h3 id="weak">When is an earlier answer "weak"? (used by R2 / R3)</h3>
+  <div class="tablebox"><table>
+    <thead><tr><th>ID</th><th>Condition (any one makes it weak)</th><th>Function</th></tr></thead>
+    <tbody>
+      <tr><td class="id">K1</td><td>Under 140 characters of text</td><td class="fn" rowspan="5">weakAnswer (memory.ts)</td></tr>
+      <tr><td class="id">K2</td><td>No chart and under 320 characters</td></tr>
+      <tr><td class="id">K3</td><td>Ends with a question mark and under 400 characters (it asked you something back)</td></tr>
+      <tr><td class="id">K4</td><td>The quality judge scored completeness below 70% (<code>faithfulness_judge.warn_below</code>)</td></tr>
+      <tr><td class="id">K5</td><td>It got a 👎</td></tr>
+    </tbody>
+  </table></div>
+
+  <!-- 8 -->
+  <h2 id="fallback">8. Word-rule fallback (no model)</h2>
+  <p>Used for depth when the router model is off, slow or unreadable (<code>rulesMode()</code> in <code>autoMode.ts</code>); the browser has the same rule if it can't reach the router at all (<code>autoModeLocal</code>).</p>
+  <div class="tablebox"><table>
+    <thead><tr><th>ID</th><th>Rule</th><th>Result</th></tr></thead>
+    <tbody>
+      <tr><td class="id">F-1</td><td>More than 22 words</td><td><span class="tag t-deep">Deep</span> "long, multi-part question"</td></tr>
+      <tr><td class="id">F-2</td><td>Contains: why · how can/could/should/do/would we · what should · recommend · strategy · improve · root cause · driving · compare · analyse · investigate · prioritise · plan · explain · aggressive · impact · trade-off · what is/are causing/behind</td><td><span class="tag t-deep">Deep</span> "asks for reasoning"</td></tr>
+      <tr><td class="id">F-3</td><td>Mentions opportunity or drivers, and doesn't start like a lookup (which / what is / show / list / give me / how many / top N / count)</td><td><span class="tag t-deep">Deep</span></td></tr>
+      <tr><td class="id">F-4</td><td>Anything else</td><td><span class="tag t-quick">Quick</span> "a direct lookup"</td></tr>
+      <tr><td class="id">F-5</td><td>The browser can't reach <code>/api/chat/route</code></td><td>Destination data; depth from the same rule in Auto, else your setting</td></tr>
+    </tbody>
+  </table></div>
+
+  <!-- 9 -->
+  <h2 id="fixed">9. Clicks and buttons (fixed routes)</h2>
+  <p>No signals, no model, no safety rules: the click says where it goes (<code>fixedRoute()</code>).</p>
+  <div class="tablebox"><table>
+    <thead><tr><th>ID</th><th>Route</th><th>Destination and mode</th><th>Used by</th></tr></thead>
+    <tbody>
+      <tr><td class="id">F1</td><td>preset</td><td>Guide if the wording is strictly about the app (S4, e.g. "What can you help me with?"), answered from the guide and never handed back. Otherwise data in the click's own mode.</td><td>E2, E3, E4</td></tr>
+      <tr><td class="id">F2</td><td>deeper</td><td>Data, Deep, escalated (fresh, DEEPER_NOTE)</td><td>E5, E7</td></tr>
+      <tr><td class="id">F3</td><td>data</td><td>Data, in the mode sent; intent pushback if the chat has turns</td><td>E6</td></tr>
+      <tr><td class="id">F4</td><td>guide</td><td>The guide again, answered from the guide and never handed back</td><td>E10 on a guide answer</td></tr>
+    </tbody>
+  </table></div>
+
+  <!-- 10 -->
+  <h2 id="pipeline">10. Send pipeline</h2>
+  <p>What happens on the server after routing (<code>handleSend()</code> in <code>chat.ts</code>). The answer streams to the browser as it is produced.</p>
+  <div class="diagram"><pre class="mermaid">
+flowchart TD
+  IN["Send request"] --> P1["P1 · input pattern checks: personal details masked, profanity, injection"]
+  P1 --> P2["P2 · guardrail classifier starts in the background"]
+  P2 --> P3{"P3 · Refresh?"}
+  P3 -- yes --> P3a["delete the cached answer row"]
+  P3 -- no --> P4
+  P3a --> P4["P4 · cache-eligible? first question of the chat, a suggestion, or a refresh"]
+  P4 --> P5["P5 · load history: turns, summary"]
+  P5 --> P6["P6 · route: refresh = none · preset/force = fixed · else remembered decision, or route now"]
+  P6 --> P7{"P7 · destination guide?"}
+  P7 -- yes --> P7a["platform guide answer · DATA_QUESTION hands it back (D7)"]
+  P7 -- no --> P8
+  P7a --> P8{"P8 · cache key? eligible, not blocked, not guide, not escalated"}
+  P8 -- yes --> P9["P9 · exact match, then similar question at 98% or more with the same key details"]
+  P8 -- no --> P10
+  P9 --> P10["P10 · wait for the classifier (skipped on an exact hit) · off-topic block lifted for guide answers"]
+  P10 --> P11["P11 · context for Genie: missed turns (engineContext), or none"]
+  P11 --> P12["P12 · save the question · open the stream · name the chat"]
+  P12 --> BR{"P13 · answer from"}
+  BR -- blocked --> B1["the block message"]
+  BR -- guide --> B2["guide text + guide follow-ups"]
+  BR -- "cache hit" --> B3["saved answer, charts, SQL, judge score"]
+  BR -- Genie --> B4["P14 · Genie in its conversation for this mode"]
+  B4 --> B5["P15 · busy: retry after 3 s and 8 s in a fresh conversation · Deep still busy: a Quick answer instead"]
+  B5 --> B6["P16 · keep the conversation id only on success"]
+  B6 --> B7["P17 · drop empty tables (explain if nothing else does)"]
+  B7 --> B8["P18 · no charts on a follow-up asking for charts, a repeat or a vague follow-up: show the chat's latest charts again"]
+  B8 --> B9["P19 · output checks: personal details, profanity, policy wording"]
+  B9 --> B10["P20 · store in the cache only if Genie saw it alone (no earlier conversation, no context) and the mode didn't change"]
+  B1 --> OUT
+  B2 --> OUT
+  B3 --> OUT
+  B10 --> OUT["P21 · attach answer.route · stream the answer · save it · follow-up suggestions (topped up to 3)"]
+  OUT --> LOG["P22 · usage log: route, context, trace, tokens, sources, guardrails"]
+  LOG --> AFTER["P23 · after the answer: quality judge (sample %), memory summary every 5 pairs"]
+  </pre></div>
+
+  <!-- 11 -->
+  <h2 id="context">11. Context and memory</h2>
+  <p>Always whole question-and-answer pairs, newest first, never cut mid-sentence (except the latest pair past its cap, cut at a paragraph and labelled). Tokens are estimated at about 4 characters each.</p>
+  <div class="diagram"><pre class="mermaid">
+flowchart TD
+  H["Chat history: every question and answer, plus the stored summary"] --> W1["For the router · historyWindow, 2,000"]
+  H --> W2["For the guide's model · historyWindow, 1,000"]
+  H --> G0{"For Genie · engineContext"}
+  G0 --> G1["Keep only data turns this Genie conversation hasn't seen · (not guide, not blocked)"]
+  G1 --> G2{"Anything missed?"}
+  G2 -- no --> G3["Send your own words only"]
+  G2 -- yes --> G4["Latest missed pair whole + its first table (10 rows) + query · up to 4,000 tokens, else cut at a paragraph"]
+  G4 --> G5["More whole pairs, newest first, while the total stays within 2,500"]
+  G5 --> G6["Older missed: one line each, question + summarised answer, newest first, while room remains (+300 if the latest pair alone filled the budget); the rest counted as left out"]
+  G6 --> G7["In time order, labelled who answered each; told to use it only to understand the question and to work out figures from the data"]
+  </pre></div>
+  <div class="tablebox"><table>
+    <thead><tr><th>ID</th><th>Rule</th><th>Function</th></tr></thead>
+    <tbody>
+      <tr><td class="id">C1</td><td>The first question of a chat, a suggestion, or a refresh carries no context</td><td class="fn">handleSend (standalone)</td></tr>
+      <tr><td class="id">C2</td><td>Genie is never sent guide questions or answers, or blocked questions</td><td class="fn">engineContext</td></tr>
+      <tr><td class="id">C3</td><td>A turn counts as missed when it wasn't answered in this Genie conversation: the other mode, the cache (a different conversation), before a retry, or before this mode was first used</td><td class="fn">engineContext</td></tr>
+      <tr><td class="id">C4</td><td>Latest missed pair: whole, with its first table (column names + up to 10 rows, "N more rows") and the query behind it; cap 4,000 tokens, cut at a paragraph (or sentence) boundary with "[…the rest of this answer is left out]"</td><td class="fn">engineContext · cutAtBoundary · tableText</td></tr>
+      <tr><td class="id">C5</td><td>Then more whole pairs (without tables) while the total ≤ 2,500</td><td class="fn">engineContext</td></tr>
+      <tr><td class="id">C6</td><td>Older missed turns: "- Q: … → A (who, summarised): opening sentence"; the summary is the answer's opening sentence (20–240 characters), no model call</td><td class="fn">briefOf</td></tr>
+      <tr><td class="id">C7</td><td>A retry (fresh conversation) treats every data turn as missed</td><td class="fn">handleSend (retryContext)</td></tr>
+      <tr><td class="id">C8</td><td>Router and guide: the whole chat if it is under 2,000 tokens and the budget; otherwise the stored summary + newest whole pairs within the budget + one-line summaries for older turns the summary doesn't cover (+300 tokens room)</td><td class="fn">historyWindow</td></tr>
+      <tr><td class="id">C9</td><td>The stored summary: every 5 question-and-answer pairs (<code>compact_every</code>), older turns are folded into one summary of at most ~80 words (the memory model, or a no-model digest), keeping the 2 newest pairs out of it; runs after the answer is sent</td><td class="fn">maybeCompact</td></tr>
+      <tr><td class="id">C10</td><td>If conversation memory is switched off, Genie gets only the other mode's recent turns (the old behaviour)</td><td class="fn">crossModeContext</td></tr>
+    </tbody>
+  </table></div>
+  <div class="tablebox"><table>
+    <thead><tr><th>Budget</th><th>Default</th><th>Setting (deploy config, under <code>conversation_memory</code>)</th></tr></thead>
+    <tbody>
+      <tr><td>Router's view of the chat</td><td>2,000 tokens</td><td><code>router_tokens</code></td></tr>
+      <tr><td>Guide's view of the chat</td><td>1,000 tokens</td><td><code>guide_tokens</code></td></tr>
+      <tr><td>Genie's missed turns</td><td>2,500 tokens</td><td><code>genie_tokens</code></td></tr>
+      <tr><td>Genie's latest missed pair, at most</td><td>4,000 tokens</td><td><code>genie_latest_max_tokens</code></td></tr>
+      <tr><td>Send the whole chat (no summary) below</td><td>2,000 tokens</td><td><code>send_all_below_tokens</code></td></tr>
+    </tbody>
+  </table></div>
+
+  <!-- 12 -->
+  <h2 id="genie">12. Genie conversations</h2>
+  <p>Genie remembers only its own conversation, with every table, query and step it produced. Each chat in the sidebar holds two, one per mode, stored on the chat (<code>genie_conversation_id</code>, <code>agent_conversation_id</code>).</p>
+  <div class="diagram"><pre class="mermaid">
+stateDiagram-v2
+  [*] --> NoConversation: new chat
+  NoConversation --> Active: first successful Genie answer in this mode
+  NoConversation --> NoConversation: answer failed (nothing saved)
+  Active --> Active: follow-up in the same mode (Genie remembers)
+  Active --> Fresh: service busy, retry succeeds in a new conversation
+  Fresh --> Active: the chat now uses the new conversation
+  Active --> Active: cache or guide answers in between (Genie never sees them, gets them as missed turns)
+  </pre></div>
+  <div class="tablebox"><table>
+    <thead><tr><th>ID</th><th>Situation</th><th>Genie conversation</th></tr></thead>
+    <tbody>
+      <tr><td class="id">L1</td><td>Follow-up in the same chat and mode</td><td>Same conversation: Genie remembers</td></tr>
+      <tr><td class="id">L2</td><td>Reopening an old chat from the sidebar</td><td>Same conversation (the ids are saved with the chat)</td></tr>
+      <tr><td class="id">L3</td><td>A suggestion clicked inside an existing chat</td><td>Same conversation</td></tr>
+      <tr><td class="id">L4</td><td>New chat, including every Ask LensS button</td><td>New conversation</td></tr>
+      <tr><td class="id">L5</td><td>First Quick or first Deep question in a chat (including the first escalation to Deep)</td><td>New conversation for that mode</td></tr>
+      <tr><td class="id">L6</td><td>"Service busy" retry</td><td>New conversation; the chat switches to it if the retry succeeds</td></tr>
+      <tr><td class="id">L7</td><td>Deep still busy after retries</td><td>A Quick answer from a new Quick conversation, with a notice</td></tr>
+      <tr><td class="id">L8</td><td>The first question in a mode failed</td><td>Nothing saved: the next one starts fresh</td></tr>
+      <tr><td class="id">L9</td><td>Cached, guide and blocked answers</td><td>Genie isn't called and never sees them; data ones are sent later as missed turns (C3)</td></tr>
+    </tbody>
+  </table></div>
+
+  <!-- 13 -->
+  <h2 id="cache">13. Answer cache</h2>
+  <div class="tablebox"><table>
+    <thead><tr><th>ID</th><th>Rule</th><th>Function</th></tr></thead>
+    <tbody>
+      <tr><td class="id">Q1</td><td>Only cache-eligible questions use it: the first question of a chat, a suggestion, or a refresh. Follow-ups always go live.</td><td class="fn">handleSend (standalone)</td></tr>
+      <tr><td class="id">Q2</td><td>Never for blocked questions, guide answers or escalated (fresh deep) questions</td><td class="fn">handleSend (key)</td></tr>
+      <tr><td class="id">Q3</td><td>Key = normalised question + mode + data version + Genie space version</td><td class="fn">cacheKey</td></tr>
+      <tr><td class="id">Q4</td><td>Exact match first; otherwise the most similar cached question (embeddings) counts only at ≥ 98% similarity <b>and</b> the same key details (numbers, products, channels, strategies, dimensions, best/worst)</td><td class="fn">lookup · semanticLookup · keyDetails</td></tr>
+      <tr><td class="id">Q5</td><td>Stored only when Genie saw the question alone (no earlier conversation, no context) and the answer's mode is the one asked</td><td class="fn">store</td></tr>
+      <tr><td class="id">Q6</td><td>Live answers expire after 24 hours; pre-warmed suggested answers don't expire; all are retired when the data or the Genie space changes</td><td class="fn">store · prewarm</td></tr>
+      <tr><td class="id">Q7</td><td>A 👎 removes the answer from the cache</td><td class="fn">feedback route · evict</td></tr>
+      <tr><td class="id">Q8</td><td>An exact hit doesn't wait for the guardrail classifier (it was screened the first time); pattern checks still apply</td><td class="fn">handleSend</td></tr>
+    </tbody>
+  </table></div>
+
+  <!-- 14 -->
+  <h2 id="guard">14. Guardrails around routing</h2>
+  <div class="tablebox"><table>
+    <thead><tr><th>ID</th><th>Rule</th><th>Function</th></tr></thead>
+    <tbody>
+      <tr><td class="id">G1</td><td>Personal details are masked before the router's model sees the question, and before anything is stored or sent to Genie</td><td class="fn">inputPatterns</td></tr>
+      <tr><td class="id">G2</td><td>The classifier (personal data, profanity, prompt injection, off-topic) runs in parallel; a block stops the question before any data is touched</td><td class="fn">inputClassifier</td></tr>
+      <tr><td class="id">G3</td><td>An off-topic block is lifted for guide answers (a question about the app is on topic); other blocks still apply</td><td class="fn">handleSend</td></tr>
+      <tr><td class="id">G4</td><td>Answers are checked for personal details, profanity and policy wording (forecasts, causal uplift, cure rate, probability of hitting target)</td><td class="fn">checkOutput</td></tr>
+      <tr><td class="id">G5</td><td>A blocked question or one with details removed never names the chat; it gets a neutral title</td><td class="fn">GUARDED_TITLES</td></tr>
+    </tbody>
+  </table></div>
+
+  <!-- 15 -->
+  <h2 id="ui">15. What you see in the app</h2>
+  <div class="tablebox"><table>
+    <thead><tr><th>ID</th><th>Behaviour</th><th>Function</th></tr></thead>
+    <tbody>
+      <tr><td class="id">U1</td><td>"Reading your question…" while the router decides</td><td class="fn">sendMessage</td></tr>
+      <tr><td class="id">U2</td><td>Route line while answering: guide → "Answering from the LensS guide"; escalated → "Deep analysis: reason"; Auto → "Quick answer / Deep analysis: reason"; Quick or Deep you chose yourself → no line</td><td class="fn">routeLabel</td></tr>
+      <tr><td class="id">U3</td><td>Guide answers show "From the LensS platform guide…" with <b>Answer from the data instead ›</b></td><td class="fn">renderAnswer</td></tr>
+      <tr><td class="id">U4</td><td>Escalated answers show "↗ Deep analysis: reason"</td><td class="fn">renderAnswer</td></tr>
+      <tr><td class="id">U5</td><td><b>Go deeper</b> offer at once on a thin Quick answer (same tests as K1–K3): "Need more than this?"</td><td class="fn">thinAnswer · _offerDeeper</td></tr>
+      <tr><td class="id">U6</td><td><b>Go deeper</b> offer later, when the quality check scores a Quick answer's completeness below 70%: "This answer may not cover every part of the question (completeness N%)"</td><td class="fn">addTrustBar · _offerDeeper</td></tr>
+      <tr><td class="id">U7</td><td>The offers appear only on the latest answer, only for live Quick data answers that weren't escalated; asking a new question removes earlier buttons</td><td class="fn">_offerDeeper · sendMessage</td></tr>
+      <tr><td class="id">U8</td><td>"You asked this before. Do you want a fuller answer?" with <b>Run a deep analysis (1–3 min)</b> and <b>Show the earlier answer</b> (scrolls to it and highlights it for 2.4 s)</td><td class="fn">chooseOnRepeat · showEarlierAnswer</td></tr>
+      <tr><td class="id">U9</td><td>Follow-up chips are sent in the mode of the answer they belong to</td><td class="fn">addFollowups</td></tr>
+    </tbody>
+  </table></div>
+
+  <!-- 16 -->
+  <h2 id="obs">16. Logging and Observability</h2>
+  <div class="tablebox"><table>
+    <thead><tr><th>Where</th><th>What is recorded or shown</th></tr></thead>
+    <tbody>
+      <tr><td><code>usage_log.details.router</code></td><td>destination, mode, intent, escalated, method (ai / rules / preset / button), your setting, model, ms, confidence, reason, rules applied, fallback, the standalone rewrite (when it differs)</td></tr>
+      <tr><td><code>usage_log.details.context</code></td><td>sent (yes/no), rewritten (the rewrite went to Genie), why ("the engine already has every data turn…", "no deep analysis conversation yet…: N sent in full, N summarised, N left out (about N tokens)"), full, summarised, leftOut, tokens</td></tr>
+      <tr><td>Request trace</td><td>"Question router (model)" and "Platform guide" spans with their time</td></tr>
+      <tr><td>Observability → Pipeline traces, stage 1 "Ask"</td><td>"Routed by … to … (intent, N% sure); rules; sent as …" and "Sent to the engine: …"</td></tr>
+      <tr><td>Observability → Performance → How questions were routed</td><td>For the period: to the data, to the guide, Deep, escalated, decided by the model, by word rules, by clicks and buttons; the safety rules applied, with counts</td></tr>
+      <tr><td>Observability → Evaluations</td><td>The Routing category, its score card, run history column and results with the router's decision for each case</td></tr>
+      <tr><td>AI usage and cost</td><td>Router tokens appear as "Question router"</td></tr>
+    </tbody>
+  </table></div>
+
+  <!-- 17 -->
+  <h2 id="evals">17. Tests</h2>
+  <div class="grid2">
+    <div class="card"><h3>Routing evaluation (in the app)</h3><ul>
+      <li>39 cases in <code>deploy/evals/cases.py</code> (<code>ROUTING_CASES</code>), seeded by the deploy's lakebase step.</li>
+      <li>A case is the earlier turns as lines <code>[guide|quick|deep] question</code> (<code>[quick+]</code> / <code>[deep+]</code> = a good, full answer), then the latest message; plus your setting (auto / chat / agent).</li>
+      <li>Expected: <code>platform</code>, <code>data</code>, <code>data:quick</code>, <code>data:deep</code>, <code>data:deep:fresh</code> (escalated) or <code>data:ask</code> (the person chooses).</li>
+      <li>Runs only the router model, about 1 s a case. Last run: 39/39.</li>
+    </ul></div>
+    <div class="card"><h3>Other checks</h3><ul>
+      <li>Offline rule tests of <code>decide()</code> with simulated model readings and with no model (35 cases).</li>
+      <li>Browser end-to-end on the local app against personal: typed routing, Go deeper, guide + Answer from the data, Regenerate, pushback, asking again with both choices.</li>
+      <li>The smoke test (30 checks), including routing, guide follow-ups and the cache.</li>
+    </ul></div>
+  </div>
+
+  <!-- 18 -->
+  <h2 id="config">18. Settings</h2>
+  <div class="tablebox"><table>
+    <thead><tr><th>Deploy config key</th><th>What it controls</th><th>personal.json</th><th>org2-v2.json</th></tr></thead>
+    <tbody>
+      <tr><td><code>auto_mode.method / model / timeout_ms</code></td><td>The router model (or word rules only)</td><td>ai · Llama 3.3 70B · 8 s</td><td>ai · Llama 3.3 70B · 8 s</td></tr>
+      <tr><td><code>platform_help.enabled / method / model</code></td><td>Guide answers: a model from the guide, the guide's text, or off (everything to the data)</td><td>on · ai · Llama 3.1 8B</td><td>on · ai · the follow-ups model by default</td></tr>
+      <tr><td><code>conversation_memory.enabled / compact_every / model</code></td><td>Summaries of older turns</td><td>on · 5 · Llama 3.1 8B</td><td>on · 5 · default model</td></tr>
+      <tr><td><code>conversation_memory.*_tokens</code></td><td>The five budgets in section 11</td><td>defaults</td><td>defaults</td></tr>
+      <tr><td><code>semantic_cache.threshold / embedding_model</code></td><td>Similar-question cache hits</td><td>see config</td><td>98 · GTE large</td></tr>
+      <tr><td><code>guardrails.*</code></td><td>Input and output checks and their actions</td><td>see config</td><td>block / redact / warn / flag per check</td></tr>
+      <tr><td><code>faithfulness_judge.model / sample_percent / warn_below</code></td><td>The quality check; warn_below also sets "weak" (K4) and the completeness offer (U6)</td><td>see config</td><td>GPT-OSS 120B · 100% · 70</td></tr>
+      <tr><td><code>evals.max_accuracy_cases</code></td><td>Ground-truth questions per eval run (routing cases aren't capped)</td><td>1</td><td>10</td></tr>
+    </tbody>
+  </table></div>
+
+  <!-- 19 -->
+  <h2 id="files">19. Files and functions</h2>
+  <div class="tablebox"><table>
+    <thead><tr><th>File</th><th>Functions and what they do</th></tr></thead>
+    <tbody>
+      <tr><td><code>server/lib/router.ts</code></td><td><b>routeMessage</b> (route a typed question) · <b>signalsOf</b>, <b>repeatOf</b> (S1–S6) · <b>readWithModel</b> (the model call) · <b>decide</b> (all rules I/D/R/M/W/X) · <b>fixedRoute</b> (F1–F4) · <b>rememberRoute / takeRoute</b> (keep the decision 10 min) · <b>DEEPER_NOTE</b> · patterns MORE_DEPTH, PUSHBACK, ASKS_NEW</td></tr>
+      <tr><td><code>server/lib/memory.ts</code></td><td><b>loadHistory</b> (turns with conversation id, cache flag, blocked flag, first table, weak) · <b>weakAnswer</b> (K1–K5) · <b>engineContext</b> (C2–C6) · <b>historyWindow</b> (C8) · <b>briefOf</b>, <b>estimateTokens</b> · <b>maybeCompact</b> (C9) · <b>isVagueFollowUp</b> (S6)</td></tr>
+      <tr><td><code>server/lib/platformGuide.ts</code></td><td>The guide's 11 sections · <b>platformCandidate</b> (STRONG / LOOSE) · <b>DATA_WORDS</b>, UI_WORDS · <b>relevantSections</b></td></tr>
+      <tr><td><code>server/lib/platformHelp.ts</code></td><td><b>answerPlatform</b>: the guide's model answers from the guide (or the guide's text); DATA_QUESTION hands a typed question back (D7); <code>force</code> for suggestions; "tell me more" gets sections not shown yet</td></tr>
+      <tr><td><code>server/lib/autoMode.ts</code></td><td><b>rulesMode</b>: the word-rule fallback (F-1 to F-4)</td></tr>
+      <tr><td><code>server/routes/chat.ts</code></td><td><b>POST /api/chat/route</b> · <b>handleSend</b> (P1–P23, W2, C1, C7) · <b>/api/admin/insights</b> (routing panel) · feedback (Q7)</td></tr>
+      <tr><td><code>server/lib/answerCache.ts</code></td><td>cacheKey, lookup, semanticLookup, keyDetails, store, prewarm, evict (Q1–Q8)</td></tr>
+      <tr><td><code>server/lib/guardrails.ts</code></td><td>inputPatterns, inputClassifier, checkOutput (G1–G4)</td></tr>
+      <tr><td><code>server/lib/aiConfig.ts</code></td><td>Reads the deploy config: autoMode, platformHelp, memory, <b>contextBudgets</b></td></tr>
+      <tr><td><code>server/lib/evals.ts</code></td><td><b>runRouting</b> (routing cases) and the other categories</td></tr>
+      <tr><td><code>public/js/chat.js</code></td><td><b>sendMessage</b> (typed vs clicked) · <b>routeTyped</b> · <b>routeLabel</b> · <b>thinAnswer</b> · <b>chooseOnRepeat</b> · <b>showEarlierAnswer</b> · <b>renderAnswer</b> (route notes and buttons) · <b>addTrustBar</b> (completeness offer) · askFromPanel · askAssistant · addFollowups</td></tr>
+      <tr><td><code>public/js/observability.js</code>, <code>monitoring.js</code></td><td>routerText, renderRouting, trace details</td></tr>
+      <tr><td><code>deploy/evals/cases.py</code></td><td>ROUTING_CASES</td></tr>
+      <tr><td><code>deploy/lakebase/schema.sql</code></td><td>eval_cases category includes 'routing'</td></tr>
+      <tr><td><code>deploy/deploy.py</code></td><td>Resolves auto_mode, platform_help and conversation_memory (with the budgets) into the app's settings</td></tr>
+    </tbody>
+  </table></div>
+
+  <!-- 20 -->
+  <h2 id="limits">20. Known limits</h2>
+  <div class="tablebox"><table>
+    <thead><tr><th>ID</th><th>Limit</th><th>Impact</th></tr></thead>
+    <tbody>
+      <tr><td class="id">LM1</td><td>The router decision is kept in the server's memory between the two requests</td><td>Fine on one server (today). With several servers, a question could be routed twice. See README "Known limits and future work".</td></tr>
+      <tr><td class="id">LM2</td><td>Every typed question waits ~1 s for the router, even with Quick or Deep chosen</td><td>The cost of reading the conversation</td></tr>
+      <tr><td class="id">LM3</td><td>The fallback word patterns (S2, S3, S7) are English</td><td>With the model down, a non-English "more detail" won't escalate. With the model up, other languages work.</td></tr>
+      <tr><td class="id">LM4</td><td>The guide's small model on personal (Llama 3.1 8B) can invent app steps</td><td>Routing is right but the guide's wording can be wrong; the org config uses a larger model. (Earlier LM4, Regenerate counted as "asked again", was fixed in testing: E10, E11.)</td></tr>
+      <tr><td class="id">LM5</td><td>Token counts are estimates (4 characters each)</td><td>Budgets are approximate, well inside Genie's limits</td></tr>
+    </tbody>
+  </table></div>
+
+  <!-- 21 -->
+  <h2 id="faq">21. Questions and answers</h2>
+  <div id="faqlist">
+    <details class="faq-item"><summary>I said "No, you do it" after a guide answer. Where does it go?</summary><div>If the guide's answer was about the app (like "Where is the DPD filter?"), it stays with the guide (D5b), because the data can't operate the app. If the guide answered a data question by mistake, it goes to the data with the original question (D6, W2). If your message names data ("show me the DPD numbers"), it goes to the data.</div></details>
+    <details class="faq-item"><summary>Does Regenerate start a deep analysis?</summary><div>No. Regenerate and Try again re-ask the same question in the same mode (E10, E11). Only typing the same question again is read as "asked again" (R2, R3).</div></details>
+    <details class="faq-item"><summary>Why did my question go to the guide instead of the data?</summary><div>The router model chose the guide with at least 70% confidence (D2), and your message either had wording about the app (S4) or named something on screen (D3). If it was wrong, press <b>Answer from the data instead</b>, or push back ("no, show me the data"): pushback never gets the guide twice (D6). The trace shows the exact reason.</div></details>
+    <details class="faq-item"><summary>Why did a question take 1–3 minutes?</summary><div>It went to a Deep analysis: you chose Deep (M3), Auto judged it needed reasoning (M4), you asked for more or pushed back (R3, M2), or you asked again after a weak answer (R3). The route line says which.</div></details>
+    <details class="faq-item"><summary>I chose Quick. Why did I get a Deep analysis?</summary><div>Your latest message asked for more ("not enough", "go deeper"), pushed back on a data answer, or repeated a question whose answer was weak. Your message outranks the setting (M2). A new question about the answer ("why is the third one so high?") stays Quick (I2).</div></details>
+    <details class="faq-item"><summary>What happens if I ask exactly the same question again?</summary><div>The router finds the earlier question (S1). If its answer was weak (K1–K5), a fresh deep analysis starts at once (R3). If it was good, you choose: <b>Run a deep analysis</b> or <b>Show the earlier answer</b> (R2, U8).</div></details>
+    <details class="faq-item"><summary>Does Genie remember earlier questions?</summary><div>Yes, within its own conversation for that mode in that chat (L1–L3), including every table and query. Answers it never gave (cache, guide, the other mode) are sent to it as missed turns (C3), within 2,500 tokens.</div></details>
+    <details class="faq-item"><summary>When does Genie start a new conversation?</summary><div>New chat or Ask LensS button (L4), first use of a mode in a chat (L5), a busy retry (L6, L7), or when the first question in a mode failed (L8).</div></details>
+    <details class="faq-item"><summary>Is the router's rewritten question sent to Genie?</summary><div>Only when your message points back at a guide answer, such as "No, you do it" (W2). Otherwise Genie gets your own words; the rewrite is kept in the trace.</div></details>
+    <details class="faq-item"><summary>Are guide questions and answers ever sent to Genie?</summary><div>No (C2). They are sent to the router and the guide's own model, which use them to understand follow-ups.</div></details>
+    <details class="faq-item"><summary>What if the router model is down or slow?</summary><div>After 8 s, or on an unreadable reply, the word rules decide on the signals alone (D4, M5, section 8). Anything uncertain goes to the data. The trace and the routing panel show "decided by the word rules".</div></details>
+    <details class="faq-item"><summary>Do clicked suggestions go through the router?</summary><div>No. They go straight to Genie in their own mode, or to the guide when their wording is about the app (F1). "Go deeper" and "Answer from the data instead" are fixed too (F2, F3).</div></details>
+    <details class="faq-item"><summary>Why didn't I get an instant cached answer to my follow-up?</summary><div>Only the first question of a chat, a suggestion, or a refresh can use the cache (Q1). Follow-ups depend on the conversation, so they always go live. Escalated questions never use it (Q2).</div></details>
+    <details class="faq-item"><summary>Why did I see a "Go deeper" button?</summary><div>The Quick answer was thin (a line or two, a question back, little text without a chart; U5), or the quality check later scored its completeness below 70% (U6). It appears only on the latest answer.</div></details>
+    <details class="faq-item"><summary>How much of the chat does each part see?</summary><div>Router: 2,000 tokens; guide: 1,000; Genie: only what it missed, 2,500 (latest pair up to 4,000). The whole chat when it is under 2,000. All are settings (section 11).</div></details>
+    <details class="faq-item"><summary>Are personal details ever sent to the router or Genie?</summary><div>No. They are masked before the router's model sees the question and before anything is stored or sent (G1).</div></details>
+    <details class="faq-item"><summary>Where can I check how a specific question was routed?</summary><div>Observability → Pipeline traces → select the question → stage 1 "Ask", or "Inspect in Observability ›" under the answer. Section 16 lists every logged field.</div></details>
+    <details class="faq-item"><summary>How do I test routing after a change?</summary><div>Observability → Evaluations → tick Routing → Run evals (about 40 s, router model only). For a code change, also run the offline rule tests and the smoke test.</div></details>
+  </div>
+</main>
+</div>
+
+<script>
+// Search: filters rule rows, cards and questions to those containing every word typed; highlights matches.
+(function () {
+  const input = document.getElementById('q');
+  const count = document.getElementById('qcount');
+  const items = () => [...document.querySelectorAll('main tbody tr, main .faq-item, main details.card')];
+  const originals = new Map();
+  items().forEach((el) => originals.set(el, el.innerHTML));
+  const esc = (s) => s.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+  let timer;
+  input.addEventListener('input', () => {
+    clearTimeout(timer);
+    timer = setTimeout(() => {
+      const terms = input.value.trim().toLowerCase().split(/\s+/).filter(Boolean);
+      let shown = 0;
+      items().forEach((el) => {
+        el.innerHTML = originals.get(el);
+        if (!terms.length) { el.classList.remove('hidden'); return; }
+        const text = el.textContent.toLowerCase();
+        const ok = terms.every((t) => text.includes(t));
+        el.classList.toggle('hidden', !ok);
+        if (ok) {
+          shown += 1;
+          if (el.tagName === 'DETAILS') el.open = true;
+          const re = new RegExp(`(${terms.map(esc).join('|')})`, 'gi');
+          const walk = (node) => {
+            for (const child of [...node.childNodes]) {
+              if (child.nodeType === 3 && re.test(child.nodeValue)) {
+                const span = document.createElement('span');
+                span.innerHTML = child.nodeValue.replace(/[&<>]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;' }[c])).replace(re, '<mark>$1</mark>');
+                child.replaceWith(span);
+              } else if (child.nodeType === 1 && child.tagName !== 'SUMMARY' && child.tagName !== 'PRE') walk(child);
+              re.lastIndex = 0;
+            }
+          };
+          walk(el);
+        }
+      });
+      count.textContent = terms.length ? `${shown} matching rule${shown === 1 ? '' : 's'} and answers` : '';
+    }, 150);
+  });
+})();
+</script>
+
+<script src="https://cdnjs.cloudflare.com/ajax/libs/mermaid/10.9.1/mermaid.min.js"></script>
+<script>mermaid.initialize({ startOnLoad: true, theme: window.matchMedia("(prefers-color-scheme: dark)").matches ? "dark" : "default", securityLevel: "strict" });</script>
+
+</body>
+</html>

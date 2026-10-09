@@ -52,11 +52,13 @@ function chooseOnRepeat(row) {
   });
 }
 
-/** Scrolls to the latest answer to `question` in this chat and highlights it; false if it isn't on screen. */
-function showEarlierAnswer(question) {
+/** Scrolls to the latest earlier answer to `question` (before `current`, the row just typed) and highlights it; false if it isn't on screen. */
+function showEarlierAnswer(question, current) {
   if (!question) return false;
   const norm = (s) => String(s).toLowerCase().replace(/[^a-z0-9 ]+/g, ' ').replace(/\s+/g, ' ').trim();
-  const rows = [...msgsEl.querySelectorAll('.turnrow.user')].filter((r) => norm(r.textContent) === norm(question));
+  const rows = [...msgsEl.querySelectorAll('.turnrow.user')]
+    .filter((r) => r !== current && (!current || r.compareDocumentPosition(current) & Node.DOCUMENT_POSITION_FOLLOWING))
+    .filter((r) => norm(r.textContent) === norm(question));
   const userRow = rows[rows.length - 1];
   const answerRow = userRow && userRow.nextElementSibling;
   if (!answerRow || !answerRow.classList.contains('bot')) return false;
@@ -518,9 +520,9 @@ function renderAnswer(msg, answer, opts) {
   // quality check later scores it low on completeness (addTrustBar calls this).
   const quickData = canAct && (answer.mode || opts.mode) === 'chat' && !answer.platform && !(route && route.escalated);
   msg._offerDeeper = (lead) => {
-    // Only on the latest answer: a score can arrive after the person has asked something else.
+    // Only on the latest answer: a score can arrive after the person has asked something else (a newer row exists).
     const row = msg.closest('.turnrow');
-    if (!quickData || msg.querySelector('.route-note') || !msg.isConnected || sending || (row && row.nextElementSibling)) return;
+    if (!quickData || msg.querySelector('.route-note') || !msg.isConnected || (row && row.nextElementSibling)) return;
     const n = document.createElement('div');
     n.className = 'route-note';
     n.innerHTML = `<span aria-hidden="true">↗</span> ${esc(lead)} <button class="route-act" data-route="deeper">Go deeper with a deep analysis ›</button>`;
@@ -561,7 +563,9 @@ function renderAnswer(msg, answer, opts) {
       const answerMode = answer.mode === 'agent' ? 'agent' : 'chat';
       // A cached answer is replaced in place by a live one; a live answer is asked again.
       if (answer.cache && opts.messageId) sendMessage(opts.question, { refreshOf: opts.messageId, target: msg, mode: answerMode });
-      else sendMessage(opts.question, { mode: answerMode });
+      // Regenerate is the same question in the same mode: a fixed route, not "asked again" (which could escalate).
+      else if (answer.platform) sendMessage(opts.question, { mode: 'chat', force: 'guide' });
+      else sendMessage(opts.question, { mode: answerMode, preset: true });
     });
   }
   const detailsBtn = iconBtn('act-details', 'Details: quality, sources and how this answer was made',
@@ -890,7 +894,7 @@ async function sendMessage(preset, opts = {}) {
       if (choice === 'deep') {
         force = 'deeper'; mode = 'agent';
         route = { ...route, escalated: true, reason: 'you chose a deep analysis' };
-      } else if (showEarlierAnswer(route.repeatOf)) {
+      } else if (showEarlierAnswer(route.repeatOf, thinking.closest('.turnrow').previousElementSibling)) {
         thinking.closest('.turnrow').previousElementSibling?.remove();
         thinking.closest('.turnrow').remove();
         sending = false;
@@ -1013,7 +1017,7 @@ async function sendMessage(preset, opts = {}) {
       if (sending) return;
       thinking.closest('.turnrow').previousElementSibling?.remove();
       thinking.closest('.turnrow').remove();
-      sendMessage(text, { mode });
+      sendMessage(text, { mode, preset: true });   // the same question again, same mode (not "asked again")
     });
     console.warn('Assistant error:', errorText);
   }

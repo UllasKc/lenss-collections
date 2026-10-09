@@ -13,6 +13,24 @@ Versions match git tags where one exists. Dates are when the change was committe
 
 ## Unreleased
 
+- **Docs:** `docs/LensS_Routing_Reference.html` (every routing rule, with diagrams and search) and `docs/LensS_Routing_Examples.html` (six real conversations stepped through the routing path), linked from the README. Both open from disk in a browser; the Reference loads the Mermaid library to draw its diagrams.
+- **Routing fixes found in end-to-end testing.**
+  - **Pushback after a genuine app answer stays with the guide.** "Where is the DPD filter?" → "No, you do it" was sent to Genie as "Where is the DPD filter?". Pushback naming no data now stays with the guide. A data request ("No, just show me the DPD numbers") still goes to the data.
+  - **What counts as a genuine app question** now includes a data word next to something on screen ("Where is the DPD filter?"). Before, only strict app wording or no data words at all counted.
+  - **Regenerate and Try again** are the same question in the same mode: a fixed route, no longer read as "asked again". That reading could turn a Regenerate into a 2-minute deep analysis. Regenerate on a guide answer asks the guide again (new fixed route `guide`).
+  - **Show the earlier answer** highlighted the row just typed instead of the real earlier answer. It now looks only at earlier rows.
+  - **Go deeper on a thin Quick answer** never appeared: the "only the latest answer" guard also blocked the answer being shown. Fixed. Late completeness offers are still limited to the latest answer.
+  - **Verified:**
+    - 35 offline rule tests; type-check;
+    - the routing eval (39 cases, two new pushback cases) on the deployed app;
+    - smoke test 30/30;
+    - browser end-to-end on the local app against personal:
+      - a typed DPD question → the data;
+      - Quick + thin answer → Go deeper offered → a fresh deep analysis (129 s);
+      - "Where is the DPD filter?" → the guide with Answer from the data instead; Regenerate stays with the guide; "No, you do it" stays with the guide;
+      - asking again after a good answer → the choice; Show the earlier answer highlights it and sends nothing; Run a deep analysis → a fresh deep analysis (106 s) with the missed turn as context;
+      - no console errors.
+  - **Seen in testing, not a routing issue:** the guide's small model on personal (Llama 3.1 8B) sometimes invents app steps ("Filters section on the dashboard"). The org config uses a larger model.
 - **Router refinements.**
   - **The engine gets the person's own words.** Its own memory, or the missed turns sent with the question, explain references like "the third one". The router's standalone rewrite was useful while the engine got little context. Now it is sent only when the message points back at a guide answer, which the engine never receives ("No, you do it" → the question it refers to). Traces still show the rewrite, so you can see how the router understood the question.
   - **Asking the same question again** is judged by how good the earlier answer was:
