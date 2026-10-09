@@ -17,14 +17,34 @@ function autoModeLocal(question) {
   const lookup = /^\s*(which|what (is|are|was|were)|show|list|give me|how (many|much)|top \d+|count)\b/.test(t);
   return !lookup && /\b(opportunit|drivers?\b)/.test(t) ? 'agent' : 'chat';
 }
-async function autoRoute(question) {
+/** The router (server): where a typed question goes and how deep, read with the conversation so far. */
+async function routeTyped(question, selected) {
   try {
-    const r = await fetch('/api/chat/route', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ question, sessionId: activeSessionId || undefined }) });
+    const r = await fetch('/api/chat/route', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ question, selected, sessionId: activeSessionId || undefined }) });
     if (!r.ok) throw new Error('HTTP ' + r.status);
     const d = await r.json();
     if (d.mode === 'agent' || d.mode === 'chat') return d;
   } catch { /* fall back to the local rule */ }
-  return { mode: autoModeLocal(question), method: 'rules', reason: 'local rule (the router was unavailable)' };
+  return { destination: 'data', mode: selected === 'auto' ? autoModeLocal(question) : selected, method: 'rules', reason: 'local rule (the router was unavailable)' };
+}
+
+/** How the router sent it, in a few words, while it is answered (only when worth saying). */
+function routeLabel(route, mode) {
+  if (!route) return '';
+  if (route.destination === 'platform') return 'Answering from the LensS guide';
+  if (route.escalated) return `Deep analysis: ${route.reason}`;
+  if (route.selected === 'auto' || route.selectedAuto) return `${modeName(mode)}: ${route.reason}`;
+  return '';
+}
+
+/** A Quick answer that says little (a line or two, or a question back): worth offering a deep analysis. */
+function thinAnswer(answer) {
+  if (answer.platform || (answer.guard && answer.guard.blocked)) return false;
+  const text = (answer.text || '').replace(/\[\[chart:[^\]]+\]\]/g, '').trim();
+  const charts = (answer.charts || []).filter(c => (c.rows || []).length).length;
+  if (text.length < 140) return true;
+  if (!charts && text.length < 320) return true;
+  return /\?\s*$/.test(text) && text.length < 400;
 }
 
 // Auto is the default; a person's own choice is remembered (new key, so everyone starts on Auto).
@@ -448,9 +468,39 @@ function renderAnswer(msg, answer, opts) {
     msg.insertAdjacentHTML('beforeend', `<div class="guard-note"><span aria-hidden="true">🛡</span> ${esc(n)}</div>`);
   });
   // Questions about LensS itself are answered from the platform guide, not the collections data.
+  const route = answer.route || null;
+  const canAct = opts.question && (opts.live || opts.isLast) && !blocked;
+  const asked = (route && route.asked) || opts.question;
   if (answer.platform) {
-    msg.insertAdjacentHTML('beforeend', `<div class="platform-note"><span aria-hidden="true">📘</span> From the LensS platform guide, not the collections data. Ask about the data any time.</div>`);
+    msg.insertAdjacentHTML('beforeend', `<div class="platform-note"><span aria-hidden="true">📘</span> From the LensS platform guide, not the collections data.${canAct ? ' <button class="route-act" data-route="data">Answer from the data instead ›</button>' : ' Ask about the data any time.'}</div>`);
+  } else if (route && route.escalated) {
+    msg.insertAdjacentHTML('beforeend', `<div class="route-note"><span aria-hidden="true">↗</span> Deep analysis: ${esc(route.reason)}.</div>`);
   }
+  const wire = (root) => root.querySelectorAll('.route-act:not([data-wired])').forEach(b => {
+    b.dataset.wired = '1';
+    b.addEventListener('click', () => {
+      if (sending) return;
+      b.disabled = true;
+      if (b.dataset.route === 'deeper') sendMessage(asked, { force: 'deeper', mode: 'agent' });
+      else sendMessage(asked, { force: 'data', mode: currentMode === 'agent' ? 'agent' : 'chat' });
+    });
+  });
+  // A Quick answer that falls short gets a Go deeper offer: at once when it says little, or when the
+  // quality check later scores it low on completeness (addTrustBar calls this).
+  const quickData = canAct && (answer.mode || opts.mode) === 'chat' && !answer.platform && !(route && route.escalated);
+  msg._offerDeeper = (lead) => {
+    // Only on the latest answer: a score can arrive after the person has asked something else.
+    const row = msg.closest('.turnrow');
+    if (!quickData || msg.querySelector('.route-note') || !msg.isConnected || sending || (row && row.nextElementSibling)) return;
+    const n = document.createElement('div');
+    n.className = 'route-note';
+    n.innerHTML = `<span aria-hidden="true">↗</span> ${esc(lead)} <button class="route-act" data-route="deeper">Go deeper with a deep analysis ›</button>`;
+    const actions = msg.querySelector('.ans-actions');
+    if (actions) msg.insertBefore(n, actions); else msg.appendChild(n);
+    wire(msg);
+  };
+  if (thinAnswer(answer)) msg._offerDeeper('Need more than this?');
+  wire(msg);
 
   // One row of actions under the answer, like Copilot: copy, 👍, 👎, regenerate, details.
   const actions = document.createElement('div');
@@ -562,6 +612,12 @@ function addTrustBar(msg, metaEl, opts) {
     if (dot) {
       dot.className = 'det-dot ' + (q.status === 'done' && q.score !== null ? (q.score >= 0.85 ? 'ok' : q.score >= q.warnBelow ? 'mid' : 'low') : q.status === 'pending' ? 'pending' : '');
       dot.title = q.status === 'done' && q.score !== null ? `Verified ${Math.round(q.score * 100)}%` : q.status === 'pending' ? 'Checking accuracy…' : '';
+    }
+
+    // Covers only part of the question (the judge's completeness): offer a deep analysis.
+    const completeness = q.metrics && typeof q.metrics.completeness === 'number' ? q.metrics.completeness : null;
+    if (q.status === 'done' && completeness !== null && completeness < q.warnBelow && msg._offerDeeper) {
+      msg._offerDeeper(`This answer may not cover every part of the question (completeness ${Math.round(completeness * 100)}%).`);
     }
 
     // Low confidence: say so where it can't be missed, with what couldn't be verified.
@@ -774,13 +830,16 @@ async function sendMessage(preset, opts = {}) {
   const text = (preset || inputEl.value).trim();
   if (!text || sending) return;
   if (window.offerNotifications) window.offerNotifications();
-  const isAuto = !opts.mode && currentMode === 'auto';
-  let mode = opts.mode || (isAuto ? 'chat' : currentMode);
+  // A typed question goes through the router; a click (suggestion, chip, button) or a retry already says how.
+  const typed = !opts.mode && !opts.preset && !opts.force && !opts.refreshOf;
+  let mode = opts.mode || (currentMode === 'auto' ? 'chat' : currentMode);
   sending = true;
   sendBtn.disabled = true;
   if (!opts.refreshOf) inputEl.value = '';
   autosize();
   document.querySelectorAll('.followups, .cache-refresh').forEach(f => f.remove());
+  // Go deeper / Answer from the data belong to the latest answer only.
+  document.querySelectorAll('.route-act').forEach(b => { const n = b.closest('.route-note'); if (n) n.remove(); else b.remove(); });
 
   // A refresh re-asks the same question and replaces the cached answer in place.
   let thinking = opts.target;
@@ -790,14 +849,16 @@ async function sendMessage(preset, opts = {}) {
   }
   thinking.classList.add('thinking');
   let route = null;
-  if (isAuto) {
-    thinking.innerHTML = '<div class="tline"><span class="dot"></span><span>Choosing quick answer or deep analysis…</span></div>';
-    route = await autoRoute(text);
+  if (typed) {
+    thinking.innerHTML = '<div class="tline"><span class="dot"></span><span>Reading your question…</span></div>';
+    route = await routeTyped(text, currentMode);
+    route.selectedAuto = currentMode === 'auto';
     mode = route.mode;
   }
+  const routeNote = routeLabel(route, mode);
   const started = Date.now();
   const steps = [];
-  let status = mode === 'agent' ? 'Planning the analysis…' : 'Understanding the question…';
+  let status = route && route.destination === 'platform' ? 'Checking the LensS guide…' : mode === 'agent' ? 'Planning the analysis…' : 'Understanding the question…';
   // Deep analysis takes minutes: show progress against a typical run, and say they can carry on working.
   const typical = mode === 'agent' ? 120 : 20;
   const paint = () => {
@@ -805,6 +866,7 @@ async function sendMessage(preset, opts = {}) {
     const clock = `${Math.floor(secs / 60)}:${String(secs % 60).padStart(2, '0')}`;
     const prog = Math.min(95, Math.round(100 * (1 - Math.exp(-secs / (typical * 0.6)))));
     thinking.innerHTML = `<div class="tline"><span class="dot"></span><span>${esc(status)}</span><span class="tclock">${clock}</span></div>` +
+      (routeNote ? `<div class="troute">↳ ${esc(routeNote)}</div>` : '') +
       `<div class="tprog"><span style="width:${prog}%"></span></div>` +
       (steps.length ? `<div class="steps-live">${steps.slice(-5).map(s => `<div>${esc(s)}</div>`).join('')}</div>` : '') +
       (mode === 'agent' ? `<div class="thint">Deep analysis usually takes 1–3 minutes. You can switch tabs; you'll get a notification when it's ready.</div>` : '') +
@@ -827,7 +889,7 @@ async function sendMessage(preset, opts = {}) {
     sentSessionId = sessionId;
     const res = await fetch(`/api/chat/sessions/${sessionId}/messages`, {
       method: 'POST', headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ content: text, mode, auto: Boolean(route), standalone: Boolean(opts.standalone), preset: Boolean(opts.preset), refreshOf: opts.refreshOf || undefined }),
+      body: JSON.stringify({ content: text, mode, selected: currentMode, standalone: Boolean(opts.standalone), preset: Boolean(opts.preset), force: opts.force || undefined, refreshOf: opts.refreshOf || undefined }),
     });
     if (!res.ok || !res.body) throw new Error('HTTP ' + res.status);
     const reader = res.body.getReader();

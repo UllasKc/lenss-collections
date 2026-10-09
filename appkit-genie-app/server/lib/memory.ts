@@ -14,7 +14,8 @@ import type { Lakebase } from './answerCache.js';
  * Compaction runs after the answer is sent, so it never adds to anyone's wait.
  */
 
-export interface Turn { q: string; a: string; platform: boolean; sections: string[]; mode: string }
+/** One question and its answer. `conv`: the engine conversation that produced the answer (none for guide or blocked answers). */
+export interface Turn { q: string; a: string; platform: boolean; sections: string[]; mode: string; conv?: string | null }
 export interface SessionHistory { turns: Turn[]; summary: string | null; summarizedUpto: number }
 
 const KEEP_VERBATIM = 2;     // pairs always kept word for word after a compaction
@@ -26,7 +27,8 @@ const cfg = () => aiConfig.memory;
 /** The session's question-and-answer pairs (oldest first) and its stored summary. */
 export async function loadHistory(db: Lakebase, sessionId: string): Promise<SessionHistory> {
   const { rows } = await db.query(
-    `SELECT role, content, mode, (attachment_json ? 'platform') AS platform, attachment_json->'platform'->'sections' AS sections
+    `SELECT role, content, mode, (attachment_json ? 'platform') AS platform, attachment_json->'platform'->'sections' AS sections,
+            genie_conversation_id
        FROM chatapp.chat_messages WHERE session_id = $1 ORDER BY created_at`,
     [sessionId],
   );
@@ -34,7 +36,7 @@ export async function loadHistory(db: Lakebase, sessionId: string): Promise<Sess
   let pending: { q: string; mode: string } | null = null;
   for (const r of rows) {
     if (r.role === 'user') pending = { q: String(r.content ?? ''), mode: String(r.mode) };
-    else if (pending) { turns.push({ q: pending.q, a: String(r.content ?? ''), platform: Boolean(r.platform), sections: Array.isArray(r.sections) ? r.sections.map(String) : [], mode: pending.mode }); pending = null; }
+    else if (pending) { turns.push({ q: pending.q, a: String(r.content ?? ''), platform: Boolean(r.platform), sections: Array.isArray(r.sections) ? r.sections.map(String) : [], mode: pending.mode, conv: (r.genie_conversation_id as string | null) ?? null }); pending = null; }
   }
   let summary: string | null = null;
   let summarizedUpto = 0;

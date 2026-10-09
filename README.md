@@ -6,7 +6,7 @@ Decision intelligence for collections, built on Databricks by the Concentrix Dat
 |---|---|
 | **Command Center** | An executive summary ("the month in 30 seconds"), then one story in five chapters: are we on track, how healthy is the book, what is holding us back, what to do this week, and what more can be recovered from high-risk customers. Every figure opens the accounts behind it |
 | **Explorer** | Self-service drill-down with filters, diagnostic charts and the accounts behind each chart item, with CSV export |
-| **Assistant** | Plain-language questions answered by a Genie space ("LensS query engine"): Quick answer, Deep analysis or Auto, with conversation memory, answers about the platform itself, charts, SQL and a quality score |
+| **Assistant** | Plain-language questions answered by a Genie space ("LensS query engine"): Quick answer, Deep analysis or Auto, with a conversation-aware router (data or platform guide, quick or deep, escalation to a deep analysis when an answer is not enough or a question is asked again), conversation memory, charts, SQL and a quality score |
 | **Observability** | Pipeline traces, answer quality and faithfulness, performance, drift, security and guardrails, Evaluations and Responsible AI |
 
 Every Command Center and Explorer figure comes from certified SQL views; no AI computes them. Current version: **v1.9.2** (see [CHANGELOG.md](CHANGELOG.md)).
@@ -68,7 +68,7 @@ VS Code is optional; any terminal works. Node.js is **not** needed to deploy; Da
 
 ### Configuration
 
-Configs live in `deploy/config/`: `personal.json` (Free Edition workspace), `org.json` and `org-v2.json` (templates), and `org2-v2.json` (the current organisation deployment). Every field, including the optional AI features (semantic cache, guardrails, faithfulness judge, follow-ups, Auto mode, platform questions, conversation memory, evaluations), is described in [SETUP_GUIDE.md section 7](SETUP_GUIDE.md#7-point-the-config-at-your-workspace).
+Configs live in `deploy/config/`: `personal.json` (Free Edition workspace), `org.json` and `org-v2.json` (templates), and `org2-v2.json` (the current organisation deployment). Every field, including the optional AI features (semantic cache, guardrails, faithfulness judge, follow-ups, the question router (`auto_mode`), platform questions, conversation memory, evaluations), is described in [SETUP_GUIDE.md section 7](SETUP_GUIDE.md#7-point-the-config-at-your-workspace).
 
 Permissions you need in the workspace: `CREATE SCHEMA` on the catalog, permission to create Genie spaces, Lakebase project creation, and Databricks Apps creation. If any of those is missing, the script stops at that step with the platform's error message.
 

@@ -13,6 +13,54 @@ Versions match git tags where one exists. Dates are when the change was committe
 
 ## Unreleased
 
+- **Question router: one conversation-aware decision for every typed question** (`server/lib/router.ts`). The four separate word checks are replaced: platform words, "is it a platform follow-up", the Auto word rule and the follow-up depth rule. Those checks each saw one question alone. That is how "No, you do it" kept going back to the guide, and why "this is not enough" never got a fuller answer.
+  - **How it decides:**
+    - **Signals with no model:**
+      - a repeat of an earlier question in the chat;
+      - asking for more ("not enough", "go deeper", "too high-level");
+      - pushback ("you do it", "that's not what I asked");
+      - platform wording.
+    - **One call to Llama 3.3 70B** reads the last three turns (question, what answered it, how the answer began) and returns destination, depth, intent, confidence, and the question rewritten to stand alone. It takes about 1 s.
+    - **Safety rules on top:**
+      - asking for more, or asking again, gets a **fresh deep analysis**: never from the cache, with a note to the engine to give the fuller answer;
+      - pushback after a guide answer goes to the data, so the guide is never used twice in a row;
+      - the guide is used only when the model is at least 70% sure and the question doesn't name collections data without anything on screen;
+      - "tell me more" after a genuine app question stays with the guide;
+      - in Auto, the model decides the depth of every question, follow-ups included (a single figure after a deep analysis can be quick; a "why" after a quick answer is deep). Only the word-rule fallback keeps a vague follow-up at the depth of the answer it follows;
+      - the person's own Quick or Deep choice is kept, unless their latest message asks for more;
+      - if the model is off, slow or unreadable, the same rules decide on the signals, and anything uncertain goes to the data.
+    - **Clicked questions and buttons skip the model**, as before.
+  - **Context only where the engine lacks it:**
+    - **The engine already has the chat** (it answered every earlier turn in its current conversation for this mode): the question goes in the person's own words, with no pasted context. The engine resolves "the second one" from its full history, including tables the router never sees.
+    - **The engine doesn't have the chat** (an earlier answer came from the cache or the guide, the other mode, a retry, or the first question after a switch to deep analysis): the follow-up carries the conversation so far plus the router's standalone rewrite ("No, you do it" → the DPD question it refers to).
+    - **Logged:** each trace records what was sent and why ("the engine already has this conversation", "no deep analysis conversation yet in this chat"…).
+    - **This avoids two problems:** a router rewrite overriding the engine's better memory, and the engine's history filling up with repeated context.
+  - **The router sees more of the latest answer:** 1,000 characters (220 for older turns), so "the third one" resolves (e.g. → Mortgage).
+  - **A new question about an answer is a follow-up, not "asked for more":** "why is the third one so high?" stays at the chosen depth. Escalation needs words like "more", "deeper" or "not enough", or a repeat. Before this fix, the model's reading alone sent that question to a 2-minute deep analysis with Quick selected.
+  - **In the Assistant:**
+    - while answering, a line says how the question was routed (e.g. "Deep analysis: asked for more");
+    - a Quick answer that falls short offers **Go deeper with a deep analysis**: at once when it says little (a line or two, or a question back), or once the quality check scores it below 70% on completeness ("This answer may not cover every part of the question"). Only on the latest answer;
+    - a guide answer offers **Answer from the data instead**;
+    - these buttons re-ask the question that was actually answered, and appear only under the latest answer.
+  - **In Observability:**
+    - stage 1 of each trace says who routed it (model, rules, suggestion or button), where, how deep, the intent, confidence, the rules applied and the rewritten question;
+    - Performance has a **How questions were routed** panel: to the data or the guide, deep, escalated, model or rules, and the rules applied.
+  - **Evals:** a new **Routing** category, with 36 single questions and conversations, including the three logged failures and follow-ups that point inside an answer. It runs only the router model, about 1 s a case. The Evals tab, run history, drift chart and Responsible AI page show it.
+  - **Config:** `auto_mode` is now the router's model. `personal.json` and `org2-v2.json` use `databricks-meta-llama-3-3-70b-instruct` with an 8 s timeout. `autoMode.ts` keeps only the fallback word rule, and `platformHelp.ts` only answers (its "this is a data question" reply remains a safety net).
+  - **Schema:** `eval_cases` accepts the `routing` category (applied by the deploy's lakebase step).
+  - **Verified:**
+    - 32 offline rule tests;
+    - the routing eval on the deployed app with the real model: **36/36**, about 1 s a decision;
+    - live conversations:
+      - the DPD question with Quick selected, then "This is not enough, I need more info", escalated to a fresh deep analysis (117 s, 4 charts);
+      - "What does the Observability tab show?" then "Tell me more" stayed with the guide;
+      - "No, you do it: show me the accounts that need immediate intervention" went to the data (604 accounts, 3 charts);
+    - live follow-ups:
+      - "and why is the second one so low?" after a live answer was sent in the person's own words, and the engine resolved it to Ahmedabad;
+      - "why is the third one so high?" after a cached answer was sent with context and rewritten to Mortgage, and stayed Quick;
+    - smoke test **30/30**;
+    - a local browser check of the route line, both buttons, the routing panel, trace stage 1 and the Evals tab, with no console errors;
+    - server type-check (`npm run typecheck`).
 - **Clicked questions skip the routing.** Suggested questions (welcome cards, the prompts panel and library), **Ask LensS** buttons on the Command Center and Explorer, and follow-up chips under an answer now go **straight to the query engine** in their own mode. No Auto step, no platform check and no model deciding where they go. A clicked question about the platform itself ("What can you help me with?", recognised by its wording) goes **straight to the platform guide** and is never handed back to the engine. A follow-up chip is sent in the mode of the answer it follows. Typed questions are routed as before.
   - **Files:** `public/js/chat.js` (clicks are marked `preset`), `server/routes/chat.ts`, `server/lib/platformHelp.ts`.
   - **Verified:** all 31 distinct preset questions checked (19 in the Assistant's lists, 13 on the Command Center, 14 in the Explorer, with overlaps): 30 go to the engine, 1 ("What can you help me with?") to the guide. Questions built on the fly (the Explorer's filter scope, "Compare … by …", per-account questions, follow-up chips) are covered too, because the click itself is marked, not the wording. The type-check passes.

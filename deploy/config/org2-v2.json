@@ -36,7 +36,7 @@
   "follow_ups": {
     "model": "databricks-meta-llama-3-3-70b-instruct"
   },
-  "auto_mode": { "method": "ai" },
+  "auto_mode": { "method": "ai", "model": "databricks-meta-llama-3-3-70b-instruct", "timeout_ms": 8000 },
   "platform_help": { "enabled": true, "method": "ai" },
   "conversation_memory": { "enabled": true, "compact_every": 5 },
   "evals": {

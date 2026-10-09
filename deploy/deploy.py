@@ -527,8 +527,8 @@ def write_eval_cases(db: Databricks, cfg: dict, state: dict) -> None:
                     "expected_sql = EXCLUDED.expected_sql, source = EXCLUDED.source, notes = EXCLUDED.notes",
                     (category, question, mode, expected, expected_sql, source, notes))
         conn.close()
-        counts = {c: sum(1 for x in cases if x[0] == c) for c in ("accuracy", "guardrail", "policy")}
-        log(f"Evaluation cases: {counts['accuracy']} accuracy, {counts['guardrail']} guardrail, {counts['policy']} policy")
+        counts = {c: sum(1 for x in cases if x[0] == c) for c in ("accuracy", "guardrail", "policy", "routing")}
+        log(f"Evaluation cases: {counts['accuracy']} accuracy, {counts['guardrail']} guardrail, {counts['policy']} policy, {counts['routing']} routing")
     except Exception as e:  # evals are optional; never fail a deploy over them
         log(f"WARNING: could not seed evaluation cases ({e})")
 
