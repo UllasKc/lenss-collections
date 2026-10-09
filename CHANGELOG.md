@@ -13,6 +13,7 @@ Versions match git tags where one exists. Dates are when the change was committe
 
 ## Unreleased
 
+- **Fix: a different site, product or number was read as "asked again".** Two questions where each has a word the other lacks ("Top 10 … at Houston" / "… at Phoenix") are different questions, not a repeat. Before, longer questions sharing most words escalated to a deep analysis. Rewordings ("need" / "require") are left to the router model. Found while porting the router to Lens MLOps. Verified: 35 offline rule tests; routing eval 39/39 on the deployed app.
 - **Docs:** `docs/LensS_Routing_Reference.html` (every routing rule, with diagrams and search) and `docs/LensS_Routing_Examples.html` (six real conversations stepped through the routing path), linked from the README. Both open from disk in a browser; the Reference loads the Mermaid library to draw its diagrams.
 - **Routing fixes found in end-to-end testing.**
   - **Pushback after a genuine app answer stays with the guide.** "Where is the DPD filter?" → "No, you do it" was sent to Genie as "Where is the DPD filter?". Pushback naming no data now stays with the guide. A data request ("No, just show me the DPD numbers") still goes to the data.

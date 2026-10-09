@@ -69,6 +69,9 @@ export function repeatOf(question: string, turns: Turn[]): Turn | null {
   for (const t of [...turns].reverse().slice(0, 8)) {
     const p = new Set(words(t.q));
     if (!p.size) continue;
+    // Each side has a word the other lacks (a different site, product or number: "…at Houston" / "…at Phoenix"):
+    // another question, not a repeat. Rewordings ("need" / "require") are left to the router model.
+    if ([...q].some((w) => !p.has(w)) && [...p].some((w) => !q.has(w))) continue;
     const shared = [...q].filter((w) => p.has(w)).length;
     if (shared / new Set([...q, ...p]).size >= 0.75) return t;
   }
