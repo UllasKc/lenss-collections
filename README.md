@@ -96,6 +96,24 @@ It runs as a real, non-admin identity, which is what catches missing grants. Its
 - a session end to end: a chart is returned, the session is auto-named, feedback, rename and delete work;
 - a platform question and its follow-up keeping context, guardrails, the answer cache with Refresh, Monitoring, Evals and Responsible AI.
 
+
+### Routing test (live conversations)
+
+`deploy/routing_test.py` plays three scripted conversations through the deployed app, the way the browser does (ask the router, then send). They switch between the data and the platform guide, and between Quick answer and Deep analysis. For every turn it checks:
+- where the question went, its mode, and escalation;
+- the "You asked this before" choice;
+- whether the engine was sent the turns it missed;
+- that an answer came back.
+
+It uses the same service principal as the smoke test, and real engine calls (several deep analyses, about 10–15 minutes). Run it after a change to routing:
+
+```bash
+python deploy/routing_test.py --host https://<workspace>.cloud.databricks.com --app-url https://<app>.databricksapps.com
+python deploy/routing_test.py ... --only 2      # one conversation
+```
+
+The routing evaluation in the app (Observability → Evaluations → Routing) checks the router alone, in about a minute.
+
 ## Repository layout
 
 | Path | Contents |

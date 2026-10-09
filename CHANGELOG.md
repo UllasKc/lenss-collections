@@ -13,6 +13,13 @@ Versions match git tags where one exists. Dates are when the change was committe
 
 ## Unreleased
 
+- **Live routing test** (`deploy/routing_test.py`, documented in the README under Smoke test). Three scripted conversations run through the deployed app the way the browser does (ask the router, then send), switching between the data and the platform guide and between Quick answer and Deep analysis:
+  1. **Data, the guide and back:** data → guide → "tell me more" → data (deep) → a follow-up → "not enough".
+  2. **Your own setting:** Quick kept for a "why", Deep kept, an app question mid-conversation, "No, you do it" staying with the guide, "just show me the numbers" going to the data, a Quick follow-up.
+  3. **Asking again:** the choice, "Show the earlier answer", "Run a deep analysis".
+
+  Every turn checks where the question went, the mode, escalation, the choice, whether the engine was sent the turns it missed, and that an answer came back. It uses the smoke test's service principal and real engine calls (about 10–15 minutes).
+  - **Verified on personal: 15/15 turns.** The engine never received guide turns. Each engine conversation got only the turns it missed, e.g. the quick conversation got the deep answer it hadn't seen (about 1,360 tokens). "Run a deep analysis" passed the earlier answer to the new deep conversation.
 - **Fix: a different site, product or number was read as "asked again".** Two questions where each has a word the other lacks ("Top 10 … at Houston" / "… at Phoenix") are different questions, not a repeat. Before, longer questions sharing most words escalated to a deep analysis. Rewordings ("need" / "require") are left to the router model. Found while porting the router to Lens MLOps. Verified: 35 offline rule tests; routing eval 39/39 on the deployed app.
 - **Docs:** `docs/LensS_Routing_Reference.html` (every routing rule, with diagrams and search) and `docs/LensS_Routing_Examples.html` (six real conversations stepped through the routing path), linked from the README. Both open from disk in a browser; the Reference loads the Mermaid library to draw its diagrams.
 - **Routing fixes found in end-to-end testing.**
