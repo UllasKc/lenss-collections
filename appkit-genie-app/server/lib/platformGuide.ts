@@ -129,8 +129,16 @@ With no filters, every Explorer figure reconciles exactly to the Command Center.
  */
 const STRONG = /\b(lenss|concentrix|this (app|application|platform|tool|site|dashboard|assistant)|what can you (do|answer|help)|who (built|made|created|are you)|what are you|command cent(er|re)|explorer tab|observability|kpi (dictionary|definitions)|quick answer|deep analysis|auto mode|responsible ai|log ?out|sign ?out|how (do|can) i (use|ask|filter|export|download|switch|change|log|sign|search|delete|rename|start|open|find the|go to|navigate)|which tab|what tabs|the tabs|navigate|navigation)\b/i;
 const LOOSE = /\b(lens|explorer|assistant|tab|tabs|page|evals?|evaluations?|guardrails?|faithfulness|groundedness|trace|traces|cache|pdf|feature|features|help|how does (this|it) work|where (do|can|is))\b/i;
+/** Words that make a question about the collections data, not the platform ("and for Mumbai?"). */
+export const DATA_WORDS = /\b(accounts?|collect(ed|ions?)?|recover(y|ed)?|targets?|dpd|buckets?|arrears|promises?|ptp|products?|mortgages?|loans?|cards?|sme|regions?|branch(es)?|rates?|balances?|outstanding|collectors?|channels?|segments?|strateg(y|ies)|customers?|portfolio|month|week|lowest|highest|top|figures?|numbers?)\b|₹|\d/i;
+/** Things on screen: a data word next to one of these ("where is the DPD filter?") is still a platform question. */
+const UI_WORDS = /\b(tabs?|pages?|buttons?|filters?|drop-?downs?|menus?|click|screen|export|download|explorer|assistant|observability|dashboard|chart type|settings)\b/i;
 export function platformCandidate(question: string, strict: boolean): boolean {
-  return STRONG.test(question) || (!strict && LOOSE.test(question));
+  if (STRONG.test(question)) return true;
+  if (strict || !LOOSE.test(question)) return false;
+  // A loose word alone ("where is the risk concentrated?") doesn't make a data question a platform one:
+  // a small model asked to confirm can answer it from the guide anyway, with made-up steps.
+  return !DATA_WORDS.test(question) || UI_WORDS.test(question);
 }
 
 /** The guide sections that best match a question (keyword overlap), for the model or for a no-model answer. */
