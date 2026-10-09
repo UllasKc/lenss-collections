@@ -187,7 +187,7 @@ async function runRouting(c: EvalCase): Promise<CaseResult> {
       a: how === 'guide' ? 'From the LensS guide: open the Explorer tab and choose a value in the filters…' : 'Here are the figures from the data…' };
   });
   const selected: Selected = c.mode === 'agent' || c.mode === 'chat' ? c.mode : 'auto';
-  const r = await routeMessage(latest, selected, turns);
+  const r = await routeMessage(latest, selected, { turns, summary: null, summarizedUpto: 0 });
   const [dest, depth, fresh] = String(c.expected ?? 'data').split(':');
   const passed = r.destination === dest
     && (!depth || r.mode === (depth === 'deep' ? 'agent' : 'chat'))

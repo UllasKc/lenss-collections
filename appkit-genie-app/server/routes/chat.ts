@@ -12,7 +12,7 @@ import { judgeAnswer } from '../lib/judge.js';
 import { DEEPER_NOTE, fixedRoute, rememberRoute, routeMessage, takeRoute, type RouteDecision, type Selected } from '../lib/router.js';
 import { answerPlatform, type PlatformAnswer } from '../lib/platformHelp.js';
 import { dropEmptyCharts } from '../lib/emptyResults.js';
-import { contextPreamble, isVagueFollowUp, loadHistory, maybeCompact, type SessionHistory } from '../lib/memory.js';
+import { engineContext, historyWindow, isVagueFollowUp, loadHistory, maybeCompact, type SessionHistory } from '../lib/memory.js';
 import { suggestFollowUps } from '../lib/followups.js';
 import { modelLabel, withTokenLedger, type TokenLedger } from '../lib/models.js';
 import { LIBRARY, MORE_SUGGESTIONS, QUICK_START, STARTERS } from '../lib/suggestions.js';
@@ -298,9 +298,10 @@ export function buildChatRouter(appkit: ChatAppKit): express.Router {
     const email = currentUserEmail(req);
     const selected: Selected = ['chat', 'agent'].includes(req.body?.selected) ? req.body.selected : 'auto';
     const session = typeof req.body?.sessionId === 'string' ? await ownedSession(req.body.sessionId, email).catch(() => null) : null;
-    const turns = session ? (await loadHistory(appkit.lakebase, session.session_id as string).catch(() => null))?.turns ?? [] : [];
+    const history: SessionHistory = (session ? await loadHistory(appkit.lakebase, session.session_id as string).catch(() => null) : null)
+      ?? { turns: [], summary: null, summarizedUpto: 0 };
     // Personal details are masked before the router's model sees the question, as before the engine.
-    const route = await withTokenLedger(ledger, () => routeMessage(inputPatterns(typed).text, selected, turns));
+    const route = await withTokenLedger(ledger, () => routeMessage(inputPatterns(typed).text, selected, history));
     rememberRoute(email, typed, route, ledger);
     res.json({
       destination: route.destination, mode: route.mode, intent: route.intent, escalated: route.escalated, reason: route.reason,
@@ -385,7 +386,7 @@ export function buildChatRouter(appkit: ChatAppKit): express.Router {
       : req.body?.preset === true ? fixedRoute(question, 'preset', mode, history.turns)
       : force ? fixedRoute(question, force, mode, history.turns)
       : remembered?.route ?? await trace.time(`Question router${aiConfig.autoMode.model ? ` (${modelLabel(aiConfig.autoMode.model)})` : ''}`, 'model',
-          () => withTokenLedger(tokens, () => routeMessage(question, selected, history.turns)));
+          () => withTokenLedger(tokens, () => routeMessage(question, selected, history)));
     if (route && remembered && route.method === 'ai' && route.ms) trace.add(`Question router (${modelLabel(route.model)})`, 'model', 0, route.ms);
     if (route) mode = route.mode;
     // Questions about LensS itself are answered from the platform guide (the engine only knows the data).
@@ -394,7 +395,7 @@ export function buildChatRouter(appkit: ChatAppKit): express.Router {
     if (route?.destination === 'platform' && !patterns.blocked) {
       const forced = route.method === 'preset';
       platform = await trace.time('Platform guide', aiConfig.platformHelp?.model ? 'model' : 'cache',
-        () => answerPlatform(question, history.turns, { force: forced })).catch(() => null);
+        () => answerPlatform(question, history.turns, { force: forced, context: historyWindow(history, aiConfig.contextBudgets.guide) })).catch(() => null);
       if (!platform) route = { ...route, destination: 'data', rules: [...route.rules, 'the guide said it was a data question'] };
     }
     // More depth or a repeat gets a fresh deep analysis: never the cached answer it is replacing.
@@ -428,22 +429,22 @@ export function buildChatRouter(appkit: ChatAppKit): express.Router {
     if (guardIn.blocked) hit = null;
     const piiRemoved = guardEvents.some((e) => e.stage === 'input' && e.check === 'pii' && e.action === 'redact');
 
-    // The engine remembers its own conversation (one per mode). When every earlier answer in this chat came
-    // from that conversation, it already has the whole chat: the question goes in the person's own words.
-    // Otherwise (an answer from the cache or the guide, the other mode, a retry, or a switch to deep
-    // analysis) the follow-up carries the conversation so far (summary + recent turns) and the router's
-    // standalone rewrite. A self-contained question (first of a chat, or a suggestion) carries neither.
+    // The engine remembers its own conversation (one per mode) and keeps it: it holds every table, query and
+    // step it produced. The app only fills the gap: the data turns that conversation has not seen (answered
+    // by the other mode, from the cache, or before a retry), never guide turns, newest first in whole pairs
+    // within the budget, older ones summarised (memory.ts). Nothing missed: the person's own words. A
+    // self-contained question (first of a chat, or a suggestion) carries nothing.
     const ownConversation = (session[mode === 'agent' ? 'agent_conversation_id' : 'genie_conversation_id'] as string | null) ?? null;
-    const engineHasChat = Boolean(ownConversation) && history.turns.length > 0 && history.turns.every((t) => t.conv === ownConversation);
-    const outside = history.turns.find((t) => t.conv !== ownConversation);
+    const gap = standalone || !aiConfig.memory ? null : engineContext(history.turns, ownConversation);
+    const engineHasChat = Boolean(ownConversation) && !gap;
+    const modeWord = mode === 'agent' ? 'deep analysis' : 'quick answer';
     const contextWhy = standalone || !history.turns.length ? 'a standalone question'
-      : engineHasChat ? 'the engine already has this conversation'
-      : !ownConversation ? `no ${mode === 'agent' ? 'deep analysis' : 'quick answer'} conversation yet in this chat`
-      : outside?.platform ? 'an earlier answer came from the LensS guide'
-      : outside && outside.mode !== mode ? 'an earlier answer came from the other mode'
-      : 'an earlier answer came from the cache or a retry';
-    const preamble = hit || guardIn.blocked || platform || standalone || engineHasChat ? ''
-      : aiConfig.memory ? contextPreamble(history) : await crossModeContext(session.session_id as string, mode);
+      : gap ? `${!ownConversation ? `no ${modeWord} conversation yet in this chat` : `data turns answered outside this ${modeWord} conversation`}: ${gap.full} sent in full, ${gap.summarised} summarised${gap.leftOut ? `, ${gap.leftOut} left out` : ''} (about ${gap.tokens} tokens)`
+      : ownConversation ? 'the engine already has every data turn in this chat'
+      : 'no earlier data turns in this chat (only questions about the app)';
+    const preamble = hit || guardIn.blocked || platform || standalone ? ''
+      : gap ? gap.text
+      : !aiConfig.memory ? await crossModeContext(session.session_id as string, mode) : '';
     if (!refreshOf) {
       await appkit.lakebase.query(
         `INSERT INTO chatapp.chat_messages (session_id, user_email, role, content, mode, from_cache)
@@ -544,7 +545,9 @@ export function buildChatRouter(appkit: ChatAppKit): express.Router {
       let usedMode: Mode = mode;
       // A retry starts a fresh engine conversation, so it gets the same context a follow-up gets
       // (a self-contained question still goes on its own).
-      const retryContext = async () => standalone ? '' : preamble || await recentContext(session.session_id as string, question);
+      // A retry starts a fresh conversation, so every data turn of the chat counts as missed.
+      const retryContext = async () => standalone ? ''
+        : aiConfig.memory ? engineContext(history.turns, null)?.text ?? '' : preamble || await recentContext(session.session_id as string, question);
       // The engine gets the person's own words when it already has the chat, otherwise the router's standalone
       // rewrite; and, when the person asked for more, a note to give the fuller answer. A retry starts a fresh
       // conversation, so it always gets the rewrite.
@@ -696,7 +699,10 @@ export function buildChatRouter(appkit: ChatAppKit): express.Router {
       answerPreview: (answer?.text ?? '').slice(0, 1500),
       contextCarriedOver: Boolean(preamble),
       // What the engine was sent besides the question, and why (Observability's trace).
-      context: liveRun ? { sent: Boolean(preamble), rewritten: !engineHasChat && Boolean(route?.standalone) && route?.standalone !== question, why: contextWhy } : undefined,
+      context: liveRun ? {
+        sent: Boolean(preamble), rewritten: !engineHasChat && Boolean(route?.standalone) && route?.standalone !== question, why: contextWhy,
+        ...(gap ? { full: gap.full, summarised: gap.summarised, leftOut: gap.leftOut, tokens: gap.tokens } : {}),
+      } : undefined,
       memory: preamble && aiConfig.memory
         ? { turns: history.turns.length, summarized: history.summary ? history.summarizedUpto : 0, chars: preamble.length }
         : undefined,

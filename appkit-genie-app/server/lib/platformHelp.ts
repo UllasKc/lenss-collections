@@ -35,7 +35,7 @@ GUIDE:
  * `force`: a clicked suggested question about the platform, answered from the guide and never handed back.
  * Otherwise the guide's model may still say it is a data question (null: the engine answers it).
  */
-export async function answerPlatform(question: string, history: Turn[] = [], { force = false } = {}): Promise<PlatformAnswer | null> {
+export async function answerPlatform(question: string, history: Turn[] = [], { force = false, context = '' } = {}): Promise<PlatformAnswer | null> {
   const cfg = aiConfig.platformHelp;
   if (!cfg) return null;
   const t0 = Date.now();
@@ -48,7 +48,8 @@ export async function answerPlatform(question: string, history: Turn[] = [], { f
     sections = (more.length ? more : GUIDE.filter((x) => !last.sections.includes(x.id))).slice(0, 2);
   }
   if (cfg.method === 'ai' && cfg.model) {
-    const recent = history.slice(-2).map((t) => `Q: ${t.q.slice(0, 300)}\nA: ${t.a.replace(/\s+/g, ' ').slice(0, 700)}`).join('\n');
+    // The chat so far (summary + newest whole pairs within the guide's budget), from the caller.
+    const recent = context;
     try {
       const { text } = await forFeature('platform_help', () => chat(cfg.model!, [
         // A "tell me more" follow-up only gets the parts of the guide not shown yet, so it adds rather than repeats.

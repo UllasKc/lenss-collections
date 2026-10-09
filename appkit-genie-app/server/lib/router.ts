@@ -1,6 +1,6 @@
 import { aiConfig } from './aiConfig.js';
 import { rulesMode, type Mode } from './autoMode.js';
-import { isVagueFollowUp, type Turn } from './memory.js';
+import { historyWindow, isVagueFollowUp, type SessionHistory, type Turn } from './memory.js';
 import { chat, forFeature, parseJsonObject, type TokenLedger } from './models.js';
 import { DATA_WORDS, platformCandidate } from './platformGuide.js';
 
@@ -121,26 +121,20 @@ conversation, in the user's language, at most 40 words. Resolve "this", "that", 
 conversation. For "more_depth", "repeat" or "pushback", it is the earlier request the user still wants answered,
 asking for the fuller answer. For a "new_question", repeat the question as it is.
 
-Rules: if the previous answer came from the app guide ("guide") and the user pushes back, repeats or asks for
+Rules: if the previous answer was "Answered by: the LensS guide" and the user pushes back, repeats or asks for
 more, the destination is "data". When unsure between data and platform, choose "data".
 confidence: 0 to 1, how sure you are of the destination.
 Reply with JSON only:
 {"destination":"data"|"platform","depth":"quick"|"deep","intent":"...","standalone":"...","confidence":0.0,"reason":"<under 15 words>"}`;
 
 const INTENTS: Intent[] = ['new_question', 'follow_up', 'more_depth', 'repeat', 'pushback', 'platform_help'];
-const answeredBy = (t: Turn) => (t.platform ? 'guide' : t.mode === 'agent' ? 'deep analysis' : 'quick answer');
-const clip = (s: string, n: number) => { const t = s.replace(/\[\[chart:[^\]]+\]\]/g, '').replace(/\s+/g, ' ').trim(); return t.length > n ? t.slice(0, n) + '…' : t; };
 
-async function readWithModel(question: string, turns: Turn[]): Promise<{ reading: ModelReading | null; ms: number; fallback?: string }> {
+async function readWithModel(question: string, history: SessionHistory): Promise<{ reading: ModelReading | null; ms: number; fallback?: string }> {
   const cfg = aiConfig.autoMode;
   const t0 = Date.now();
   if (cfg.method !== 'ai' || !cfg.model) return { reading: null, ms: 0 };
-  // The latest answer at more length, so a follow-up pointing inside it ("the third one") can be resolved.
-  const shown = turns.slice(-3);
-  const recent = shown.map((t, i) => {
-    const latest = i === shown.length - 1;
-    return `Turn ${i + 1}. User: ${clip(t.q, 300)}\nAnswered by: ${answeredBy(t)}\n${latest ? 'Answer' : 'Answer began'}: ${clip(t.a, latest ? 1000 : 220)}`;
-  }).join('\n\n');
+  // The chat so far: all of it when small, else the summary plus the newest whole question-and-answer pairs.
+  const recent = historyWindow(history, aiConfig.contextBudgets.router);
   try {
     const { text } = await forFeature('router', () => chat(cfg.model!, [
       { role: 'system', content: PROMPT },
@@ -245,10 +239,10 @@ export function decide(question: string, selected: Selected, turns: Turn[], s: S
 }
 
 /** Routes a typed question. Never throws: without a usable model the rules decide on the signals alone. */
-export async function routeMessage(question: string, selected: Selected, turns: Turn[]): Promise<RouteDecision> {
-  const s = signalsOf(question, turns);
-  const { reading, ms, fallback } = await readWithModel(question, turns);
-  const d = decide(question, selected, turns, s, reading);
+export async function routeMessage(question: string, selected: Selected, history: SessionHistory): Promise<RouteDecision> {
+  const s = signalsOf(question, history.turns);
+  const { reading, ms, fallback } = await readWithModel(question, history);
+  const d = decide(question, selected, history.turns, s, reading);
   return { ...d, method: reading ? 'ai' : 'rules', model: reading ? aiConfig.autoMode.model ?? undefined : undefined, ms: ms || undefined, fallback };
 }
 

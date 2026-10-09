@@ -13,6 +13,22 @@ Versions match git tags where one exists. Dates are when the change was committe
 
 ## Unreleased
 
+- **Conversation context: whole question-and-answer pairs within token budgets, and the engine sent only what it missed** (`server/lib/memory.ts`).
+  - **The engine (Genie)** keeps its own conversation per mode, with every table, query and step it produced. The app now sends only the data turns that conversation has not seen: those answered by the other mode, from the cache, or before a retry.
+    - **Never sent:** questions about the app and their guide answers, and blocked questions.
+    - **Newest first, in whole pairs:** the latest missed pair goes in whole with its first table (up to 10 rows) and the query behind it. It may run to **4,000 tokens**; past that it is cut at a paragraph boundary, and the text says so.
+    - **Then** more whole pairs while the total stays within **2,500 tokens** (typically 3 quick pairs or 1 deep analysis).
+    - **Then older missed turns** as one line each: the question, plus a short summary of the answer (its opening sentence), labelled as summarised.
+    - **Order and labels:** everything is in time order and labelled by who answered it. The engine is told to use it only to understand the question and to work out every figure from the data.
+    - **Nothing missed:** the person's own words go alone.
+    - This replaces the earlier rule that pasted the conversation so far, with answers cut to 450 characters mid-sentence, in front of every follow-up the engine had not fully seen. That could repeat turns the engine already had, out of order.
+  - **The router and the platform guide** have no memory of their own. They now get the whole chat when it is small (under **2,000 tokens**, no summary). Otherwise they get the stored summary plus the newest whole pairs within their budget (router **2,000**, guide **1,000**), with one-line summaries for older turns the stored summary doesn't reach. Before, the router saw only the last three turns, trimmed, and never the summary; the guide saw the last two, trimmed.
+  - **Budgets are settings:** `conversation_memory.router_tokens`, `guide_tokens`, `genie_tokens`, `genie_latest_max_tokens` and `send_all_below_tokens` in the deploy config. Tokens are estimated at about 4 characters each.
+  - **Observability:** each trace says how many turns were sent in full, summarised or left out, and about how many tokens.
+  - **Verified:**
+    - an offline run on a 10-turn mixed chat: guide turns never reach the engine; each conversation gets only its missed turns; a fresh conversation (retry) gets every data turn; a small chat reaches the router whole;
+    - four long deep analyses: the latest cut to ~4,000 tokens at a paragraph, the three older as one-line summaries;
+    - server type-check.
 - **Question router: one conversation-aware decision for every typed question** (`server/lib/router.ts`). The four separate word checks are replaced: platform words, "is it a platform follow-up", the Auto word rule and the follow-up depth rule. Those checks each saw one question alone. That is how "No, you do it" kept going back to the guide, and why "this is not enough" never got a fuller answer.
   - **How it decides:**
     - **Signals with no model:**
