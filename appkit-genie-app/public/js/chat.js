@@ -37,6 +37,35 @@ function routeLabel(route, mode) {
   return '';
 }
 
+/** "You asked this before": resolves 'deep' or 'again' when the person picks one. */
+function chooseOnRepeat(row) {
+  return new Promise((resolve) => {
+    row.classList.remove('thinking');
+    row.innerHTML = `<div class="repeat-ask"><div>You asked this before. Do you want a fuller answer?</div>
+      <div class="repeat-btns"><button class="btn" data-c="deep">Run a deep analysis (1–3 min)</button>
+      <button class="btn ghost" data-c="again">Show the earlier answer</button></div></div>`;
+    row.querySelectorAll('[data-c]').forEach((b) => b.addEventListener('click', () => {
+      row.classList.add('thinking');
+      resolve(b.dataset.c);
+    }, { once: true }));
+    scrollToEnd();
+  });
+}
+
+/** Scrolls to the latest answer to `question` in this chat and highlights it; false if it isn't on screen. */
+function showEarlierAnswer(question) {
+  if (!question) return false;
+  const norm = (s) => String(s).toLowerCase().replace(/[^a-z0-9 ]+/g, ' ').replace(/\s+/g, ' ').trim();
+  const rows = [...msgsEl.querySelectorAll('.turnrow.user')].filter((r) => norm(r.textContent) === norm(question));
+  const userRow = rows[rows.length - 1];
+  const answerRow = userRow && userRow.nextElementSibling;
+  if (!answerRow || !answerRow.classList.contains('bot')) return false;
+  answerRow.scrollIntoView({ behavior: 'smooth', block: 'start' });
+  answerRow.classList.add('flash');
+  setTimeout(() => answerRow.classList.remove('flash'), 2400);
+  return true;
+}
+
 /** A Quick answer that says little (a line or two, or a question back): worth offering a deep analysis. */
 function thinAnswer(answer) {
   if (answer.platform || (answer.guard && answer.guard.blocked)) return false;
@@ -849,11 +878,26 @@ async function sendMessage(preset, opts = {}) {
   }
   thinking.classList.add('thinking');
   let route = null;
+  let force = opts.force;
   if (typed) {
     thinking.innerHTML = '<div class="tline"><span class="dot"></span><span>Reading your question…</span></div>';
     route = await routeTyped(text, currentMode);
     route.selectedAuto = currentMode === 'auto';
     mode = route.mode;
+    // Asked again after a good answer: a deep analysis takes 1-3 minutes, so the person chooses.
+    if (route.confirm) {
+      const choice = await chooseOnRepeat(thinking);
+      if (choice === 'deep') {
+        force = 'deeper'; mode = 'agent';
+        route = { ...route, escalated: true, reason: 'you chose a deep analysis' };
+      } else if (showEarlierAnswer(route.repeatOf)) {
+        thinking.closest('.turnrow').previousElementSibling?.remove();
+        thinking.closest('.turnrow').remove();
+        sending = false;
+        sendBtn.disabled = false;
+        return;
+      }
+    }
   }
   const routeNote = routeLabel(route, mode);
   const started = Date.now();
@@ -889,7 +933,7 @@ async function sendMessage(preset, opts = {}) {
     sentSessionId = sessionId;
     const res = await fetch(`/api/chat/sessions/${sessionId}/messages`, {
       method: 'POST', headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ content: text, mode, selected: currentMode, standalone: Boolean(opts.standalone), preset: Boolean(opts.preset), force: opts.force || undefined, refreshOf: opts.refreshOf || undefined }),
+      body: JSON.stringify({ content: text, mode, selected: currentMode, standalone: Boolean(opts.standalone), preset: Boolean(opts.preset), force: force || undefined, refreshOf: opts.refreshOf || undefined }),
     });
     if (!res.ok || !res.body) throw new Error('HTTP ' + res.status);
     const reader = res.body.getReader();

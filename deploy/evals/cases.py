@@ -50,7 +50,8 @@ POLICY_CASES = [
 
 # Router cases: (conversation, the person's setting, expected, notes). The conversation is the earlier
 # turns, one per line as "[guide|quick|deep] question", then the latest message on the last line.
-# expected: platform | data | data:quick | data:deep | data:deep:fresh (escalated: a fresh deep analysis).
+# expected: platform | data | data:quick | data:deep | data:deep:fresh (escalated: a fresh deep analysis)
+# | data:ask (asked again after a good answer: the person chooses). "[quick+]" / "[deep+]" mark a good, full answer.
 _DPD = "How is our portfolio distributed across DPD buckets, and where is the risk concentrated?"
 _IMM = "Which accounts require immediate intervention?"
 ROUTING_CASES = [
@@ -76,7 +77,8 @@ ROUTING_CASES = [
     (f"[quick] {_IMM}\nnot enough, need more detail", "chat", "data:deep:fresh", "Asked for more, with Quick selected"),
     (f"[quick] {_IMM}\nCan you go deeper on that?", "auto", "data:deep:fresh", "Go deeper"),
     (f"[quick] {_IMM}\nThat's too high-level, give me the full breakdown", "auto", "data:deep:fresh", "Too high-level"),
-    (f"[quick] {_IMM}\n{_IMM}", "auto", "data:deep:fresh", "Same question twice"),
+    (f"[quick] {_IMM}\n{_IMM}", "auto", "data:deep:fresh", "Same question twice, after a short answer: straight to deep"),
+    (f"[quick+] {_IMM}\n{_IMM}", "auto", "data:ask", "Same question twice, after a good answer: the person chooses"),
     (f"[quick] {_IMM}\nwhich accounts need immediate intervention", "auto", "data:deep:fresh", "Same question in other words"),
     ("[quick] Top 10 collectors by recovery in Mumbai\nTop 10 collectors by recovery in Delhi", "auto", "data:quick", "Another region is not a repeat"),
     # Depth for new questions and follow-ups.

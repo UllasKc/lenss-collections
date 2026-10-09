@@ -13,6 +13,14 @@ Versions match git tags where one exists. Dates are when the change was committe
 
 ## Unreleased
 
+- **Router refinements.**
+  - **The engine gets the person's own words.** Its own memory, or the missed turns sent with the question, explain references like "the third one". The router's standalone rewrite was useful while the engine got little context. Now it is sent only when the message points back at a guide answer, which the engine never receives ("No, you do it" → the question it refers to). Traces still show the rewrite, so you can see how the router understood the question.
+  - **Asking the same question again** is judged by how good the earlier answer was:
+    - **Fell short** (a line or two, a question back, completeness below 70%, or a 👎): a fresh deep analysis at once.
+    - **Was good:** the Assistant asks first, "You asked this before. Do you want a fuller answer?", with **Run a deep analysis (1–3 min)** or **Show the earlier answer**. The second option scrolls to and highlights the earlier answer, with no new question sent.
+    - **Explicitly asking for more** ("not enough", "go deeper") still goes straight to a deep analysis.
+  - **README:** a new "Known limits and future work" section. Running the app on more than one server would need the router's decision memory and the "one evaluation at a time" check moved to Lakebase.
+  - **Evals:** a case for asking again after a good answer (the person chooses). `[quick+]` / `[deep+]` in a routing case mark a good earlier answer.
 - **Conversation context: whole question-and-answer pairs within token budgets, and the engine sent only what it missed** (`server/lib/memory.ts`).
   - **The engine (Genie)** keeps its own conversation per mode, with every table, query and step it produced. The app now sends only the data turns that conversation has not seen: those answered by the other mode, from the cache, or before a retry.
     - **Never sent:** questions about the app and their guide answers, and blocked questions.

@@ -33,6 +33,10 @@ export interface RouteDecision {
   standalone: string;
   /** More depth or a repeat: a Deep analysis, with a fresh answer (never from the cache). */
   escalated: boolean;
+  /** Asked again after a good answer: the person chooses between a deep analysis and the answer again. */
+  confirm?: boolean;
+  /** The earlier question this one repeats (so the Assistant can show its answer again). */
+  repeatOf?: string;
   confidence: number | null;
   reason: string;
   /** Safety rules that changed or confirmed the decision, in words, for Observability. */
@@ -206,12 +210,17 @@ export function decide(question: string, selected: Selected, turns: Turn[], s: S
   }
 
   // Depth.
-  const escalated = destination === 'data' && (intent === 'more_depth' || intent === 'repeat' || (intent === 'pushback' && afterGuide === false));
+  // Asked again: straight to a deep analysis when the earlier answer fell short (said little, scored low on
+  // completeness, or got a 👎); after a good answer, the person is asked first (it takes 1-3 minutes).
+  const repeated = intent === 'repeat' ? (s.repeat ?? last ?? null) : null;
+  const confirm = destination === 'data' && intent === 'repeat' && Boolean(repeated) && !repeated!.weak;
+  if (confirm) rules.push('asked again after a good answer, so the person chooses');
+  const escalated = destination === 'data' && !confirm && (intent === 'more_depth' || intent === 'repeat' || (intent === 'pushback' && afterGuide === false));
   let mode: Mode;
   if (destination === 'platform') mode = 'chat';
   else if (escalated) {
     mode = 'agent';
-    rules.push(intent === 'repeat' ? 'asked again, so a deep analysis with a fresh answer' : intent === 'pushback' ? 'the answer was rejected, so a deep analysis' : 'asked for more, so a deep analysis');
+    rules.push(intent === 'repeat' ? 'asked again after a weak answer, so a deep analysis with a fresh answer' : intent === 'pushback' ? 'the answer was rejected, so a deep analysis' : 'asked for more, so a deep analysis');
     if (selected === 'chat') rules.push('the latest message outranks the Quick answer setting');
   } else if (selected !== 'auto') mode = selected;
   else {
@@ -235,7 +244,7 @@ export function decide(question: string, selected: Selected, turns: Turn[], s: S
   }
 
   const reason = rules[0] ?? (m?.reason || (destination === 'platform' ? 'a question about the LensS app' : mode === 'agent' ? 'needs analysis' : 'a direct lookup'));
-  return { destination, mode, intent, standalone, escalated, confidence: m ? m.confidence : null, reason, rules, selected };
+  return { destination, mode, intent, standalone, escalated, ...(confirm ? { confirm, repeatOf: repeated!.q } : {}), confidence: m ? m.confidence : null, reason, rules, selected };
 }
 
 /** Routes a typed question. Never throws: without a usable model the rules decide on the signals alone. */

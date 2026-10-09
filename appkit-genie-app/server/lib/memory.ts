@@ -22,6 +22,8 @@ export interface Turn {
   /** Stopped by a guardrail; answered from the answer cache; the answer's first table (with its query). */
   blocked?: boolean; cached?: boolean;
   table?: { title: string; columns: string[]; rows: Array<Array<string | null>>; sql?: string } | null;
+  /** The answer fell short: said little, scored low on completeness, or got a 👎 (for "asked again"). */
+  weak?: boolean;
 }
 export interface SessionHistory { turns: Turn[]; summary: string | null; summarizedUpto: number }
 
@@ -36,13 +38,25 @@ function tableOf(c: unknown): Turn['table'] {
   return { title: String(x.title ?? ''), columns: x.columns.map((k) => String(k.name)), rows: x.rows, sql: x.sql };
 }
 
+/**
+ * An answer that fell short: a line or two, a question back, little text with no chart (the same test as the
+ * Assistant's Go deeper offer), completeness scored below the warning level, or a 👎.
+ */
+export function weakAnswer(text: string, charts: number, completeness: number | null, thumbsDown: boolean): boolean {
+  const t = text.replace(/\[\[chart:[^\]]+\]\]/g, '').trim();
+  const thin = t.length < 140 || (!charts && t.length < 320) || (/\?\s*$/.test(t) && t.length < 400);
+  return thin || thumbsDown || (completeness !== null && completeness < (aiConfig.judge?.warnBelow ?? 0.7));
+}
+
 /** The session's question-and-answer pairs (oldest first) and its stored summary. */
 export async function loadHistory(db: Lakebase, sessionId: string): Promise<SessionHistory> {
   const { rows } = await db.query(
-    `SELECT role, content, mode, (attachment_json ? 'platform') AS platform, attachment_json->'platform'->'sections' AS sections,
-            genie_conversation_id, from_cache, COALESCE((attachment_json->'guard'->>'blocked')::boolean, false) AS blocked,
-            attachment_json->'charts'->0 AS chart
-       FROM chatapp.chat_messages WHERE session_id = $1 ORDER BY created_at`,
+    `SELECT m.role, m.content, m.mode, (m.attachment_json ? 'platform') AS platform, m.attachment_json->'platform'->'sections' AS sections,
+            m.genie_conversation_id, m.from_cache, COALESCE((m.attachment_json->'guard'->>'blocked')::boolean, false) AS blocked,
+            m.attachment_json->'charts'->0 AS chart, COALESCE(jsonb_array_length(m.attachment_json->'charts'), 0) AS n_charts, m.feedback,
+            (SELECT (u.details->'judge'->'llm'->'metrics'->>'completeness')::numeric FROM chatapp.usage_log u
+              WHERE u.assistant_message_id = m.message_id LIMIT 1) AS completeness
+       FROM chatapp.chat_messages m WHERE m.session_id = $1 ORDER BY m.created_at`,
     [sessionId],
   );
   const turns: Turn[] = [];
@@ -50,7 +64,9 @@ export async function loadHistory(db: Lakebase, sessionId: string): Promise<Sess
   for (const r of rows) {
     if (r.role === 'user') pending = { q: String(r.content ?? ''), mode: String(r.mode) };
     else if (pending) { turns.push({ q: pending.q, a: String(r.content ?? ''), platform: Boolean(r.platform), sections: Array.isArray(r.sections) ? r.sections.map(String) : [], mode: pending.mode, conv: (r.genie_conversation_id as string | null) ?? null,
-        blocked: Boolean(r.blocked), cached: Boolean(r.from_cache), table: tableOf(r.chart) }); pending = null; }
+        blocked: Boolean(r.blocked), cached: Boolean(r.from_cache), table: tableOf(r.chart),
+        weak: weakAnswer(String(r.content ?? ''), Number(r.n_charts), r.completeness === null ? null : Number(r.completeness), r.feedback === -1) });
+      pending = null; }
   }
   let summary: string | null = null;
   let summarizedUpto = 0;

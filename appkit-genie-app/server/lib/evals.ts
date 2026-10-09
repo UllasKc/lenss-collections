@@ -181,18 +181,21 @@ async function runRouting(c: EvalCase): Promise<CaseResult> {
   const lines = c.question.split(/\r?\n/).map((l) => l.trim()).filter(Boolean);
   const latest = lines.pop() ?? '';
   const turns: Turn[] = lines.map((l) => {
-    const m = l.match(/^\[(guide|quick|deep)\]\s*(.*)$/);
+    // [quick+] / [deep+]: a good, full answer (asking it again offers a choice); otherwise a short one.
+    const m = l.match(/^\[(guide|quick|deep)(\+?)\]\s*(.*)$/);
     const how = m?.[1] ?? 'quick';
-    return { q: m?.[2] ?? l, platform: how === 'guide', sections: [], mode: how === 'deep' ? 'agent' : 'chat',
+    const good = m?.[2] === '+';
+    return { q: m?.[3] ?? l, platform: how === 'guide', sections: [], mode: how === 'deep' ? 'agent' : 'chat', weak: !good && how !== 'guide',
       a: how === 'guide' ? 'From the LensS guide: open the Explorer tab and choose a value in the filters…' : 'Here are the figures from the data…' };
   });
   const selected: Selected = c.mode === 'agent' || c.mode === 'chat' ? c.mode : 'auto';
   const r = await routeMessage(latest, selected, { turns, summary: null, summarizedUpto: 0 });
   const [dest, depth, fresh] = String(c.expected ?? 'data').split(':');
+  // expected: platform | data[:quick|:deep[:fresh]] | data:ask (asked again after a good answer: the person chooses)
   const passed = r.destination === dest
-    && (!depth || r.mode === (depth === 'deep' ? 'agent' : 'chat'))
-    && (fresh !== 'fresh' || r.escalated);
-  const got = `${r.destination === 'platform' ? 'guide' : `data, ${r.mode === 'agent' ? 'deep' : 'quick'}${r.escalated ? ', fresh' : ''}`}`;
+    && (depth === 'ask' ? Boolean(r.confirm) && !r.escalated
+      : (!depth || r.mode === (depth === 'deep' ? 'agent' : 'chat')) && (fresh !== 'fresh' || r.escalated) && !r.confirm);
+  const got = r.destination === 'platform' ? 'guide' : r.confirm ? 'data, ask the person' : `data, ${r.mode === 'agent' ? 'deep' : 'quick'}${r.escalated ? ', fresh' : ''}`;
   return {
     passed, outcome: `${got} (${r.intent}${r.method === 'rules' ? ', word rules' : ''})`, scores: {},
     details: { route: r }, latencyMs: Date.now() - t0,

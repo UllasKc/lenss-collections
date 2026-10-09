@@ -103,8 +103,16 @@ It runs as a real, non-admin identity, which is what catches missing grants. Its
 | `deploy/sql/` | All table/view DDL, templated by catalog and schema prefix |
 | `deploy/genie/space.py` | Genie space as code: sources, instructions, examples, benchmarks |
 | `deploy/lakebase/schema.sql` | Chat history, usage log, answer cache, evaluation and memory tables |
-| `deploy/evals/cases.py` | Evaluation cases: ground-truth, red-team guardrail and policy cases (seeded into Lakebase) |
+| `deploy/evals/cases.py` | Evaluation cases: ground-truth, red-team guardrail, policy and routing cases (seeded into Lakebase) |
 | `deploy/smoke_test.py` | End-to-end test of a deployed app |
 | `appkit-genie-app/` | The app: Node/Express server (`server/`) and static UI (`public/`) |
 | `docs/` | Product and demo guide (Word), client demo playbook, figures reference |
 | `all_details_and _data/` | Source workbook and specification documents |
+
+## Known limits and future work
+
+- **Running the app on more than one server (scale-out).** The app assumes a single server, which is how Databricks Apps runs it today. Two things are kept in that server's memory and would need moving to Lakebase first:
+  - **The question router's decision** (`rememberRoute` / `takeRoute` in `server/lib/router.ts`). The browser asks for the route, then sends the question, and the decision is kept in memory for up to 10 minutes in between. If the second request reached a different server, the question would be routed a second time: about 1 s extra and one more model call, and the decision could differ. Fix: store the decision in a short-lived Lakebase table keyed by user and question, or send the decision with the question.
+  - **The running evaluation** (`evalRunning` in `server/lib/evals.ts`): "one run at a time" is enforced per server. Fix: check `chatapp.eval_runs` for a run in progress instead.
+
+  The rest (chat history, the usage log, the answer cache with its pre-warm lock, conversation memory) already lives in Lakebase.

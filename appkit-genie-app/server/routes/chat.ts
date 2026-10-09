@@ -305,6 +305,7 @@ export function buildChatRouter(appkit: ChatAppKit): express.Router {
     rememberRoute(email, typed, route, ledger);
     res.json({
       destination: route.destination, mode: route.mode, intent: route.intent, escalated: route.escalated, reason: route.reason,
+      confirm: route.confirm ?? false, repeatOf: route.repeatOf ?? null,
       method: route.method, model: route.model ? modelLabel(route.model) : null, ms: route.ms ?? null, fallback: route.fallback ?? null,
     });
   });
@@ -436,7 +437,6 @@ export function buildChatRouter(appkit: ChatAppKit): express.Router {
     // self-contained question (first of a chat, or a suggestion) carries nothing.
     const ownConversation = (session[mode === 'agent' ? 'agent_conversation_id' : 'genie_conversation_id'] as string | null) ?? null;
     const gap = standalone || !aiConfig.memory ? null : engineContext(history.turns, ownConversation);
-    const engineHasChat = Boolean(ownConversation) && !gap;
     const modeWord = mode === 'agent' ? 'deep analysis' : 'quick answer';
     const contextWhy = standalone || !history.turns.length ? 'a standalone question'
       : gap ? `${!ownConversation ? `no ${modeWord} conversation yet in this chat` : `data turns answered outside this ${modeWord} conversation`}: ${gap.full} sent in full, ${gap.summarised} summarised${gap.leftOut ? `, ${gap.leftOut} left out` : ''} (about ${gap.tokens} tokens)`
@@ -490,6 +490,7 @@ export function buildChatRouter(appkit: ChatAppKit): express.Router {
     let details: Record<string, unknown>;
     let cacheInfo: Record<string, unknown> | null = null;
     let liveRun: GenieRun | null = null;
+    let rewrittenUsed = false;   // the router's rewrite went to the engine (only after a guide answer)
     let storedKey: string | null = null;
     // A platform question is on-topic by definition: an off-topic warning doesn't apply to it.
     const offTopicOnly = guardEvents.length > 0 && guardEvents.every((e) => e.check === 'off_topic');
@@ -548,12 +549,16 @@ export function buildChatRouter(appkit: ChatAppKit): express.Router {
       // A retry starts a fresh conversation, so every data turn of the chat counts as missed.
       const retryContext = async () => standalone ? ''
         : aiConfig.memory ? engineContext(history.turns, null)?.text ?? '' : preamble || await recentContext(session.session_id as string, question);
-      // The engine gets the person's own words when it already has the chat, otherwise the router's standalone
-      // rewrite; and, when the person asked for more, a note to give the fuller answer. A retry starts a fresh
-      // conversation, so it always gets the rewrite.
+      // The engine gets the person's own words: its own memory, or the missed turns sent with them, explain
+      // "the third one". The router's standalone rewrite is used only when the message points back at a guide
+      // answer, which the engine is never sent ("No, you do it"). When the person asked for more, a note asks
+      // for the fuller answer. A retry (a fresh conversation) gets the same question.
       const note = route?.escalated ? DEEPER_NOTE : '';
-      const rewritten = note + (route?.standalone || question);
-      const engineQuestion = engineHasChat ? note + question : rewritten;
+      const refersToGuide = Boolean(history.turns[history.turns.length - 1]?.platform) && route?.intent !== 'new_question';
+      const useRewrite = refersToGuide && Boolean(route?.standalone) && route?.standalone !== question;
+      const rewritten = note + (useRewrite ? route!.standalone : question);
+      const engineQuestion = rewritten;
+      rewrittenUsed = useRewrite;
       let run = await attempt(mode, preamble + engineQuestion, priorConversation);
       const retries: string[] = [];
       for (const wait of [3000, 8000]) {
@@ -700,7 +705,7 @@ export function buildChatRouter(appkit: ChatAppKit): express.Router {
       contextCarriedOver: Boolean(preamble),
       // What the engine was sent besides the question, and why (Observability's trace).
       context: liveRun ? {
-        sent: Boolean(preamble), rewritten: !engineHasChat && Boolean(route?.standalone) && route?.standalone !== question, why: contextWhy,
+        sent: Boolean(preamble), rewritten: rewrittenUsed, why: contextWhy,
         ...(gap ? { full: gap.full, summarised: gap.summarised, leftOut: gap.leftOut, tokens: gap.tokens } : {}),
       } : undefined,
       memory: preamble && aiConfig.memory
