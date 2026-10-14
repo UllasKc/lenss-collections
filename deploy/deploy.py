@@ -653,12 +653,22 @@ def grant_use_catalog(sql: Sql, catalog: str, sp: str) -> bool:
     return False
 
 
-def platform_cost_view(sql: Sql, cfg: dict, state: dict) -> bool:
+def project_family(cfg: dict) -> tuple[str, str, str]:
+    """The names every version of this project shares: v2, v3... are deployments of one project
+    (the "-v3" / "_v3" / " v3" suffixes are only for reference), so cost is never split between them.
+    Returns (app name base, Genie space title base, schema prefix base)."""
+    return (re.sub(r"-v\d+$", "", cfg["app_name"]),
+            re.sub(r" v\d+$", "", cfg["genie_space_title"]),
+            re.sub(r"_v\d+$", "", cfg["schema_prefix"]))
+
+
+def platform_cost_view(db: Databricks, sql: Sql, cfg: dict, state: dict) -> bool:
     """gold.qry_platform_cost: this project's Databricks usage at list price, for the
     Observability cost page.
 
-    Every billing row of the workspace gets a scope and the share of it that is this project's:
-      - project (share 1): this app's compute (APPS, by app name) and its Genie space (GENIE, by space ID);
+    "This project" is every version of it in the workspace (project_family: v1, v2 and v3 are
+    one project). Every billing row of the workspace gets a scope and the share that is this project's:
+      - project (share 1): its apps' compute (APPS, by app name) and its Genie spaces (GENIE, by space ID);
       - other (share 0): other apps and Genie spaces, and other SQL warehouses;
       - shared: the SQL warehouse, Lakebase, model serving, storage and the rest, which other
         projects in the workspace may use too. Its share is this project's part of the
@@ -678,7 +688,18 @@ def platform_cost_view(sql: Sql, cfg: dict, state: dict) -> bool:
         log("WARNING: workspace ID unknown (not in the app URL); skipping the cost view")
         return False
     gold = f"{cfg['catalog']}.{cfg['schema_prefix']}_gold"
-    app, space, wh, prefix = cfg["app_name"], state.get("genie_space_id") or "", state["warehouse_id"], cfg["schema_prefix"]
+    app_base, title_base, prefix = project_family(cfg)
+    wh = state["warehouse_id"]
+    # This project's Genie spaces: every version's, by title (deleted spaces can't be listed).
+    spaces, token = {state.get("genie_space_id") or ""}, None
+    while True:
+        page = db.run(*(["genie", "list-spaces"] + (["--page-token", token] if token else [])), check=False) or {}
+        spaces |= {s["space_id"] for s in page.get("spaces", []) if re.fullmatch(re.escape(title_base) + r"( v\d+)?", s.get("title", ""))}
+        token = page.get("next_page_token")
+        if not token:
+            break
+    space_list = ", ".join(f"'{s}'" for s in sorted(spaces) if s)
+    app_match = f"(u.usage_metadata.app_name = '{app_base}' OR u.usage_metadata.app_name RLIKE '^{re.escape(app_base)}-v[0-9]+$')"
     history_share = f"""(SELECT COALESCE(SUM(CASE WHEN INSTR(LOWER(statement_text), '{prefix.lower()}_') > 0 THEN total_duration_ms END)
                                 / NULLIF(SUM(total_duration_ms), 0), 1)
                        FROM system.query.history WHERE workspace_id = '{ws}' AND compute.warehouse_id = '{wh}')"""
@@ -688,8 +709,8 @@ def platform_cost_view(sql: Sql, cfg: dict, state: dict) -> bool:
             CREATE OR REPLACE VIEW {gold}.qry_platform_cost AS
             WITH priced AS (
               SELECT u.usage_date, u.billing_origin_product AS product, u.sku_name AS sku, u.usage_unit AS unit,
-                     CASE WHEN u.billing_origin_product = 'APPS' THEN IF(u.usage_metadata.app_name = '{app}', 'project', 'other')
-                          WHEN u.billing_origin_product = 'GENIE' THEN IF(u.usage_metadata.genie.agent_id = '{space}', 'project', 'other')
+                     CASE WHEN u.billing_origin_product = 'APPS' THEN IF({app_match}, 'project', 'other')
+                          WHEN u.billing_origin_product = 'GENIE' THEN IF(u.usage_metadata.genie.agent_id IN ({space_list or "''"}), 'project', 'other')
                           WHEN u.billing_origin_product = 'SQL' THEN IF(u.usage_metadata.warehouse_id = '{wh}', 'shared', 'other')
                           ELSE 'shared' END AS scope,
                      u.usage_quantity AS quantity,
@@ -724,7 +745,8 @@ def platform_cost_view(sql: Sql, cfg: dict, state: dict) -> bool:
                     "storage); project_share is the part that is this project''s (for shared: its share of the warehouse''s "
                     "query time, as of the last deploy). cost x project_share = this project''s cost. List prices, before discounts; Genie''s free "
                     "allowance has cost 0. For the app''s Observability cost page; not part of the collections model.'")
-        log(f"Cost view ready: {gold}.qry_platform_cost (workspace {ws}; {how})")
+        log(f"Cost view ready: {gold}.qry_platform_cost (workspace {ws}; apps {app_base}[-vN], "
+            f"{len([s for s in spaces if s])} Genie space(s); {how})")
         return True
     except DeployError as e:
         log("WARNING: couldn't create the cost view, so the Observability cost page will say it isn't available "
@@ -936,7 +958,7 @@ def step_app(db: Databricks, sql: Sql, cfg: dict, state: dict, cfg_path: Path) -
     # The workspace ID is in the app's URL (https://<app>-<workspace id>.<region>.databricksapps.com).
     m = re.search(r"-(\d{10,})\.", state["app_url"] or "")
     state["workspace_id"] = m.group(1) if m else state.get("workspace_id")
-    platform_cost_view(sql, cfg, state)
+    platform_cost_view(db, sql, cfg, state)
 
     # Lakebase: a Postgres role for the app's service principal, then table grants.
     branch = state["lakebase_branch"]

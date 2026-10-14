@@ -13,7 +13,7 @@ const COST_SERVICES = {
   APPS: ['Databricks App', '#0E9384', 'The LensS web app’s compute'],
   LAKEBASE: ['Lakebase (Postgres)', '#9333EA', 'Chat history, usage log and answer cache'],
   DATABASE: ['Lakebase (Postgres)', '#9333EA', 'Chat history, usage log and answer cache'],
-  GENIE: ['Genie', '#F59E0B', 'This project’s Genie space'],
+  GENIE: ['Genie', '#F59E0B', 'This project’s Genie spaces'],
   MODEL_SERVING: ['Model serving', '#DC2626', 'Guardrails, judge, router and follow-ups'],
   AI_GATEWAY: ['AI Gateway', '#E11D48', 'Model calls through the gateway'],
   FOUNDATION_MODEL_TRAINING: ['Model training', '#BE123C', ''],
@@ -132,9 +132,9 @@ function renderCost(el, d) {
     <div class="card cost-scope">
       <h3 class="cost-h">What is counted</h3>
       <div class="cost-scope-grid">
-        <div><b>This project only</b><span>The LensS app’s compute and its Genie space.</span></div>
+        <div><b>This project only</b><span>The LensS apps’ compute and their Genie spaces, every version (v1, v2, v3…) counted as one project.</span></div>
         <div><b>Shared, ${sharedPct !== null ? `${sharedPct}%` : 'in part'} counted</b><span>SQL warehouse, Lakebase, model serving and storage are shared with other projects in this workspace. LensS’s part is its share of the warehouse’s query time${sharedPct !== null ? ` (${sharedPct}%, worked out at the last deploy)` : ''}.</span></div>
-        <div><b>Left out: ${fmt(others)}</b><span>Other apps and Genie spaces in this workspace (Lens MLOps, test apps). The whole workspace has cost ${fmt(d.workspace_cost)}.</span></div>
+        <div><b>Left out: ${fmt(others)}</b><span>Other projects’ apps and Genie spaces in this workspace (for example Lens MLOps). The whole workspace has cost ${fmt(d.workspace_cost)}.</span></div>
       </div>
     </div>
 

@@ -29,7 +29,7 @@ Versions match git tags where one exists. Dates are when the change was committe
   - a stacked daily chart by service with the running total;
   - the cost of each service, with what it is used for, and the 12 most expensive SKUs.
   - **This project only.** The personal workspace also runs Lens MLOps and test apps. Each billing row is scoped:
-    - **This project:** the app's compute (by app name) and its Genie space (by space ID).
+    - **This project:** every version's apps (`lenss-collections`, `-v2`, `-v3`; by app name) and Genie spaces (by title, with or without " vN"). Versions are for reference only, so their cost is never split; the split is between projects.
     - **Shared:** the SQL warehouse, Lakebase, model serving and storage, counted at LensS's share of the warehouse's query time (86% on personal, from `system.query.history`). Query history shows each reader only their own queries, even through a view, so the deploy works the share out as the person deploying and writes it into the view.
     - **Left out:** other apps and Genie spaces.
     - A "What is counted" panel shows all three, with the whole workspace's total.
