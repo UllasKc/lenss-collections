@@ -57,7 +57,7 @@ export function buildDashboardRouter(db: Lakebase): express.Router {
 
   const computeSummary = async () => {
     // Independent queries: run together, not one after another.
-    const [[totals], [funnel], [intervention], [overContact], [narrative]] = await Promise.all([
+    const [[totals], [funnel], [intervention], [overContact], [narrative], [priority], [rules]] = await Promise.all([
     runSql(`
       SELECT
         SUM(MTD_Collections) AS mtd_collections,
@@ -86,8 +86,16 @@ export function buildDashboardRouter(db: Lakebase): express.Router {
     `).catch(() => runSql(`
       SELECT narrative, CAST(generated_at AS STRING) AS narrative_generated_at FROM ${GOLD}.exec_summary LIMIT 1
     `)).catch(() => [{ narrative: null, narrative_generated_at: null }]),
+    // Chapter 5's priority list: the intervention accounts with the most to recover (priority_top_accounts).
+    runSql(`
+      SELECT COUNT(*) AS priority_accounts, SUM(Outstanding_Balance) AS priority_balance,
+             SUM(Incremental_Recovery_Opportunity) AS priority_recoverable
+      FROM ${GOLD}.qry_cc_priority_accounts
+    `).catch(() => [{}]),
+    // Every threshold, so the cards name the values in force (gold.business_rules_config).
+    runSql(`SELECT * FROM ${GOLD}.qry_rules`).catch(() => [{}]),
     ]);
-    return { ...totals, ...funnel, ...intervention, ...overContact, ...narrative };
+    return { ...totals, ...funnel, ...intervention, ...overContact, ...narrative, ...priority, rules: rules ?? {} };
   };
   router.get('/api/dashboard/summary', (_req, res) => cached('summary', res, computeSummary));
 
@@ -192,15 +200,17 @@ export function buildDashboardRouter(db: Lakebase): express.Router {
    * product, arrears stage or next step where the list needs it (checked against the data).
    */
   const SNAP = `DATE '2026-09-15'`;
-  const DUE_7D = `b.PTP_Flag = 1 AND b.PTP_Due_Date > ${SNAP} AND b.PTP_Due_Date <= DATE_ADD(${SNAP}, 7)`;
-  const LIKELY_TO_BREAK = `(b.Payment_Propensity < 0.35 OR b.Nonpayment_Risk >= 0.60)`;
+  // A threshold from gold.business_rules_config (through qry_rules), so a list always matches its card.
+  const rule = (name: string) => `(SELECT ${name} FROM ${GOLD}.qry_rules)`;
+  const DUE_7D = `b.PTP_Flag = 1 AND b.PTP_Due_Date > ${SNAP} AND b.PTP_Due_Date <= DATE_ADD(${SNAP}, CAST(${rule('queue_ptp_window_days')} AS INT))`;
+  const LIKELY_TO_BREAK = `(b.Payment_Propensity < ${rule('queue_break_propensity')} OR b.Nonpayment_Risk >= ${rule('queue_break_risk')})`;
   const LISTS: Record<string, { where: (v: string) => string; order: string; needs?: 'product' | 'bucket' | 'action' }> = {
-    high_risk: { where: () => 'b.Nonpayment_Risk >= 0.70', order: 'b.Nonpayment_Risk DESC, b.Outstanding_Balance DESC' },
+    high_risk: { where: () => `b.Nonpayment_Risk >= ${rule('high_risk_threshold')}`, order: 'b.Nonpayment_Risk DESC, b.Outstanding_Balance DESC' },
     worsening: { where: () => 'b.Roll_Forward_Flag = 1', order: 'b.Bucket_Order DESC, b.Outstanding_Balance DESC' },
     bucket: { where: (v) => `b.DPD_Bucket = ${v}`, order: 'b.Outstanding_Balance DESC', needs: 'bucket' },
     broken_ptp: { where: () => 'b.Broken_PTP_Flag = 1', order: 'b.PTP_Amount DESC' },
     product: { where: (v) => `b.Product = ${v}`, order: 'b.Incremental_Recovery_Opportunity DESC', needs: 'product' },
-    rolling_180: { where: () => 'b.DPD BETWEEN 150 AND 180', order: 'b.DPD DESC, b.Outstanding_Balance DESC' },
+    rolling_180: { where: () => `b.DPD BETWEEN ${rule('queue_roll_from_dpd')} AND ${rule('queue_roll_to_dpd')}`, order: 'b.DPD DESC, b.Outstanding_Balance DESC' },
     not_reached: { where: () => 'b.Attempted_Flag = 1 AND b.RPC_Flag = 0', order: 'b.Attempts_MTD DESC, b.Outstanding_Balance DESC' },
     over_contact: {
       where: () => `EXISTS (SELECT 1 FROM ${GOLD}.qry_over_contact_risk o WHERE o.Treatment_Strategy = b.Treatment_Strategy
@@ -208,11 +218,18 @@ export function buildDashboardRouter(db: Lakebase): express.Router {
       order: 'b.Attempts_MTD DESC',
     },
     priority: { where: () => 'i.Account_ID IS NOT NULL', order: 'b.Incremental_Recovery_Opportunity DESC' },
+    priority_top: {
+      where: () => `EXISTS (SELECT 1 FROM ${GOLD}.qry_cc_priority_accounts p WHERE p.Account_ID = b.Account_ID)`,
+      order: 'b.Incremental_Recovery_Opportunity DESC',
+    },
     priority_product: { where: (v) => `i.Account_ID IS NOT NULL AND b.Product = ${v}`, order: 'b.Incremental_Recovery_Opportunity DESC', needs: 'product' },
     action: { where: (v) => `i.Recommended_Action = ${v}`, order: 'b.Incremental_Recovery_Opportunity DESC', needs: 'action' },
     ptp_at_risk: { where: () => `${DUE_7D} AND ${LIKELY_TO_BREAK}`, order: 'b.PTP_Due_Date, b.PTP_Amount DESC' },
     ptp_due_other: { where: () => `${DUE_7D} AND NOT ${LIKELY_TO_BREAK}`, order: 'b.PTP_Due_Date, b.PTP_Amount DESC' },
-    high_value: { where: () => 'b.Payment_Propensity >= 0.60 AND b.Outstanding_Balance >= 100000', order: 'b.Incremental_Recovery_Opportunity DESC' },
+    high_value: {
+      where: () => `b.Payment_Propensity >= ${rule('queue_high_propensity')} AND b.Outstanding_Balance >= ${rule('queue_high_balance')}`,
+      order: 'b.Incremental_Recovery_Opportunity DESC',
+    },
   };
   const FROM = `FROM ${GOLD}.qry_explorer_base b LEFT JOIN ${GOLD}.qry_immediate_intervention i ON i.Account_ID = b.Account_ID`;
   /** The values a list may be narrowed to, from the data itself (so nothing else reaches the SQL). */

@@ -81,6 +81,10 @@ Databricks Apps **cannot** be made public or anonymous — Databricks' own docum
 - **People:** add them to the workspace (external collaborators via your identity provider with SCIM/JIT provisioning — an admin task), then grant them `CAN_USE` on the app (or set `readers_group`).
 - **Systems / APIs:** a service principal with an OAuth M2M secret can call the app's API. It needs `CAN_USE` on the app **and the `workspace-access` entitlement** — without that entitlement the app returns 401 even with a valid token.
 
+### Databricks cost (Observability 8)
+
+The cost page reads `gold.qry_platform_cost`, which the deploy's app step creates over `system.billing.usage` and `system.billing.list_prices`, filtered to the app's own workspace and scoped to this project: its app and Genie space in full, other apps and spaces left out, and shared services (warehouse, Lakebase, model serving, storage) at this project's share of the warehouse's query time, worked out at each deploy from `system.query.history`. A view runs with its owner's access, so the app needs nothing beyond its SELECT on gold; the person deploying must be able to read the two billing tables (if not, the deploy warns and the page says the figures aren't available). Costs are list prices, and anyone with `CAN_USE` on the app can see the workspace's spend. The view isn't in the Genie space.
+
 ## Smoke test
 
 ```bash
@@ -138,6 +142,7 @@ The routing evaluation in the app (Observability → Evaluations → Routing) ch
 - **Every gold view has a description** (`COMMENT ON TABLE` / `COLUMN`, next to the view in `deploy/sql/60_certified_views.sql` and `70_command_center_views.sql`). It gives the business question the view answers (from the client's SQL library and query catalog), its grain, its rules, and when to prefer it over a similar view. Genie and Catalog Explorer read these.
   - **Edit descriptions in the SQL files only:** every deploy re-creates the views, so descriptions typed in Catalog Explorer are lost.
   - **The same goes for the Genie space** (instructions, examples, benchmarks): edit `deploy/genie/space.py`, not the Genie UI.
+- **The app's account lists use the same rules.** The lists behind the Command Center's cards (`server/routes/dashboard.ts`) read their thresholds from `qry_rules`, and so does the card text that names one. The priority list's size is `priority_top_accounts` (100).
 
 ## Known limits and future work
 

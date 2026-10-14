@@ -1,0 +1,55 @@
+{
+  "profile": "lenss-org2",
+  "catalog": "collectionanalytics1",
+  "create_catalog": false,
+  "schema_prefix": "lenss_collections_v3",
+  "warehouse_id": null,
+  "warehouse_name": "collectionanalytics",
+  "genie_space_title": "LensS Collections Analytics v3",
+  "lakebase_project": "lenss-collections-app",
+  "lakebase_database": "chatappv3",
+  "app_name": "lenss-collections-v3",
+  "readers_group": "lenss-collections-readers",
+  "semantic_cache": {
+    "threshold": 98,
+    "embedding_model": "databricks-gte-large-en"
+  },
+  "guardrails": {
+    "model": "databricks-meta-llama-3-3-70b-instruct",
+    "input": {
+      "pii": "redact",
+      "profanity": "block",
+      "prompt_injection": "block",
+      "off_topic": "warn"
+    },
+    "output": {
+      "pii": "redact",
+      "profanity": "redact",
+      "policy_checks": "flag"
+    }
+  },
+  "faithfulness_judge": {
+    "model": "databricks-gpt-oss-120b",
+    "sample_percent": 100,
+    "warn_below": 70
+  },
+  "follow_ups": {
+    "model": "databricks-meta-llama-3-3-70b-instruct"
+  },
+  "auto_mode": {
+    "method": "ai",
+    "model": "databricks-meta-llama-3-3-70b-instruct",
+    "timeout_ms": 8000
+  },
+  "platform_help": {
+    "enabled": true,
+    "method": "ai"
+  },
+  "conversation_memory": {
+    "enabled": true,
+    "compact_every": 5
+  },
+  "evals": {
+    "max_accuracy_cases": 10
+  }
+}

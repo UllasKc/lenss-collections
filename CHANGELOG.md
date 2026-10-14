@@ -13,6 +13,30 @@ Versions match git tags where one exists. Dates are when the change was committe
 
 ## Unreleased
 
+- **Promises to pay, explained in one place.**
+  - **The hero:** still four tiles. "Still to collect" is replaced by "Promised this month" (₹168.4M; 1,234 broken, ₹87.5M still to come), and what is still to collect now opens the hero's sentence ("We still need ₹5.8M in the next 15 days.").
+  - **The amounts in "What is holding us back":** the critical promises card now gives the money at each step: ₹168.4M promised, ₹52.7M broken and ₹28.3M kept of what fell due, ₹87.5M still to come, and about ₹30.3M expected if the rest are kept at the same rate. (A separate promise card under the hero was tried and dropped: it repeated this card.)
+  - **New columns in `qry_cc_kpis`:** `PTP_Amount_Total`, `PTP_Due_Accounts`, `PTP_Kept_Accounts` / `_Amount`, `Broken_PTP_Amount`, `PTP_Upcoming_Accounts` / `_Amount`, each with a column description. The Genie space has an example for "how many promises were made, kept or broken".
+- **Executive summary, plainer.** "The book" now says "About 1 in 3 accounts (6,351) fell further behind on payments this month, moving to a later arrears stage" instead of "a third slipped further".
+- **"What more can we recover" shows the top 100.** Chapter 5, its executive-summary line and the priority-accounts panel lead with the 100 high-risk customers still likely to pay who have the most to recover: ₹4.0M of the ₹6.4M across all 604 (about 63%). "View all 100" opens exactly those accounts.
+  - **A rule, not a number in code:** `priority_top_accounts` = 100 in `business_rules_config`, read by the new `gold.qry_cc_priority_accounts` (described in Unity Catalog, and in the Genie space with an example).
+  - **Account lists follow the rules table:** the high-risk, rolling-to-180, high-value and promise-queue lists in `server/routes/dashboard.ts` now read their thresholds from `qry_rules`, and the card text that names a threshold (risk ≥ 0.70, propensity < 0.35, 150–180 days) shows the value in force.
+- **Answer notifications when the window is minimised.** The browser notification only fired when the tab was hidden; some browsers keep a minimised or covered window "visible". A window without focus now counts as away, and a second answer in the same chat alerts again instead of silently replacing the first.
+- **Smoke and routing tests print UTF-8.** An emoji in an answer crashed them on a Windows (cp1252) console; found while porting to Lens MLOps.
+- **Verified on personal:** smoke test **30/30**; every account list matches its card (top 100: 100 accounts, ₹4.0M; promises at risk: 610); the cost page through the app ($248.89 since 23 Sep); the Command Center rendered from live data with no errors.
+- **Observability 8, Databricks cost.** What LensS Collections has cost since its first day ($209 at list price on personal, of $249 for the whole workspace), from `system.billing.usage` priced with `system.billing.list_prices`:
+  - the total since day 1, this month, the last 7 days, the average per day and the biggest service;
+  - a stacked daily chart by service with the running total;
+  - the cost of each service, with what it is used for, and the 12 most expensive SKUs.
+  - **This project only.** The personal workspace also runs Lens MLOps and test apps. Each billing row is scoped:
+    - **This project:** the app's compute (by app name) and its Genie space (by space ID).
+    - **Shared:** the SQL warehouse, Lakebase, model serving and storage, counted at LensS's share of the warehouse's query time (86% on personal, from `system.query.history`). Query history shows each reader only their own queries, even through a view, so the deploy works the share out as the person deploying and writes it into the view.
+    - **Left out:** other apps and Genie spaces.
+    - A "What is counted" panel shows all three, with the whole workspace's total.
+  - **Genie isn't fully free.** It has a free allowance (`GENIE_FREE_USAGE`, no list price, kept at cost 0): 45% of this space's usage. The rest is billed as serverless inference, mostly the app's own questions asked as its service principal. The page says so under Genie. These free rows used to be dropped by the price join.
+  - **Caveats on the page:** list prices before discounts, so the invoice can be lower; nothing is charged on Free Edition; billing data is a few hours late (the endpoint caches for 30 minutes).
+  - **How the app reads billing:** the deploy's app step creates `gold.qry_platform_cost`, a view over the billing tables filtered to this workspace (its ID comes from the app's URL). A view runs with its owner's access, so the app reads it with its existing SELECT on gold and needs no grant on the `system` catalog (granting that needs a metastore admin, which the deploy couldn't do on personal). The view isn't in the Genie space.
+
 - **Gold layer and Genie review: 14 gaps fixed.** Found while preparing an architecture walkthrough. Every gap was measured on the data before fixing.
   - **R09, underperforming segments, gave empty answers.** `qry_underperforming_segments` compared balance recovery rates with a 5-point gap, which can never occur at about 4% recovery: 0 of 157 segments were flagged. Our own Genie example therefore returned nothing for "Which segments are underperforming?". It now applies the workbook's R09: target achievement more than 5 points below the portfolio, per product × DPD bucket (the only grain targets exist at). It flags SME Loan 1–30 (85.1% against 90.2%), and 12 more segments are "Below Portfolio". For weak recovery by balance band, region or vulnerability, the metric view is the route.
   - **Every threshold is now data.**

@@ -653,6 +653,86 @@ def grant_use_catalog(sql: Sql, catalog: str, sp: str) -> bool:
     return False
 
 
+def platform_cost_view(sql: Sql, cfg: dict, state: dict) -> bool:
+    """gold.qry_platform_cost: this project's Databricks usage at list price, for the
+    Observability cost page.
+
+    Every billing row of the workspace gets a scope and the share of it that is this project's:
+      - project (share 1): this app's compute (APPS, by app name) and its Genie space (GENIE, by space ID);
+      - other (share 0): other apps and Genie spaces, and other SQL warehouses;
+      - shared: the SQL warehouse, Lakebase, model serving, storage and the rest, which other
+        projects in the workspace may use too. Its share is this project's part of the
+        warehouse's query time (system.query.history statements naming this project's
+        schemas), the only usage signal the system tables give for shared services. Query
+        history shows each reader only their own queries (even through a view), so the share
+        is worked out here, as the person deploying, and written into the view; it is as of
+        the last deploy. If query history can't be read, shared services count in full.
+    Genie's free allowance (GENIE_FREE_USAGE) has no list price, so it is kept with cost 0.
+
+    A view runs with its owner's access to the tables beneath it, so the app reads the
+    system tables through this view with only its SELECT on gold: no grant on the system
+    catalog (which needs a metastore admin). The view is not in the Genie space.
+    """
+    ws = state.get("workspace_id")
+    if not ws:
+        log("WARNING: workspace ID unknown (not in the app URL); skipping the cost view")
+        return False
+    gold = f"{cfg['catalog']}.{cfg['schema_prefix']}_gold"
+    app, space, wh, prefix = cfg["app_name"], state.get("genie_space_id") or "", state["warehouse_id"], cfg["schema_prefix"]
+    history_share = f"""(SELECT COALESCE(SUM(CASE WHEN INSTR(LOWER(statement_text), '{prefix.lower()}_') > 0 THEN total_duration_ms END)
+                                / NULLIF(SUM(total_duration_ms), 0), 1)
+                       FROM system.query.history WHERE workspace_id = '{ws}' AND compute.warehouse_id = '{wh}')"""
+
+    def create(share: float) -> None:
+        sql.execute(f"""
+            CREATE OR REPLACE VIEW {gold}.qry_platform_cost AS
+            WITH priced AS (
+              SELECT u.usage_date, u.billing_origin_product AS product, u.sku_name AS sku, u.usage_unit AS unit,
+                     CASE WHEN u.billing_origin_product = 'APPS' THEN IF(u.usage_metadata.app_name = '{app}', 'project', 'other')
+                          WHEN u.billing_origin_product = 'GENIE' THEN IF(u.usage_metadata.genie.agent_id = '{space}', 'project', 'other')
+                          WHEN u.billing_origin_product = 'SQL' THEN IF(u.usage_metadata.warehouse_id = '{wh}', 'shared', 'other')
+                          ELSE 'shared' END AS scope,
+                     u.usage_quantity AS quantity,
+                     u.usage_quantity * COALESCE(p.pricing.default, 0) AS cost,
+                     p.currency_code, u.usage_end_time
+              FROM system.billing.usage u
+              LEFT JOIN system.billing.list_prices p
+                ON u.sku_name = p.sku_name AND u.cloud = p.cloud AND u.usage_unit = p.usage_unit
+               AND u.usage_end_time >= p.price_start_time
+               AND (p.price_end_time IS NULL OR u.usage_end_time < p.price_end_time)
+              WHERE u.workspace_id = '{ws}'
+            )
+            SELECT usage_date, product, sku, unit, scope,
+                   CASE scope WHEN 'project' THEN 1.0 WHEN 'other' THEN 0.0 ELSE {share:.4f} END AS project_share,
+                   SUM(quantity) AS quantity, SUM(cost) AS cost,
+                   MAX(currency_code) AS currency, MAX(usage_end_time) AS data_through
+            FROM priced
+            GROUP BY usage_date, product, sku, unit, scope""")
+
+    try:
+        try:
+            share = float(sql.execute(f"SELECT {history_share}")[0][0])
+            how = f"shared services {share:.0%} by warehouse query time"
+        except (DeployError, IndexError, TypeError, ValueError) as e:
+            log(f"Query history not readable ({str(e).splitlines()[0][:120] if str(e) else e!r}); shared services count in full")
+            share, how = 1.0, "shared services counted in full"
+        create(share)
+        sql.execute(f"COMMENT ON TABLE {gold}.qry_platform_cost IS 'This project''s Databricks usage per day, service "
+                    "(billing_origin_product), SKU and scope, priced at the list price in force when it was used "
+                    "(system.billing.usage x system.billing.list_prices). scope: project (this app and its Genie space), "
+                    "other (other apps, spaces and warehouses in the workspace), shared (warehouse, Lakebase, model serving, "
+                    "storage); project_share is the part that is this project''s (for shared: its share of the warehouse''s "
+                    "query time, as of the last deploy). cost x project_share = this project''s cost. List prices, before discounts; Genie''s free "
+                    "allowance has cost 0. For the app''s Observability cost page; not part of the collections model.'")
+        log(f"Cost view ready: {gold}.qry_platform_cost (workspace {ws}; {how})")
+        return True
+    except DeployError as e:
+        log("WARNING: couldn't create the cost view, so the Observability cost page will say it isn't available "
+            f"({str(e).splitlines()[0][:160]}). It needs SELECT on system.billing.usage and list_prices "
+            "for the person deploying.")
+        return False
+
+
 def resolve_ai_config(db: Databricks, cfg: dict) -> dict:
     """The optional AI features for the app (semantic cache, guardrails, judge).
 
@@ -853,6 +933,10 @@ def step_app(db: Databricks, sql: Sql, cfg: dict, state: dict, cfg_path: Path) -
     sql.execute(f"GRANT SELECT ON SCHEMA {c}.{p}_gold TO `{sp}`")
     log("Granted USE SCHEMA / SELECT on gold to the app's service principal")
     state["catalog_access_pending"] = not catalog_ok
+    # The workspace ID is in the app's URL (https://<app>-<workspace id>.<region>.databricksapps.com).
+    m = re.search(r"-(\d{10,})\.", state["app_url"] or "")
+    state["workspace_id"] = m.group(1) if m else state.get("workspace_id")
+    platform_cost_view(sql, cfg, state)
 
     # Lakebase: a Postgres role for the app's service principal, then table grants.
     branch = state["lakebase_branch"]

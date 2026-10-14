@@ -15,6 +15,14 @@ SELECT
   1.0*SUM(RPC_Flag)/NULLIF(SUM(CASE WHEN Attempts_MTD>0 THEN 1 ELSE 0 END),0) AS RPC_Rate,
   1.0*SUM(PTP_Flag)/NULLIF(COUNT(DISTINCT Account_ID),0)                     AS PTP_Rate,
   SUM(PTP_Flag)                                                              AS PTP_Accounts,
+  -- This month's promises, end to end: made = already due (kept + broken) + still to come due this month
+  SUM(CASE WHEN PTP_Flag=1 THEN PTP_Amount ELSE 0 END)                       AS PTP_Amount_Total,
+  SUM(CASE WHEN PTP_Flag=1 AND PTP_Due_Date<=Snapshot_Date THEN 1 ELSE 0 END) AS PTP_Due_Accounts,
+  SUM(CASE WHEN PTP_Flag=1 AND PTP_Due_Date<=Snapshot_Date AND Broken_PTP_Flag=0 THEN 1 ELSE 0 END) AS PTP_Kept_Accounts,
+  SUM(CASE WHEN PTP_Flag=1 AND PTP_Due_Date<=Snapshot_Date AND Broken_PTP_Flag=0 THEN PTP_Amount ELSE 0 END) AS PTP_Kept_Amount,
+  SUM(CASE WHEN Broken_PTP_Flag=1 THEN PTP_Amount ELSE 0 END)                AS Broken_PTP_Amount,
+  SUM(CASE WHEN PTP_Flag=1 AND PTP_Due_Date>Snapshot_Date AND PTP_Due_Date<=LAST_DAY(Snapshot_Date) THEN 1 ELSE 0 END) AS PTP_Upcoming_Accounts,
+  SUM(CASE WHEN PTP_Flag=1 AND PTP_Due_Date>Snapshot_Date AND PTP_Due_Date<=LAST_DAY(Snapshot_Date) THEN PTP_Amount ELSE 0 END) AS PTP_Upcoming_Amount,
   1.0*SUM(Broken_PTP_Flag)/NULLIF(COUNT(DISTINCT Account_ID),0)              AS Broken_PTP_Rate,
   SUM(Broken_PTP_Flag)                                                       AS Broken_PTP_Accounts,
   1.0*SUM(Broken_PTP_Flag)/NULLIF(SUM(CASE WHEN PTP_Flag=1 AND PTP_Due_Date<=Snapshot_Date THEN 1 ELSE 0 END),0) AS Broken_Share_Of_Due_Promises,
@@ -32,6 +40,12 @@ COMMENT ON COLUMN {{catalog}}.{{prefix}}_gold.qry_cc_kpis.Broken_PTP_Rate IS 'Br
 COMMENT ON COLUMN {{catalog}}.{{prefix}}_gold.qry_cc_kpis.Broken_Share_Of_Due_Promises IS 'Broken promises / promises already due: the broken-promise rate quoted on the Command Center';
 COMMENT ON COLUMN {{catalog}}.{{prefix}}_gold.qry_cc_kpis.Roll_Forward_Rate IS 'Share of accounts that moved to a later DPD bucket';
 COMMENT ON COLUMN {{catalog}}.{{prefix}}_gold.qry_cc_kpis.Roll_Back_Rate IS 'Share of accounts that moved to an earlier DPD bucket';
+COMMENT ON COLUMN {{catalog}}.{{prefix}}_gold.qry_cc_kpis.PTP_Amount_Total IS 'Amount promised (INR) across all promises to pay made this month';
+COMMENT ON COLUMN {{catalog}}.{{prefix}}_gold.qry_cc_kpis.PTP_Due_Accounts IS 'Promises already due by the snapshot date (kept + broken)';
+COMMENT ON COLUMN {{catalog}}.{{prefix}}_gold.qry_cc_kpis.PTP_Kept_Accounts IS 'Promises already due that were kept (paid at least 90%, rule R05)';
+COMMENT ON COLUMN {{catalog}}.{{prefix}}_gold.qry_cc_kpis.Broken_PTP_Amount IS 'Amount promised (INR) on the promises that were broken';
+COMMENT ON COLUMN {{catalog}}.{{prefix}}_gold.qry_cc_kpis.PTP_Upcoming_Accounts IS 'Promises still to come due in the rest of the month';
+COMMENT ON COLUMN {{catalog}}.{{prefix}}_gold.qry_cc_kpis.PTP_Upcoming_Amount IS 'Amount promised (INR) on the promises still to come due this month';
 
 -- 2. Portfolio risk snapshot: accounts and balance by DPD bucket
 CREATE OR REPLACE VIEW {{catalog}}.{{prefix}}_gold.qry_cc_risk_snapshot AS
@@ -139,6 +153,16 @@ WHERE Snapshot_Date = DATE '2026-09-15' AND DPD > 0
        OR (Payment_Propensity >= {{live:queue_high_propensity}} AND Outstanding_Balance >= {{live:queue_high_balance}}));
 COMMENT ON TABLE {{catalog}}.{{prefix}}_gold.qry_cc_action_accounts IS 'Answers: "Which accounts are in each action queue?", "Which promises are due in the next 7 days?", "Which accounts are about to roll into 180+?" One row per account in a Command Center work queue, with its queue (Action_Queue) and the fields to act on. Same queue rules as qry_cc_actions. Account IDs only, no customer identity. For the R08 high-risk intervention list use qry_immediate_intervention instead.';
 COMMENT ON COLUMN {{catalog}}.{{prefix}}_gold.qry_cc_action_accounts.Action_Queue IS 'The work queue this account is in (an account in several queues shows the first that applies: broken-PTP follow-up, PTP due in 7 days, rolling toward 180+, high propensity and high balance)';
+
+-- The priority list (chapter 5): the intervention accounts with the most to recover, priority_top_accounts of them
+CREATE OR REPLACE VIEW {{catalog}}.{{prefix}}_gold.qry_cc_priority_accounts AS
+SELECT * FROM (
+  SELECT i.*, ROW_NUMBER() OVER (ORDER BY i.Incremental_Recovery_Opportunity DESC, i.Account_ID) AS Priority_Rank
+  FROM {{catalog}}.{{prefix}}_gold.qry_immediate_intervention i
+) ranked
+WHERE Priority_Rank <= {{live:priority_top_accounts}};
+COMMENT ON TABLE {{catalog}}.{{prefix}}_gold.qry_cc_priority_accounts IS 'Answers: "Which accounts should we prioritise first?" / "Who are the top 100 accounts to work, and how much can we recover from them?" The priority_top_accounts (100) accounts from qry_immediate_intervention (rule R08: high risk, still likely to pay) with the most incremental recovery, ranked 1 = most to recover, with the recommended next step. SUM(Incremental_Recovery_Opportunity) is what the list could recover. For all intervention accounts use qry_immediate_intervention.';
+COMMENT ON COLUMN {{catalog}}.{{prefix}}_gold.qry_cc_priority_accounts.Priority_Rank IS '1 = the account with the most incremental recovery';
 
 -- 6a. Channel effectiveness by the customer's preferred channel
 CREATE OR REPLACE VIEW {{catalog}}.{{prefix}}_gold.qry_cc_channel AS

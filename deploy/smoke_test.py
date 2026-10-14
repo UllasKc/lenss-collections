@@ -365,4 +365,6 @@ def main():
 
 
 if __name__ == "__main__":
+    # Answers can contain emoji; a cp1252 Windows console would crash printing them.
+    sys.stdout.reconfigure(encoding="utf-8", errors="replace")
     main()

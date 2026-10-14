@@ -24,7 +24,7 @@ TABLES = [
     "qry_underperforming_segments", "qry_strategy_like_for_like", "qry_recommended_channel",
     "qry_recovery_opportunity_sizing", "qry_collector_scorecard",
     # Command Center views (deploy/sql/70_command_center_views.sql)
-    "qry_cc_kpis", "qry_cc_risk_snapshot", "qry_cc_target_outlook", "qry_cc_actions", "qry_cc_action_accounts",
+    "qry_cc_kpis", "qry_cc_risk_snapshot", "qry_cc_target_outlook", "qry_cc_actions", "qry_cc_action_accounts", "qry_cc_priority_accounts",
     "qry_cc_channel", "qry_cc_region",
 ]
 
@@ -83,6 +83,9 @@ WHICH VIEW ANSWERS WHICH QUESTION (prefer these; each view's description says mo
 - Rates (RPC, PTP conversion, broken promises, contact, recovery, cost to collect) by any
   dimension: the metric view mv_collections_funnel with MEASURE(...) GROUP BY the dimension.
   Portfolio-wide rates in one row: qry_funnel_rates. Funnel stage counts: qry_collections_funnel.
+- The top priority list (the 100 intervention accounts with the most to recover, and what
+  they could recover): qry_cc_priority_accounts. Promises made, kept, broken and still to come
+  this month (counts and amounts): qry_cc_kpis.
 - Accounts to act on (high risk, still likely to pay, rule R08): qry_immediate_intervention;
   the money by product x bucket: qry_recovery_opportunity_sizing. This week's work queues:
   qry_cc_actions (sizes) and qry_cc_action_accounts (the accounts).
@@ -239,6 +242,10 @@ def examples(g: str):
          f"SELECT Primary_Nonpayment_Driver, Account_Count, Outstanding_Balance, Recovery_Rate, Average_Nonpayment_Risk FROM {g}.qry_nonpayment_drivers ORDER BY Outstanding_Balance DESC;"),
         ("What recovery opportunity can help close the gap, by product and DPD bucket?",
          f"SELECT Product, DPD_Bucket, Intervention_Accounts, Outstanding_Balance, Incremental_Recovery_Opportunity FROM {g}.qry_recovery_opportunity_sizing ORDER BY Incremental_Recovery_Opportunity DESC;"),
+        ("Which accounts should we prioritise first, and how much can we recover from them?",
+         f"SELECT COUNT(*) AS Priority_Accounts, SUM(Outstanding_Balance) AS Balance, SUM(Incremental_Recovery_Opportunity) AS Recoverable FROM {g}.qry_cc_priority_accounts;"),
+        ("How many promises to pay were made this month, and how many were kept or broken?",
+         f"SELECT PTP_Accounts, PTP_Amount_Total, PTP_Due_Accounts, PTP_Kept_Accounts, Broken_PTP_Accounts, Broken_PTP_Amount, PTP_Upcoming_Accounts, PTP_Upcoming_Amount FROM {g}.qry_cc_kpis;"),
         ("How is a high-risk account defined? / What thresholds does LensS use?",
          f"SELECT rule_name, threshold_value, notes FROM {g}.business_rules_config ORDER BY rule_name;"),
     ]

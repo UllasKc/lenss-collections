@@ -135,7 +135,7 @@ async function loadHome() {
     () => renderHero(summary, o, cc), () => renderExecSummary(summary, o, cc),
     () => renderBookHealth(summary, o, cc), () => renderRisk(cc),
     () => renderIssues(summary, o, cc),
-    () => renderActionCenter(cc, o),
+    () => renderActionCenter(cc, o, summary),
     () => renderMoney(summary, o), () => renderOpportunity(o), () => renderAccounts(summary, o), () => renderActions(o),
   ];
   for (const fn of steps) { run(fn); await nextFrame(); }
@@ -165,6 +165,11 @@ function counts(o, cc) {
     due7: num(a.PTP_Due_7d_Accounts),
   };
 }
+/** A threshold from gold.business_rules_config (sent with the summary), with the documented default until it arrives. */
+const ruleVal = (s, name, fallback) => { const v = num(((s || {}).rules || {})[name]); return v === null ? fallback : v; };
+/** "1 in 3" for a share, so a rate reads as people rather than a fraction. */
+const oneIn = (v) => { const x = num(v); if (!x) return '—'; const n = Math.round(1 / x); return n >= 2 ? `About 1 in ${n}` : pct(x, 0); };
+
 /** "1,234 of 1,886", or just the first number when the second isn't known yet. */
 const ofN = (a, b) => (num(a) === null ? '—' : num(b) === null ? count(a) : `${count(a)} of ${count(b)}`);
 
@@ -179,18 +184,21 @@ function renderHero(s, o, cc) {
   // The answer first, in one sentence; the figures are in the tiles beside it.
   const c = counts(o, cc);
   const caveat = broken !== null ? `, but only if customers keep their promises: <b>${pct(broken, 0)}</b> of the promises already due were broken (${ofN(c.broken, c.due)})` : '';
-  document.getElementById('heroSub').innerHTML = {
+  // What is still to collect leads the sentence (it was a tile; the tiles now carry the promises).
+  const need = likely && likely !== 'Achieved' && num(s.target_gap) !== null
+    ? `We still need <b>${money(s.target_gap)}</b> in the next ${count(out.Days_Remaining)} days. ` : '';
+  document.getElementById('heroSub').innerHTML = need + ({
     Achieved: `We've <b>achieved</b> this month's target.`,
     High: `We're <b>on track</b> to hit this month's target${caveat}.`,
     Medium: `This month's target is <b>within reach</b>${caveat}.`,
     Low: `This month's target is <b>at risk</b>: the promises due before month-end won't cover what we still need.`,
-  }[likely] || `We've collected <b>${money(s.mtd_collections)}</b> of this month's <b>${money(s.monthly_target)}</b> target.`;
+  }[likely] || `We've collected <b>${money(s.mtd_collections)}</b> of this month's <b>${money(s.monthly_target)}</b> target.`);
   document.getElementById('heroProgress').innerHTML = `
     <div class="hp-track"><div class="hp-fill" style="width:${Math.min(100, (ach || 0) * 100).toFixed(1)}%"></div></div>
     <div class="hp-legend"><span><b>${money(s.mtd_collections)}</b> collected of <b>${money(s.monthly_target)}</b> · ${pct(ach)}</span><span>${likely ? `${count(out.Days_Remaining)} days left` : ''}</span></div>`;
   const outlookShare = num(out.Outlook_EOM_Recovery) !== null && num(out.Recovery_Target) ? num(out.Outlook_EOM_Recovery) / num(out.Recovery_Target) : null;
   document.getElementById('heroStats').innerHTML = [
-    ['Still to collect', money(s.target_gap), likely ? `in ${count(out.Days_Remaining)} days` : 'this month', 'target'],
+    ['Promised this month', money(k.PTP_Amount_Total), num(k.PTP_Accounts) !== null ? `${count(k.Broken_PTP_Accounts)} broken · ${money(k.PTP_Upcoming_Amount)} still to come` : '', 'handshake'],
     ['Expected from promises', money(out.Expected_From_Promises), num(out.Gap_Coverage) !== null ? `${num(out.Gap_Coverage).toFixed(1)}× what we still need` : '', 'promise'],
     ['Month-end outlook', money(out.Outlook_EOM_Recovery), outlookShare !== null ? `${pct(outlookShare, 0)} of target` : '', 'gap'],
     ['Likelihood of hitting target', hEsc(likely || '—'), 'High ≥ 1.5× · Medium ≥ 1× · Low < 1×', 'check'],
@@ -237,14 +245,14 @@ function renderExecSummary(s, o, cc) {
   const rows = [
     ['ch1', 'Where we stand', `${money(s.mtd_collections)} of ${money(s.monthly_target)} collected with ${count(out.Days_Remaining)} days left; on today's promises we land near ${money(out.Outlook_EOM_Recovery)}.`,
       money(out.Outlook_EOM_Recovery), 'month-end outlook', likely === 'Low' ? 'bad' : 'good'],
-    ['ch2', 'The book', `${money(k.Outstanding_Portfolio, 2)} overdue across ${count(c.accounts)} accounts. ${share(k.Roll_Forward_Rate).replace(/^./, (ch) => ch.toUpperCase())} slipped further behind this month${better ? `, and early arrears recover about ${better}× better than the oldest debt` : ''}.`,
+    ['ch2', 'The book', `${money(k.Outstanding_Portfolio, 2)} overdue across ${count(c.accounts)} accounts. ${oneIn(k.Roll_Forward_Rate)} accounts (${count(c.worsened)}) fell further behind on payments this month, moving to a later arrears stage${better ? `. Accounts caught early recover about ${better}× more than the oldest debt` : ''}.`,
       money(k.Outstanding_Portfolio, 2), 'overdue', 'brand'],
     ['ch3', 'What is hurting us', `${inThree} promises are broken, and ${reach}${worst ? `. ${hEsc(worst.Product)} is furthest behind target` : ''}. Calling harder won't fix it.`,
       pct(brokenShare, 0), 'promises broken', 'bad'],
     ['ch4', 'This week', `Save ${count(a.PTP_Break_Risk_7d_Accounts)} promises at risk (${money(a.PTP_Break_Risk_7d_Amount)}), work ${count(a.HighProp_HighBal_Accounts)} high-value accounts (${money(a.HighProp_HighBal_Recoverable)}), and stop ${count(a.Rolling_To_180_Accounts)} accounts sliding past 180 days.`,
       count(a.PTP_Break_Risk_7d_Accounts), 'promises to save', 'warn'],
-    ['ch5', 'Extra upside', `${money(s.recovery_opportunity)} more from ${count(s.immediate_intervention_accounts)} high-risk customers who are still likely to pay. Don't write them off.`,
-      money(s.recovery_opportunity), 'more to recover', 'good'],
+    ['ch5', 'Extra upside', `${money(s.priority_recoverable)} more from our top ${count(s.priority_accounts)} high-risk customers who are still likely to pay (${pct(num(s.priority_recoverable) / num(s.recovery_opportunity), 0)} of the ${money(s.recovery_opportunity)} across all ${count(s.immediate_intervention_accounts)}). Don't write them off.`,
+      money(s.priority_recoverable), `from the top ${count(s.priority_accounts)}`, 'good'],
   ];
   document.getElementById('execSumList').innerHTML = rows.map(([id, label, line, fig, figLabel, tone], i) => `
     <li><a class="es-row" href="#${id}">
@@ -276,7 +284,7 @@ function renderBookHealth(s, o, cc) {
   document.getElementById('execKpis').innerHTML = [
     card('cash', 'Overdue balance', money(k.Outstanding_Portfolio, 2), `${count(k.Accounts_In_Collections)} accounts in collections`, 'Total balance currently under collections'),
     card('pulse', 'Recovery rate', pct(k.Recovery_Rate, 2), `${money(k.Recovery_MTD)} collected this month of ${money(k.Outstanding_Portfolio, 2)} overdue`, 'How much of the book we turn into cash'),
-    card('alert', 'High-risk accounts', count(k.High_Risk_Accounts), `${pct(num(k.High_Risk_Accounts) / num(k.Accounts_In_Collections))} of ${count(k.Accounts_In_Collections)} accounts (risk ≥ 0.70) · ${count(s.immediate_intervention_accounts)} still likely to pay`, 'Non-payment risk threshold exceeded; the priority list is the subset still likely to pay', 'warn', viewBtn('high_risk', 'View accounts', '', 'High-risk accounts', true)),
+    card('alert', 'High-risk accounts', count(k.High_Risk_Accounts), `${pct(num(k.High_Risk_Accounts) / num(k.Accounts_In_Collections))} of ${count(k.Accounts_In_Collections)} accounts (risk ≥ ${ruleVal(s, 'high_risk_threshold', 0.7)}) · ${count(s.immediate_intervention_accounts)} still likely to pay`, 'Non-payment risk threshold exceeded; the priority list is the subset still likely to pay', 'warn', viewBtn('high_risk', 'View accounts', '', 'High-risk accounts', true)),
     card('slip', 'Accounts worsening', pct(k.Roll_Forward_Rate ?? p.roll_forward_rate), `${ofN(c.worsened, c.accounts)} moved to a later arrears stage · ${pct(p.roll_back_rate)} improved`, 'Deterioration indicator', 'warn', viewBtn('worsening', 'View accounts', '', 'Accounts worsening this month', true)),
     card('coin', 'Cost to collect', num(p.cost_to_collect) === null ? '—' : CUR + num(p.cost_to_collect).toFixed(3), `per ${CUR}1 collected: ${money(k.Collection_Cost)} spent ÷ ${money(k.Recovery_MTD)} collected`, 'Efficiency of collections'),
   ].join('');
@@ -340,8 +348,9 @@ function renderIssues(s, o, cc) {
   const issues = [
     { sev: 'Critical', ic: 'promise', view: ['broken_ptp', `View ${count(k.Broken_PTP_Accounts)} broken promises`], title: 'Customers are breaking their promises to pay',
       metric: pct(k.Broken_Share_Of_Due_Promises, 0),
-      body: `${count(c.promised)} customers promised to pay this month. Of the ${count(c.due)} promises already due, ${count(c.broken)} were broken and only ${count(c.kept)} kept. ` +
-        `Of the ${count(num(out.Promises_Rest_Of_Month))} still to come, ${count(c.due7)} fall due this week, and ${count(a.PTP_Break_Risk_7d_Accounts)} of those look likely to break (${money(a.PTP_Break_Risk_7d_Amount)}).`,
+      body: `${count(c.promised)} customers promised to pay ${money(k.PTP_Amount_Total)} this month. Of the ${count(c.due)} promises already due, ${count(c.broken)} were broken (${money(k.Broken_PTP_Amount)}) and only ${count(c.kept)} kept (${money(k.PTP_Kept_Amount)}). ` +
+        `Of the ${count(num(out.Promises_Rest_Of_Month))} still to come (${money(k.PTP_Upcoming_Amount)}), ${count(c.due7)} fall due this week, and ${count(a.PTP_Break_Risk_7d_Accounts)} of those look likely to break (${money(a.PTP_Break_Risk_7d_Amount)}). ` +
+        `If customers keep the rest at the same rate, about ${money(out.Expected_From_Promises)} will arrive.`,
       extra: promiseBar(c, a, out),
       driver: 'Promises taken from customers with low propensity or high non-payment risk.',
       q: 'Why are so many promises to pay being broken, and which segments should we prioritise to fix it?' },
@@ -382,14 +391,15 @@ function renderIssues(s, o, cc) {
  */
 function renderMoney(s, o) {
   const top = (o.opportunity || [])[0];
-  setTake('ch5Take', `Beyond this week's plan, don't write off high-risk customers: <b>${count(s.immediate_intervention_accounts)}</b> of the ${count(((o.cc || {}).kpis || {}).High_Risk_Accounts)} are still likely to pay, ` +
-    `and <b>${money(s.recovery_opportunity)}</b> more can be recovered from them` + (top ? `, most of it in ${hEsc(top.Product)} (${money(top.opportunity)})` : '') +
-    `. Each gets one next step, with disputing and vulnerable customers supported first.`);
+  setTake('ch5Take', `Beyond this week's plan, don't write off high-risk customers. Start with the top <b>${count(s.priority_accounts)}</b>: ` +
+    `they could bring in <b>${money(s.priority_recoverable)}</b>, ${pct(num(s.priority_recoverable) / num(s.recovery_opportunity), 0)} of the ${money(s.recovery_opportunity)} recoverable from all ${count(s.immediate_intervention_accounts)} high-risk customers still likely to pay` +
+    (top ? ` (most of it in ${hEsc(top.Product)})` : '') + `. Each gets one next step, with disputing and vulnerable customers supported first.`);
 }
 
 /** 4. What should we do this week? The work queues, most urgent first; together they are the plan. */
-function renderActionCenter(cc, o) {
+function renderActionCenter(cc, o, s = {}) {
   const a = cc.actions || {};
+  const r = (name, fallback) => ruleVal(s, name, fallback);
   const otherDue = num(a.PTP_Due_7d_Accounts) !== null ? num(a.PTP_Due_7d_Accounts) - num(a.PTP_Break_Risk_7d_Accounts) : null;
   const otherAmt = num(a.PTP_Due_7d_Amount) !== null ? num(a.PTP_Due_7d_Amount) - num(a.PTP_Break_Risk_7d_Amount) : null;
   setTake('ch4Take', `First save the <b>${ofN(a.PTP_Break_Risk_7d_Accounts, a.PTP_Due_7d_Accounts)}</b> promises due this week that are likely to break (${money(a.PTP_Break_Risk_7d_Amount)}), ` +
@@ -397,16 +407,16 @@ function renderActionCenter(cc, o) {
     `and stop <b>${count(a.Rolling_To_180_Accounts)}</b> accounts reaching 180+ days.`);
   const cards = [
     { ic: 'alert', when: 'Today', list: 'ptp_at_risk', t: 'Save promises likely to break', v: count(a.PTP_Break_Risk_7d_Accounts), unit: 'promises',
-      d: `${ofN(a.PTP_Break_Risk_7d_Accounts, a.PTP_Due_7d_Accounts)} promises due in the next 7 days (${money(a.PTP_Break_Risk_7d_Amount)}), from customers with low propensity (< 0.35) or high risk (≥ 0.60). Call before the due date.`,
+      d: `${ofN(a.PTP_Break_Risk_7d_Accounts, a.PTP_Due_7d_Accounts)} promises due in the next ${r('queue_ptp_window_days', 7)} days (${money(a.PTP_Break_Risk_7d_Amount)}), from customers with low propensity (< ${r('queue_break_propensity', 0.35)}) or high risk (≥ ${r('queue_break_risk', 0.6)}). Call before the due date.`,
       q: 'Which customers with promises due in the next 7 days are likely to break them, and what follow-up should we do?', mode: 'agent', tone: 'bad' },
     { ic: 'promise', when: 'This week', list: 'ptp_due_other', t: 'Remind the other promises due', v: count(otherDue), unit: 'promises',
       d: `${ofN(otherDue, a.PTP_Due_7d_Accounts)} promises due in the next 7 days (${money(otherAmt)}), from customers likely to pay: a reminder on their preferred channel.`,
       q: 'Which promises to pay are due in the next 7 days, and how much is at stake?', mode: 'chat', tone: 'brand' },
     { ic: 'cash', when: 'This week', list: 'high_value', t: 'Work high-value accounts likely to pay', v: money(a.HighProp_HighBal_Recoverable), unit: 'recoverable',
-      d: `${count(a.HighProp_HighBal_Accounts)} accounts with propensity ≥ 60% and balance ≥ ₹100K (${money(a.HighProp_HighBal_Balance)} balance).`,
+      d: `${count(a.HighProp_HighBal_Accounts)} accounts with propensity ≥ ${pct(r('queue_high_propensity', 0.6), 0)} and balance ≥ ${money(r('queue_high_balance', 100000))} (${money(a.HighProp_HighBal_Balance)} balance).`,
       q: 'Which accounts have both high payment propensity and high balance, and how should we work them?', mode: 'chat', tone: 'good' },
     { ic: 'slip', when: 'This month', list: 'rolling_180', t: 'Stop accounts reaching 180+', v: money(a.Rolling_To_180_Exposure), unit: 'exposure',
-      d: `${count(a.Rolling_To_180_Accounts)} accounts at 150–180 days past due, about to enter the lowest-recovery stage.`,
+      d: `${count(a.Rolling_To_180_Accounts)} accounts at ${r('queue_roll_from_dpd', 150)}–${r('queue_roll_to_dpd', 180)} days past due, about to enter the lowest-recovery stage.`,
       q: 'Which accounts are about to roll into 180+ days past due, and what should we do before they do?', mode: 'agent', tone: 'warn' },
   ];
   document.getElementById('actionCenter').innerHTML = cards.map((c, i) => `
@@ -434,8 +444,8 @@ function renderAccounts(s, o) {
       <td><span class="pill-bar"><span style="width:${(num(r.Payment_Propensity) * 100).toFixed(0)}%"></span></span>${pct(r.Payment_Propensity, 0)}</td>
       <td>${hEsc(r.Primary_Nonpayment_Driver)}</td>
       <td><span class="action-chip a-${ACTION_TONE[r.Recommended_Action] || 'standard'}">${hEsc(r.Recommended_Action)}</span></td></tr>`).join('')}</tbody></table></div>`;
-  panel('pnlAccounts', 'The priority accounts worth the most', `The 8 of ${count(s.immediate_intervention_accounts)} priority accounts with the most to recover, and the next step for each. ${viewBtn('priority', `View all ${count(s.immediate_intervention_accounts)}`, '', 'Priority accounts', true)}`,
-    { q: 'Which accounts require immediate intervention?', mode: 'chat' }, body);
+  panel('pnlAccounts', `The top ${count(s.priority_accounts)} priority accounts`, `Together they could recover ${money(s.priority_recoverable)}. The 8 with the most to recover are shown, with the next step for each. ${viewBtn('priority_top', `View all ${count(s.priority_accounts)}`, '', `Top ${count(s.priority_accounts)} priority accounts`, true)}`,
+    { q: 'Which accounts should we prioritise first, and how much can we recover from them?', mode: 'chat' }, body);
 }
 
 /** Recommended next steps: how the priority accounts should be handled (v1.6). */

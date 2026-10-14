@@ -32,6 +32,7 @@ INSERT INTO {{catalog}}.{{prefix}}_gold.business_rules_config VALUES
 ('queue_roll_from_dpd', 150, 'Rolling-toward-180+ queue: accounts from this many days past due ...'),
 ('queue_roll_to_dpd', 180, '... up to this many (within 30 days of the 180+ bucket).'),
 ('queue_top_opportunities', 250, 'The largest-incremental-recovery queue: this many accounts with the most to recover.'),
+('priority_top_accounts', 100, 'The Command Center''s priority list (chapter 5): the R08 intervention accounts with the most incremental recovery, this many of them. Used by qry_cc_priority_accounts.'),
 -- Target outlook (qry_cc_target_outlook): bands, not a forecast
 ('outlook_high_coverage', 1.5, 'Target likelihood "High" when the expected recovery from promises due covers at least 1.5x the remaining gap.'),
 ('outlook_medium_coverage', 1.0, 'Target likelihood "Medium" when it covers at least 1.0x the remaining gap; below that "Low".');
@@ -56,6 +57,7 @@ SELECT
   MAX(CASE WHEN rule_name = 'queue_roll_from_dpd' THEN threshold_value END)               AS queue_roll_from_dpd,
   MAX(CASE WHEN rule_name = 'queue_roll_to_dpd' THEN threshold_value END)                 AS queue_roll_to_dpd,
   MAX(CASE WHEN rule_name = 'queue_top_opportunities' THEN threshold_value END)           AS queue_top_opportunities,
+  MAX(CASE WHEN rule_name = 'priority_top_accounts' THEN threshold_value END)             AS priority_top_accounts,
   MAX(CASE WHEN rule_name = 'outlook_high_coverage' THEN threshold_value END)             AS outlook_high_coverage,
   MAX(CASE WHEN rule_name = 'outlook_medium_coverage' THEN threshold_value END)           AS outlook_medium_coverage
 FROM {{catalog}}.{{prefix}}_gold.business_rules_config;
