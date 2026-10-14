@@ -83,7 +83,7 @@ Databricks Apps **cannot** be made public or anonymous — Databricks' own docum
 
 ### Databricks cost (Observability 8)
 
-The cost page reads `gold.qry_platform_cost`, which the deploy's app step creates over `system.billing.usage` and `system.billing.list_prices`, filtered to the app's own workspace and scoped to this project: its apps and Genie spaces in full (every version, v1/v2/v3, counts as the same project), other apps and spaces left out, and shared services (warehouse, Lakebase, model serving, storage) at this project's share of the warehouse's query time, worked out at each deploy from `system.query.history`. A view runs with its owner's access, so the app needs nothing beyond its SELECT on gold; the person deploying must be able to read the two billing tables (if not, the deploy warns and the page says the figures aren't available). Costs are list prices, and anyone with `CAN_USE` on the app can see the workspace's spend. The view isn't in the Genie space.
+The cost page reads `gold.qry_platform_cost`, which the deploy's app step creates over `system.billing.usage` and `system.billing.list_prices`, filtered to the app's own workspace and scoped to this project: its apps and Genie spaces in full (every version, v1/v2/v3, counts as the same project), other apps and spaces left out, and shared services (warehouse, Lakebase, model serving, storage) at this project's share of each day's warehouse query time from `system.query.history` (0 before its first day; days after the last deploy use the latest 7 days' share), worked out at each deploy. A view runs with its owner's access, so the app needs nothing beyond its SELECT on gold; the person deploying must be able to read the two billing tables (if not, the deploy warns and the page says the figures aren't available). Costs are list prices, and anyone with `CAN_USE` on the app can see the workspace's spend. The view isn't in the Genie space.
 
 ## Smoke test
 
@@ -112,9 +112,12 @@ It runs as a real, non-admin identity, which is what catches missing grants. Its
 It uses the same service principal as the smoke test, and real engine calls (several deep analyses, about 10–15 minutes). Run it after a change to routing:
 
 ```bash
+python deploy/deploy.py --config deploy/config/<config>.json --only routing   # host and app address from the deploy
 python deploy/routing_test.py --host https://<workspace>.cloud.databricks.com --app-url https://<app>.databricksapps.com
 python deploy/routing_test.py ... --only 2      # one conversation
 ```
+
+`--only routing` runs only when named; a full deploy never runs it.
 
 The routing evaluation in the app (Observability → Evaluations → Routing) checks the router alone, in about a minute.
 
