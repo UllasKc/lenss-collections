@@ -85,6 +85,19 @@ Databricks Apps **cannot** be made public or anonymous — Databricks' own docum
 
 The cost page reads `gold.qry_platform_cost`, which the deploy's app step creates over `system.billing.usage` and `system.billing.list_prices`, filtered to the app's own workspace and scoped to this project: its apps and Genie spaces in full (every version, v1/v2/v3, counts as the same project), other apps and spaces left out, and shared services (warehouse, Lakebase, model serving, storage) at this project's share of each day's warehouse query time from `system.query.history` (0 before its first day; days after the last deploy use the latest 7 days' share), worked out at each deploy. A view runs with its owner's access, so the app needs nothing beyond its SELECT on gold; the person deploying must be able to read the two billing tables (if not, the deploy warns and the page says the figures aren't available). Costs are list prices, and anyone with `CAN_USE` on the app can see the workspace's spend. The view isn't in the Genie space.
 
+### Idle stop
+
+Databricks Apps never stop on their own and bill while running, so the app stops itself after a stretch with no use. Set it per deployment in the config:
+
+```json
+"idle_stop_minutes": 60      // minutes without use before the app stops; null or 0 = never stop
+```
+
+The default is 60 (`org2-v3.json` 60, `personal.json` 15).
+- **Use** means any request from a signed-in person or service principal: opening a page, a question, an evaluation. An answer still streaming, or an evaluation in progress, keeps the app up.
+- **Start it again** from Compute → Apps → Start. That needs CAN_MANAGE on the app, so give it to whoever runs demos. Starting takes a few minutes. A deploy starts a stopped app by itself.
+- **How it stops:** the app stops itself with its own service principal. The deploy gives that principal CAN_MANAGE on this app only (`server/lib/idleStop.ts`).
+
 ## Smoke test
 
 ```bash

@@ -51,5 +51,6 @@
   },
   "evals": {
     "max_accuracy_cases": 10
-  }
+  },
+  "idle_stop_minutes": 60
 }
