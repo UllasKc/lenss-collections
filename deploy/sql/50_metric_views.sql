@@ -1,4 +1,6 @@
 -- Governed Metric Views (guide Step 3). Requires DBR 16.4+ / a current SQL warehouse.
+-- Metric views can't read a table at query time: {{rule:<name>}} is filled in by the deploy from
+-- gold.business_rules_config, so the value always matches the table after a deploy.
 CREATE OR REPLACE VIEW {{catalog}}.{{prefix}}_gold.mv_performance_targets WITH METRICS LANGUAGE YAML AS $$
 version: 1.1
 comment: "Collections performance and target metrics - plus collections-only cuts by channel/strategy/vulnerability/collector (no target attached to these, since Fact_Targets has no grain below Product x DPD_Bucket)"
@@ -151,8 +153,8 @@ measures:
     comment: "Digital Penetration"
     synonyms: [digital reach, digital coverage]
   - name: high_risk_accounts
-    expr: COUNT(DISTINCT CASE WHEN source.Nonpayment_Risk >= 0.70 THEN source.Account_ID END)
-    comment: "High-Risk Accounts (threshold 0.70 - see gold.business_rules_config)"
+    expr: COUNT(DISTINCT CASE WHEN source.Nonpayment_Risk >= {{rule:high_risk_threshold}} THEN source.Account_ID END)
+    comment: "High-risk accounts: Nonpayment_Risk at or above high_risk_threshold (rule R07) in gold.business_rules_config, written in by the deploy"
     synonyms: [high risk, critical, likely nonpayer, red account, high nonpayment risk]
   - name: incremental_recovery_opportunity
     expr: SUM(source.Incremental_Recovery_Opportunity)

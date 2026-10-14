@@ -194,7 +194,7 @@ async function runRouting(c: EvalCase): Promise<CaseResult> {
   // expected: platform | data[:quick|:deep[:fresh]] | data:ask (asked again after a good answer: the person chooses)
   const passed = r.destination === dest
     && (depth === 'ask' ? Boolean(r.confirm) && !r.escalated
-      : (!depth || r.mode === (depth === 'deep' ? 'agent' : 'chat')) && (fresh !== 'fresh' || r.escalated) && !r.confirm);
+      : (!depth || r.mode === (depth === 'deep' ? 'agent' : 'chat')) && (fresh !== 'fresh' || r.escalated) && (fresh !== 'suggest' || Boolean(r.suggestDeep)) && !r.confirm);
   const got = r.destination === 'platform' ? 'guide' : r.confirm ? 'data, ask the person' : `data, ${r.mode === 'agent' ? 'deep' : 'quick'}${r.escalated ? ', fresh' : ''}`;
   return {
     passed, outcome: `${got} (${r.intent}${r.method === 'rules' ? ', word rules' : ''})`, scores: {},

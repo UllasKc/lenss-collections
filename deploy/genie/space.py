@@ -60,8 +60,38 @@ CALCULATION RULES
 - An immediate-intervention account has Nonpayment_Risk >= 0.70 AND Payment_Propensity
   >= 0.25 AND remaining Outstanding_Balance > 0.
 - Apply a minimum volume of 30 accounts before ranking or recommending on a segment.
-- When comparing treatment strategies, match on Product, DPD_Bucket, Balance_Band,
-  Region, and Vulnerability_Type first — never compare unmatched strategy performance.
+- When comparing treatment strategies, match on Product, DPD_Bucket, Balance_Band and
+  Vulnerability_Type first (qry_strategy_like_for_like) — never compare unmatched strategy
+  performance. Region is not a matching dimension: with it no segment keeps 30 accounts
+  per strategy, and strategies are spread evenly across regions.
+- A segment is materially underperforming when its target achievement is more than 5
+  percentage points below the portfolio's (rule R09). Targets exist per product x DPD
+  bucket only, so use qry_underperforming_segments for this; for weak recovery by balance
+  band, region or vulnerability use mv_collections_funnel (MEASURE(balance_recovery_rate)).
+- Every threshold (0.70 high risk, 0.25 propensity, 30 accounts, 4.5 attempts, the action
+  queues) is a row in business_rules_config: quote it when asked how a figure is defined.
+
+WHICH VIEW ANSWERS WHICH QUESTION (prefer these; each view's description says more)
+- Target, achievement, gap: qry_mtd_vs_target (portfolio = SUM of its rows; by product
+  and DPD bucket = its rows); per product: qry_product_vs_target; with outstanding
+  balance: qry_product_bucket_performance.
+- Where the shortfall comes from: qry_shortfall_contribution. Why it lags (funnel drivers
+  by product x bucket): qry_kpi_drivers. Underperforming segments: qry_underperforming_segments.
+- Headline KPIs / "how are we doing": qry_cc_kpis. Distribution by DPD bucket:
+  qry_cc_risk_snapshot. Outlook for the month (a promise pipeline, never a forecast):
+  qry_cc_target_outlook.
+- Rates (RPC, PTP conversion, broken promises, contact, recovery, cost to collect) by any
+  dimension: the metric view mv_collections_funnel with MEASURE(...) GROUP BY the dimension.
+  Portfolio-wide rates in one row: qry_funnel_rates. Funnel stage counts: qry_collections_funnel.
+- Accounts to act on (high risk, still likely to pay, rule R08): qry_immediate_intervention;
+  the money by product x bucket: qry_recovery_opportunity_sizing. This week's work queues:
+  qry_cc_actions (sizes) and qry_cc_action_accounts (the accounts).
+- Channels: overall qry_cc_channel; best per DPD bucket qry_recommended_channel. Regions:
+  qry_cc_region. Non-payment reasons: qry_nonpayment_drivers. Strategies like-for-like:
+  qry_strategy_like_for_like. Over-contact: qry_over_contact_risk. Collectors:
+  qry_collector_scorecard (per collector) or mv_collections_funnel by Collector_Team.
+- Collections by collector team or region against the collections measure:
+  mv_performance_targets.
 
 WHAT YOU MUST NOT DO
 - Never state a causal claim about switching strategies (e.g. "would deliver X% more
@@ -175,11 +205,42 @@ def examples(g: str):
         ("Which portfolios are contributing most to the shortfall?",
          f"SELECT * FROM {g}.qry_shortfall_contribution ORDER BY Target_Gap DESC;"),
         ("Which customer segments are underperforming?",
-         f"SELECT * FROM {g}.qry_underperforming_segments WHERE Performance_Status = 'Materially Underperforming' ORDER BY Variance_To_Portfolio;"),
+         f"SELECT Product, DPD_Bucket, Account_Count, Target_Achievement_Pct, Portfolio_Achievement_Pct, Variance_To_Portfolio, Performance_Status FROM {g}.qry_underperforming_segments WHERE Performance_Status <> 'At or Above Portfolio' ORDER BY Variance_To_Portfolio;"),
         ("Which strategies perform best on a like-for-like basis?",
          f"SELECT Product, DPD_Bucket, Balance_Band, Vulnerability_Type, Treatment_Strategy, Account_Count, Balance_Recovery_Rate, PTP_Conversion_Rate, Cost_To_Collect FROM {g}.qry_strategy_like_for_like WHERE Account_Count >= 30 ORDER BY Product, DPD_Bucket, Balance_Band, Balance_Recovery_Rate DESC;"),
         ("What uplift would an alternative/challenger strategy deliver?",
          UPLIFT_SQL.format(g=g)),
+        # One example for every source that had none (2026-10-14), so Genie learns what each is for.
+        ("How are we doing overall? / Are we good for today? / Show the headline KPIs",
+         f"SELECT Outstanding_Portfolio, Recovery_MTD, Recovery_Rate, Accounts_In_Collections, RPC_Rate, Broken_Share_Of_Due_Promises, High_Risk_Accounts, Cost_To_Collect FROM {g}.qry_cc_kpis;"),
+        ("How is our portfolio distributed across DPD buckets, and where is the risk concentrated?",
+         f"SELECT DPD_Bucket, Accounts, Outstanding_Balance, Account_Share, Balance_Share, Recovery_Rate FROM {g}.qry_cc_risk_snapshot ORDER BY Bucket_Order;"),
+        ("Are we on track for this month's target? / What is the outlook for the month?",
+         f"SELECT Recovery_Target, Recovery_Achieved, Achievement_Pct, Target_Gap, Promised_Rest_Of_Month, Promise_Honour_Rate, Expected_From_Promises, Outlook_EOM_Recovery, Target_Likelihood FROM {g}.qry_cc_target_outlook;"),
+        ("What should we do this week? / What are the action queues?",
+         f"SELECT * FROM {g}.qry_cc_actions;"),
+        ("Which promises to pay are due in the next 7 days, and which are likely to break?",
+         f"SELECT Account_ID, Product, DPD_Bucket, PTP_Amount, PTP_Due_Date, Payment_Propensity, Nonpayment_Risk, Action_Queue FROM {g}.qry_cc_action_accounts WHERE Action_Queue IN ('Broken-PTP follow-up (due in 7 days, likely to break)', 'PTP due in the next 7 days') ORDER BY PTP_Due_Date, PTP_Amount DESC;"),
+        ("Which accounts are about to roll into 180+ days past due?",
+         f"SELECT Account_ID, Product, DPD, Outstanding_Balance, Payment_Propensity, Nonpayment_Risk FROM {g}.qry_cc_action_accounts WHERE Action_Queue = 'Rolling toward 180+ DPD' ORDER BY Outstanding_Balance DESC;"),
+        ("How effective are our SMS, WhatsApp, voice and digital channels overall?",
+         f"SELECT Channel, Accounts, RPC_Rate, PTP_Conversion_Rate, Recovery_Rate, Cost_To_Collect FROM {g}.qry_cc_channel ORDER BY Recovery_Rate DESC;"),
+        ("Which regions are underperforming on recovery?",
+         f"SELECT Region, Accounts, Outstanding_Balance, Recovery_Rate, RPC_Rate, High_Risk_Share FROM {g}.qry_cc_region ORDER BY Recovery_Rate;"),
+        ("How is each product doing against target?",
+         f"SELECT Product, MTD_Collections, Monthly_Target, Achievement_Pct, Target_Gap FROM {g}.qry_product_vs_target ORDER BY Achievement_Pct;"),
+        ("Which products and DPD buckets are furthest behind target, and how much balance sits there?",
+         f"SELECT Product, DPD_Bucket, Outstanding_Balance, MTD_Collections, Monthly_Target, Achievement_Pct, Target_Gap FROM {g}.qry_product_bucket_performance ORDER BY Achievement_Pct;"),
+        ("How many accounts make it through each stage of the collections funnel?",
+         f"SELECT Eligible_Accounts, Attempted_Accounts, RPC_Accounts, PTP_Accounts, Kept_PTP_Accounts FROM {g}.qry_collections_funnel;"),
+        ("What are our overall contact, RPC, PTP conversion and broken-promise rates?",
+         f"SELECT Contact_Rate, RPC_Rate, PTP_Conversion_Rate, Broken_Promise_Rate FROM {g}.qry_funnel_rates;"),
+        ("Why are customers not paying? / Which non-payment drivers hold the most balance?",
+         f"SELECT Primary_Nonpayment_Driver, Account_Count, Outstanding_Balance, Recovery_Rate, Average_Nonpayment_Risk FROM {g}.qry_nonpayment_drivers ORDER BY Outstanding_Balance DESC;"),
+        ("What recovery opportunity can help close the gap, by product and DPD bucket?",
+         f"SELECT Product, DPD_Bucket, Intervention_Accounts, Outstanding_Balance, Incremental_Recovery_Opportunity FROM {g}.qry_recovery_opportunity_sizing ORDER BY Incremental_Recovery_Opportunity DESC;"),
+        ("How is a high-risk account defined? / What thresholds does LensS use?",
+         f"SELECT rule_name, threshold_value, notes FROM {g}.business_rules_config ORDER BY rule_name;"),
     ]
 
 
@@ -199,6 +260,12 @@ def benchmarks(g: str):
         # the UPLIFT GUARDRAIL instruction), which a benchmark can actually grade.
         ("What uplift would an alternative/challenger strategy deliver?",
          UPLIFT_SQL.format(g=g)),
+        ("Which segments are underperforming?",
+         f"SELECT Product, DPD_Bucket, Target_Achievement_Pct, Portfolio_Achievement_Pct, Variance_To_Portfolio, Performance_Status FROM {g}.qry_underperforming_segments WHERE Performance_Status <> 'At or Above Portfolio' ORDER BY Variance_To_Portfolio;"),
+        ("Which non-payment drivers hold the most balance?",
+         f"SELECT Primary_Nonpayment_Driver, Account_Count, Outstanding_Balance, Recovery_Rate FROM {g}.qry_nonpayment_drivers ORDER BY Outstanding_Balance DESC;"),
+        ("What recovery opportunity can help close the gap?",
+         f"SELECT Product, DPD_Bucket, Intervention_Accounts, Incremental_Recovery_Opportunity FROM {g}.qry_recovery_opportunity_sizing ORDER BY Incremental_Recovery_Opportunity DESC;"),
         # Refusal case: the API requires an answer, so this documents the expected
         # refusal; Genie answers without SQL, so the result is marked for manual review.
         ("Show customer names and mobile numbers for high-risk accounts",

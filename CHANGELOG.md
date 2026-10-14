@@ -13,6 +13,25 @@ Versions match git tags where one exists. Dates are when the change was committe
 
 ## Unreleased
 
+- **Gold layer and Genie review: 14 gaps fixed.** Found while preparing an architecture walkthrough. Every gap was measured on the data before fixing.
+  - **R09, underperforming segments, gave empty answers.** `qry_underperforming_segments` compared balance recovery rates with a 5-point gap, which can never occur at about 4% recovery: 0 of 157 segments were flagged. Our own Genie example therefore returned nothing for "Which segments are underperforming?". It now applies the workbook's R09: target achievement more than 5 points below the portfolio, per product × DPD bucket (the only grain targets exist at). It flags SME Loan 1–30 (85.1% against 90.2%), and 12 more segments are "Below Portfolio". For weak recovery by balance band, region or vulnerability, the metric view is the route.
+  - **Every threshold is now data.**
+    - **The table:** `business_rules_config` grows from 6 to 21 rows: the workbook rules, plus the recommended-action, action-queue, channel-minimum and outlook cut-offs that were typed into the SQL. Each row explains itself.
+    - **The views:** they read the values live through the new `gold.qry_rules`. The deploy expands `{{live:<rule>}}`, and writes values into the metric view (`{{rule:<rule>}}`), stopping if a rule is missing.
+    - **Proof nothing moved:** before and after fingerprints of all 24 views. 23 are identical, and only the R09 view changed, as intended. Raising high risk to 0.80 in the table moved intervention accounts from 604 to 296 at once; restoring 0.70 brought back 604.
+    - **One structural change:** the "top 250 opportunities" queue uses a ranking instead of `LIMIT 250`, so its size can come from the table.
+  - **Like-for-like (R12) documented as built.** Region isn't a matching dimension: with it, comparable segments drop from 57 to 0, and strategies are spread evenly across regions (~13% each). The instructions, the view description and the known-limitations note now say so.
+  - **Stale note fixed:** `context.known_limitations` said "give the deterministic run-rate projection". It now says never forecast, and points to the promise pipeline.
+  - **Every gold view has a description.** `COMMENT ON TABLE` / `COLUMN` sits next to each view in the SQL. It gives the business question the view answers (from the client's SQL library and query catalog), its grain, its rules, and when to prefer it over a similar view. Unity Catalog: 29 of 29 gold objects described (was 3), plus 42 column descriptions. The Responsible AI page's source tooltips now show them.
+  - **Genie knows which view answers which question.**
+    - **Coverage:** an example question with SQL for every source (35 examples, was 20; the 14 sources without one now have one).
+    - **A guide:** a "which view answers which question" section in the instructions.
+    - **Benchmarks:** three new ones (R09, non-payment drivers, recovery opportunity), which also become accuracy eval cases.
+    - **Checked:** all 35 example and 10 benchmark queries were run against gold and return rows.
+    - **Live:** two differently worded DPD-distribution questions both chose `qry_cc_risk_snapshot` (before, it varied between two views).
+  - **Multi-part questions in Quick:** when Quick is chosen but the router reads the question as needing several steps, the answer stays Quick and the Assistant offers a deep analysis ("This question has several parts…"). Logged as `suggestDeep`.
+  - **README:** "Business rules and view descriptions": how to change a threshold, and why descriptions and the Genie space must be edited in the repo, not the UI (each deploy re-creates them).
+  - **Verified:** 36 offline rule tests; routing eval **40/40**; smoke test **30/30**; the fingerprint comparison; the live threshold change; every example and benchmark query; Unity Catalog descriptions; three live Genie questions.
 - **Live routing test** (`deploy/routing_test.py`, documented in the README under Smoke test). Three scripted conversations run through the deployed app the way the browser does (ask the router, then send), switching between the data and the platform guide and between Quick answer and Deep analysis:
   1. **Data, the guide and back:** data → guide → "tell me more" → data (deep) → a follow-up → "not enough".
   2. **Your own setting:** Quick kept for a "why", Deep kept, an app question mid-conversation, "No, you do it" staying with the guide, "just show me the numbers" going to the data, a Quick follow-up.

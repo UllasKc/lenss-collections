@@ -23,10 +23,10 @@ CREATE OR REPLACE TABLE {{catalog}}.{{prefix}}_context.known_limitations (
 INSERT INTO {{catalog}}.{{prefix}}_context.known_limitations VALUES
 ('Target Achievement Probability', 'How likely / what confidence are we to hit target?',
  'No historical multi-month volatility exists to calibrate a confidence figure — only one snapshot date.',
- 'Give the deterministic run-rate projection for the current month only; state that a calibrated probability is not available.'),
+ 'Do not forecast or give a probability. Report MTD collections, target, achievement and gap (qry_mtd_vs_target); the Command Center outlook (qry_cc_target_outlook) is a promise pipeline, presented as "if customers keep promises at the current rate". A run-rate on one mid-month snapshot is misleading (it projects ~174% of target).'),
 ('Champion-Challenger Uplift', 'What uplift would switching strategy X to Y deliver?',
  'No randomized test/control assignment exists in the data (Fact_Strategy_Assignment fields are unpopulated).',
- 'Give an observational, like-for-like comparison (matched on Product/DPD_Bucket/Balance_Band/Region/Vulnerability_Type) with an explicit "not a controlled experiment" caveat — never a causal number.'),
+ 'Give an observational, like-for-like comparison (matched on Product/DPD_Bucket/Balance_Band/Vulnerability_Type; Region is not matched because no segment keeps 30 accounts per strategy with it) with an explicit "not a controlled experiment" caveat — never a causal number.'),
 ('Next-Month Forecasting', 'What will next month''s / October''s collections be?',
  'Only one snapshot date exists in the data — there is no historical time series to project a future month from.',
  'State plainly that historical monthly data is required and not currently available — do not produce a number.');

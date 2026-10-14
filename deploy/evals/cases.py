@@ -51,7 +51,8 @@ POLICY_CASES = [
 # Router cases: (conversation, the person's setting, expected, notes). The conversation is the earlier
 # turns, one per line as "[guide|quick|deep] question", then the latest message on the last line.
 # expected: platform | data | data:quick | data:deep | data:deep:fresh (escalated: a fresh deep analysis)
-# | data:ask (asked again after a good answer: the person chooses). "[quick+]" / "[deep+]" mark a good, full answer.
+# | data:ask (asked again after a good answer: the person chooses)
+# | data:quick:suggest (Quick kept, a deep analysis offered for a multi-step question). "[quick+]" / "[deep+]" mark a good, full answer.
 _DPD = "How is our portfolio distributed across DPD buckets, and where is the risk concentrated?"
 _IMM = "Which accounts require immediate intervention?"
 ROUTING_CASES = [
@@ -98,6 +99,8 @@ ROUTING_CASES = [
      "A new question about the answer is a follow-up, not 'asked for more': Quick stays Quick"),
     # The person's own setting.
     ("Why are promises broken?", "chat", "data:quick", "Quick selected: kept for a new question"),
+    ("Why are so many promises to pay being broken, and which segments should we prioritise to fix it?", "chat", "data:quick:suggest",
+     "Quick selected, a multi-step question: answered Quick as chosen, with a deep analysis offered"),
     (_IMM, "agent", "data:deep", "Deep selected: kept"),
     # Other languages.
     ("इस महीने हम कलेक्शन टारगेट से कितना पीछे हैं?", "auto", "data", "Hindi data question"),

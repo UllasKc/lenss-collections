@@ -129,6 +129,16 @@ The routing evaluation in the app (Observability → Evaluations → Routing) ch
 | `docs/` | Product and demo guide (Word), client demo playbook, figures reference |
 | `all_details_and _data/` | Source workbook and specification documents |
 
+## Business rules and view descriptions
+
+- **Every threshold is a row in `gold.business_rules_config`** (`deploy/sql/40_gold_config.sql`): high risk 0.70, intervention propensity 0.25, R09's 5-point gap, 4.5 attempts, the 30 and 50 account minimums, the recommended-action and action-queue cut-offs, and the outlook bands. Each row says what it means and where it comes from.
+  - **Certified and Command Center views** read the values live through `gold.qry_rules`. In the SQL, `{{live:<rule>}}` is expanded by the deploy into a read of `qry_rules`.
+  - **Metric views** can't read a table at query time, so the deploy writes the value in (`{{rule:<rule>}}`) and stops if a rule is missing.
+  - **To change a threshold:** edit its row in `40_gold_config.sql`, then run the deploy's `transform` and `views` steps. An `UPDATE` on the table changes the views at once, but the metric views only on the next transform, and the next transform resets the table to the file.
+- **Every gold view has a description** (`COMMENT ON TABLE` / `COLUMN`, next to the view in `deploy/sql/60_certified_views.sql` and `70_command_center_views.sql`). It gives the business question the view answers (from the client's SQL library and query catalog), its grain, its rules, and when to prefer it over a similar view. Genie and Catalog Explorer read these.
+  - **Edit descriptions in the SQL files only:** every deploy re-creates the views, so descriptions typed in Catalog Explorer are lost.
+  - **The same goes for the Genie space** (instructions, examples, benchmarks): edit `deploy/genie/space.py`, not the Genie UI.
+
 ## Known limits and future work
 
 - **Running the app on more than one server (scale-out).** The app assumes a single server, which is how Databricks Apps runs it today. Two things are kept in that server's memory and would need moving to Lakebase first:
