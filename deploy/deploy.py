@@ -21,6 +21,7 @@ through the `databricks` CLI, so it uses whatever auth the CLI profile has
 from __future__ import annotations
 
 import argparse
+from datetime import date, timedelta
 import hashlib
 import json
 import os
@@ -755,7 +756,10 @@ def platform_cost_view(db: Databricks, sql: Sql, cfg: dict, state: dict) -> bool
                 WHERE workspace_id = '{ws}' AND compute.warehouse_id = '{wh}' AND start_time >= DATE'{since}'
                 GROUP BY 1 HAVING SUM(total_duration_ms) > 0 ORDER BY 1""")
             daily = {d: float(mine) / float(total) for d, mine, total in rows}
-            recent = rows[-7:]
+            # The same 7 calendar days for every project (up to the warehouse's last day with queries),
+            # so on days without queries the projects' default shares still add up to at most 1.
+            last = rows[-1][0] if rows else None
+            recent = [r for r in rows if last and r[0] > (date.fromisoformat(last) - timedelta(days=7)).isoformat()]
             default = (sum(float(r[1]) for r in recent) / sum(float(r[2]) for r in recent)) if recent else 1.0
             how = (f"shared services split per day by warehouse query time from {since}, "
                    f"{len(daily)} days; latest 7 days {default:.0%}")
