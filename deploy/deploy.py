@@ -733,12 +733,23 @@ def grant_source_read(db: Databricks, cfg: dict, ws_path: str, sp: str) -> bool:
     for who in cfg.get("app_starters") or []:
         key = "user_name" if "@" in who else "group_name"
         acl.append({key: who, "permission_level": "CAN_READ"})
-    ok = db.run("workspace", "update-permissions", "directories", str(obj), check=False,
-                json_body={"access_control_list": acl}) is not None
-    log(f"Source folder readable by the app's service principal and {len(acl) - 1} app manager(s)/starter(s), "
-        "so they can start the app" if ok else
-        "WARNING: couldn't share the app's source folder; only the person who deployed will be able to start the app")
-    return ok
+    # One principal at a time: a rejected entry (e.g. a deleted user or an unknown group) must not block
+    # the rest, and its reason is shown instead of being swallowed.
+    shared, failed = [], []
+    for entry in acl:
+        who = entry.get("user_name") or entry.get("group_name") or entry.get("service_principal_name")
+        try:
+            db.run("workspace", "update-permissions", "directories", str(obj), json_body={"access_control_list": [entry]})
+            shared.append(who)
+        except DeployError as e:
+            reason = " ".join(str(e).split("failed:", 1)[-1].split())[:220]
+            failed.append(who)
+            log(f"WARNING: couldn't give {who} read access to the app's source folder: {reason}")
+    log(f"Source folder readable by {len(shared)} of {len(acl)}: the app's service principal"
+        + (f" and {len(shared) - 1} app manager(s)/starter(s)" if len(shared) > 1 else "")
+        + (". Those who failed can't start the app until the folder is shared with them (Workspace → folder → Share → Can Read)."
+           if failed else ", so they can start the app"))
+    return not failed
 
 
 def platform_cost_view(db: Databricks, sql: Sql, cfg: dict, state: dict) -> bool:
