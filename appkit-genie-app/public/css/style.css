@@ -1030,7 +1030,7 @@ table.mini tr.hl td{background:#F8FBFF}
 @media(max-width:1280px){.action-grid{grid-template-columns:repeat(3,minmax(0,1fr))}}
 @media(max-width:700px){.action-grid{grid-template-columns:1fr}}
 
-.coll{grid-template-columns:20px auto 1fr auto}
+.coll{grid-template-columns:20px auto minmax(0,1fr) auto auto}
 .coll-rank{font:700 10.5px var(--mono);color:var(--muted)}
 .ask-link.plain{background:none;border:none;padding:0 0 0 4px;color:var(--brand-2);text-decoration:underline}
 .kpi-dict{width:min(980px,calc(100vw - 32px))}
@@ -1363,7 +1363,7 @@ h2.sect::before{content:"";width:3px;height:12px;border-radius:2px;background:va
 .prio.issue:hover,#tab-home .act-card:hover{transform:none}
 .card-btns .ask-link{margin:0}
 .hbar .view-btn{margin-left:8px}
-.heat-c[data-xpview]{cursor:pointer}.heat-c[data-xpview]:hover{outline:2px solid var(--brand-2);outline-offset:-2px}.chan .view-btn{margin-top:6px}.flabel .view-btn{margin-left:6px}.coll .view-btn{margin-left:8px}
+.heat-c[data-xpview]{cursor:pointer}.heat-c[data-xpview]:hover{outline:2px solid var(--brand-2);outline-offset:-2px}.chan .view-btn{margin-top:6px}.flabel .view-btn{margin-left:6px}.coll .view-btn{margin-left:4px}
 /* Observability panels show "Loading…" until their data arrives, instead of an empty box */
 #tab-obs .panel:empty::before,#tab-obs .metric-grid:empty::before{content:"Loading…";display:block;padding:18px 20px;color:var(--muted);font-size:13px}
 /* This month's promises, as one bar (chapter 3, issue 1) */
