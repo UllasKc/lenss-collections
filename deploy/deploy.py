@@ -220,6 +220,8 @@ def load_config(path: Path) -> dict:
         # The app stops itself after this many minutes without use (Databricks Apps never stop on their
         # own and bill while running). 0 = never. Someone with CAN_MANAGE on the app starts it again.
         "idle_stop_minutes": 60,
+        # Users or groups who may start the app besides its managers (read access to its source folder).
+        "app_starters": [],
     }
     for k, v in defaults.items():
         cfg.setdefault(k, v)
@@ -701,25 +703,41 @@ def check_page_scripts(app_dir: Path) -> None:
     log("Page scripts: no top-level name declared in two files")
 
 
-def grant_source_read(db: Databricks, ws_path: str, sp: str) -> bool:
-    """CAN_READ for the app's service principal on the app's source folder.
+def grant_source_read(db: Databricks, cfg: dict, ws_path: str, sp: str) -> bool:
+    """CAN_READ on the app's source folder for everyone who may start the app.
 
-    Starting a stopped app re-runs its last deployment, which downloads the code from this folder.
-    When the person who deployed starts it, their own access covers that. When anyone else starts it
-    (a demo giver with CAN_MANAGE on the app, after idle stop), the app's service principal must read
-    the folder itself, and it has no access to a folder in someone's home directory. Without this the
-    start fails with "Error downloading source code ... no files found".
+    Starting a stopped app re-runs its last deployment, which downloads the code from this folder
+    (in the deployer's home directory). The deployer's own access covers that; anyone else who presses
+    Start (a demo giver with CAN_MANAGE, after idle stop) failed with "Error downloading source code
+    ... no files found. Please check if app Service Principal has access to the source code folder."
+    Granting only the app's service principal was not enough in org, so read access goes to:
+      - the app's service principal;
+      - every user, group or service principal with CAN_MANAGE on the app at deploy time;
+      - config `app_starters`: extra users or groups who start the app (e.g. a demo-giver group),
+        so people added later only need to join that group.
+    Only this folder is shared, read-only; it holds the app code and app.yaml, no secrets.
     """
     status = db.run("workspace", "get-status", ws_path, check=False) or {}
     obj = status.get("object_id")
     if not obj:
         log(f"WARNING: couldn't look up {ws_path}; others may not be able to start the app")
         return False
-    ok = db.run("workspace", "update-permissions", "directories", str(obj), check=False, json_body={
-        "access_control_list": [{"service_principal_name": sp, "permission_level": "CAN_READ"}]}) is not None
-    log("The app's service principal can read its source folder (so anyone with CAN_MANAGE can start the app)"
-        if ok else "WARNING: couldn't give the app's service principal read access to its source folder; "
-                   "only the person who deployed will be able to start the app")
+    acl = [{"service_principal_name": sp, "permission_level": "CAN_READ"}]
+    perms = db.run("apps", "get-permissions", cfg["app_name"], check=False) or {}
+    for e in perms.get("access_control_list", []):
+        if not any(p.get("permission_level") == "CAN_MANAGE" and not p.get("inherited") for p in e.get("all_permissions", [])):
+            continue
+        for key in ("user_name", "group_name", "service_principal_name"):
+            if e.get(key) and e[key] != sp and e[key] != "admins":
+                acl.append({key: e[key], "permission_level": "CAN_READ"})
+    for who in cfg.get("app_starters") or []:
+        key = "user_name" if "@" in who else "group_name"
+        acl.append({key: who, "permission_level": "CAN_READ"})
+    ok = db.run("workspace", "update-permissions", "directories", str(obj), check=False,
+                json_body={"access_control_list": acl}) is not None
+    log(f"Source folder readable by the app's service principal and {len(acl) - 1} app manager(s)/starter(s), "
+        "so they can start the app" if ok else
+        "WARNING: couldn't share the app's source folder; only the person who deployed will be able to start the app")
     return ok
 
 
@@ -1085,7 +1103,7 @@ def step_app(db: Databricks, sql: Sql, cfg: dict, state: dict, cfg_path: Path) -
     log(f"Syncing {app_dir.name} -> {ws_path}")
     db.run("sync", str(app_dir), ws_path, "--full",
            "--exclude", "node_modules/**", "--exclude", "dist/**", "--exclude", ".git/**", output_json=False)
-    grant_source_read(db, ws_path, sp)
+    grant_source_read(db, cfg, ws_path, sp)
     # A stopped app (idle policy, workspace quota, or someone pressed Stop) rejects deploys.
     compute = (db.run("apps", "get", name).get("compute_status") or {}).get("state")
     if compute != "ACTIVE":
