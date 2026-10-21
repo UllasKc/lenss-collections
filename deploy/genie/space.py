@@ -9,6 +9,7 @@ hitting them, none documented in the CLI help):
     list sorted by `id`
   - every benchmark needs >= 1 answer; answer format enum is the bare "SQL"
 """
+import re
 import uuid
 
 METRIC_VIEWS = ["mv_performance_targets", "mv_collections_funnel"]
@@ -50,25 +51,25 @@ CALCULATION RULES
   joining to account-level facts.
 - A promise-to-pay is "matured" only when PTP_Due_Date <= the as-of date — never
   classify a future-dated promise as broken.
-- A promise is "kept" when Fulfilled_Amount >= 90% of Promise_Amount by the due date.
-- A cured account has Recovery_MTD >= 90% of Outstanding_Balance (demo threshold).
+- A promise is "kept" when Fulfilled_Amount >= {{pct:broken_ptp_threshold_pct}} of Promise_Amount by the due date.
+- A cured account has Recovery_MTD >= {{pct:cure_threshold_pct}} of Outstanding_Balance (demo threshold).
 - Do NOT use or report cure rate (cure_rate / Cure_Rate). Cured accounts return to
   DPD 0 and sit outside the eligible population, so cure rate reads 0% everywhere in
   this snapshot and is not meaningful. Use balance recovery rate, PTP conversion,
   promise kept / broken-promise rate or RPC rate instead, and never mention cure rate.
-- A high-risk account has Nonpayment_Risk >= 0.70.
-- An immediate-intervention account has Nonpayment_Risk >= 0.70 AND Payment_Propensity
-  >= 0.25 AND remaining Outstanding_Balance > 0.
-- Apply a minimum volume of 30 accounts before ranking or recommending on a segment.
+- A high-risk account has Nonpayment_Risk >= {{rule:high_risk_threshold}}.
+- An immediate-intervention account has Nonpayment_Risk >= {{rule:high_risk_threshold}} AND Payment_Propensity
+  >= {{rule:intervention_propensity_threshold}} AND remaining Outstanding_Balance > 0.
+- Apply a minimum volume of {{rule:min_segment_volume}} accounts before ranking or recommending on a segment.
 - When comparing treatment strategies, match on Product, DPD_Bucket, Balance_Band and
   Vulnerability_Type first (qry_strategy_like_for_like) — never compare unmatched strategy
-  performance. Region is not a matching dimension: with it no segment keeps 30 accounts
+  performance. Region is not a matching dimension: with it no segment keeps {{rule:min_segment_volume}} accounts
   per strategy, and strategies are spread evenly across regions.
-- A segment is materially underperforming when its target achievement is more than 5
+- A segment is materially underperforming when its target achievement is more than {{pts:underperformance_gap_pts}}
   percentage points below the portfolio's (rule R09). Targets exist per product x DPD
   bucket only, so use qry_underperforming_segments for this; for weak recovery by balance
   band, region or vulnerability use mv_collections_funnel (MEASURE(balance_recovery_rate)).
-- Every threshold (0.70 high risk, 0.25 propensity, 30 accounts, 4.5 attempts, the action
+- Every threshold ({{rule:high_risk_threshold}} high risk, {{rule:intervention_propensity_threshold}} propensity, {{rule:min_segment_volume}} accounts, {{rule:over_contact_attempts_threshold}} attempts, the action
   queues) is a row in business_rules_config: quote it when asked how a figure is defined.
 
 WHICH VIEW ANSWERS WHICH QUESTION (prefer these; each view's description says more)
@@ -107,7 +108,7 @@ new strategy deliver?", "how much more would we recover if we switched to X?",
 "what is the impact of changing strategy?", "champion vs challenger")
 - Do not refuse outright and do not invent a number. Answer with the observed,
   like-for-like comparison from qry_strategy_like_for_like: within each matched
-  segment (Product, DPD_Bucket, Balance_Band, Vulnerability_Type) with at least 30
+  segment (Product, DPD_Bucket, Balance_Band, Vulnerability_Type) with at least {{rule:min_segment_volume}}
   accounts, compare each strategy's Balance_Recovery_Rate (and PTP_Conversion_Rate,
   Cost_To_Collect) with the "Standard" strategy as the current approach.
 - Describe results as "observed difference in matched segments", never as "uplift",
@@ -117,7 +118,7 @@ new strategy deliver?", "how much more would we recover if we switched to X?",
 - Always state the caveat in the answer: "This is an observational comparison of
   matched segments, not a controlled experiment; the differences may reflect how
   accounts were assigned to strategies, so they are not a forecast of uplift."
-- If a segment has fewer than 30 accounts for a strategy, or no Standard baseline,
+- If a segment has fewer than {{rule:min_segment_volume}} accounts for a strategy, or no Standard baseline,
   say there is not enough matched data for that segment instead of comparing.
 - Recommend a controlled champion/challenger test (randomly assigned holdout) as the
   way to measure true uplift before switching strategies at scale.
@@ -284,7 +285,24 @@ def _id() -> str:
     return uuid.uuid4().hex
 
 
-def build_serialized_space(gold_schema: str) -> dict:
+def instructions(rules: dict) -> str:
+    """INSTRUCTIONS_TEXT with every threshold filled in from gold.business_rules_config, so the
+    instructions can't drift from the views (the same rules the SQL gets through {{rule:}}).
+    {{rule:x}} = the value (0.70, 30, 4.5); {{pct:x}} = a share as a percentage (90%);
+    {{pts:x}} = a share as percentage points (5). A missing rule stops the deploy."""
+    def value(kind: str, name: str) -> str:
+        if name not in rules:
+            raise KeyError(f"business rule '{name}' is not in business_rules_config")
+        v = float(rules[name])
+        if kind == "pct":
+            return f"{v * 100:g}%"
+        if kind == "pts":
+            return f"{v * 100:g}"
+        return f"{v:.2f}" if v < 1 else (str(int(v)) if v.is_integer() else f"{v:g}")
+    return re.sub(r"\{\{(rule|pct|pts):([a-z_]+)\}\}", lambda m: value(m.group(1), m.group(2)), INSTRUCTIONS_TEXT)
+
+
+def build_serialized_space(gold_schema: str, rules: dict) -> dict:
     """gold_schema is '<catalog>.<schema>', e.g. 'cnx_automl_dev.lenss_collections_gold'."""
     return {
         "version": 2,
@@ -298,7 +316,7 @@ def build_serialized_space(gold_schema: str) -> dict:
             "metric_views": sorted(({"identifier": f"{gold_schema}.{m}"} for m in METRIC_VIEWS), key=lambda x: x["identifier"]),
         },
         "instructions": {
-            "text_instructions": [{"id": _id(), "content": [INSTRUCTIONS_TEXT]}],
+            "text_instructions": [{"id": _id(), "content": [instructions(rules)]}],
             "example_question_sqls": sorted(
                 ({"id": _id(), "question": [q], "sql": [s]} for q, s in examples(gold_schema)), key=lambda x: x["id"]
             ),

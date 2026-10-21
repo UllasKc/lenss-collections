@@ -95,7 +95,7 @@ Databricks Apps never stop on their own and bill while running, so the app stops
 
 The default is 60 (`org2-v3.json` 60, `personal.json` 15).
 - **Use** means any request from a signed-in person or service principal: opening a page, a question, an evaluation. An answer still streaming, or an evaluation in progress, keeps the app up.
-- **Start it again** from Compute → Apps → Start. That needs CAN_MANAGE on the app, so give it to whoever runs demos. Starting takes a few minutes. A deploy starts a stopped app by itself.
+- **Start it again** from Compute → Apps → Start. That needs CAN_MANAGE on the app, so give it to whoever runs demos. The deploy also gives the app's service principal read access to the app's source folder; without it, only the person who deployed can start the app. Starting takes a few minutes. A deploy starts a stopped app by itself.
 - **How it stops:** the app stops itself with its own service principal. The deploy gives that principal CAN_MANAGE on this app only (`server/lib/idleStop.ts`).
 
 ## Smoke test
@@ -154,7 +154,8 @@ The routing evaluation in the app (Observability → Evaluations → Routing) ch
 - **Every threshold is a row in `gold.business_rules_config`** (`deploy/sql/40_gold_config.sql`): high risk 0.70, intervention propensity 0.25, R09's 5-point gap, 4.5 attempts, the 30 and 50 account minimums, the recommended-action and action-queue cut-offs, and the outlook bands. Each row says what it means and where it comes from.
   - **Certified and Command Center views** read the values live through `gold.qry_rules`. In the SQL, `{{live:<rule>}}` is expanded by the deploy into a read of `qry_rules`.
   - **Metric views** can't read a table at query time, so the deploy writes the value in (`{{rule:<rule>}}`) and stops if a rule is missing.
-  - **To change a threshold:** edit its row in `40_gold_config.sql`, then run the deploy's `transform` and `views` steps. An `UPDATE` on the table changes the views at once, but the metric views only on the next transform, and the next transform resets the table to the file.
+  - **The Genie instructions** quote the same values: `deploy/genie/space.py` writes `{{rule:<rule>}}`, `{{pct:<rule>}}` (90%) or `{{pts:<rule>}}` (5 points), and the deploy's `genie` step fills them in from the table.
+  - **To change a threshold:** edit its row in `40_gold_config.sql`, then run the deploy's `transform`, `views` and `genie` steps. An `UPDATE` on the table changes the views at once, but the metric views only on the next transform, and the next transform resets the table to the file.
 - **Every gold view has a description** (`COMMENT ON TABLE` / `COLUMN`, next to the view in `deploy/sql/60_certified_views.sql` and `70_command_center_views.sql`). It gives the business question the view answers (from the client's SQL library and query catalog), its grain, its rules, and when to prefer it over a similar view. Genie and Catalog Explorer read these.
   - **Edit descriptions in the SQL files only:** every deploy re-creates the views, so descriptions typed in Catalog Explorer are lost.
   - **The same goes for the Genie space** (instructions, examples, benchmarks): edit `deploy/genie/space.py`, not the Genie UI.

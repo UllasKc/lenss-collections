@@ -183,7 +183,9 @@ export function decide(question: string, selected: Selected, turns: Turn[], s: S
   let intent: Intent = m?.intent ?? (s.platformWording ? 'platform_help' : s.vague ? 'follow_up' : 'new_question');
   // The model's "more depth" needs the words for it: a new question about the answer ("why is the third one so
   // high?") is a follow-up, answered at the chosen depth, not an escalation.
-  if (intent === 'more_depth' && !s.moreDepth && ASKS_NEW.test(question)) intent = 'follow_up';
+  // A vague follow-up ("tell me more", "can you explain that?") is not a request for a fresh deep analysis:
+  // the org model read it as more_depth and overrode Quick. Real "more" phrases (MORE_DEPTH) still escalate.
+  if (intent === 'more_depth' && !s.moreDepth && (ASKS_NEW.test(question) || s.vague)) intent = 'follow_up';
   if (s.moreDepth) intent = 'more_depth';
   else if (s.pushback) intent = 'pushback';
   else if (s.repeat && intent !== 'more_depth') intent = 'repeat';

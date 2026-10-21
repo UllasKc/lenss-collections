@@ -82,6 +82,8 @@ ROUTING_CASES = [
     (f"[quick] {_IMM}\nThat's too high-level, give me the full breakdown", "auto", "data:deep:fresh", "Too high-level"),
     (f"[quick] {_IMM}\n{_IMM}", "auto", "data:deep:fresh", "Same question twice, after a short answer: straight to deep"),
     (f"[quick+] {_IMM}\n{_IMM}", "auto", "data:ask", "Same question twice, after a good answer: the person chooses"),
+    (f"[quick+] {_IMM}\nTell me more", "chat", "data:quick", "A vague follow-up after a data answer stays at the chosen depth (not a fresh deep analysis)"),
+    (f"[deep+] {_IMM}\nCan you explain that?", "chat", "data:quick", "Explain that, with Quick chosen: a follow-up, not an escalation"),
     (f"[quick] {_IMM}\nwhich accounts need immediate intervention", "auto", "data:deep:fresh", "Same question in other words"),
     ("[quick] Top 10 collectors by recovery in Mumbai\nTop 10 collectors by recovery in Delhi", "auto", "data:quick", "Another region is not a repeat"),
     # Depth for new questions and follow-ups.

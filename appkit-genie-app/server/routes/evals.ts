@@ -15,6 +15,13 @@ function currentUserEmail(req: express.Request): string {
 const GOLD = process.env.LENSS_GOLD_SCHEMA ?? '';
 let sourcesMemo: { at: number; rows: Array<{ name: string; kind: string; comment: string | null }> } | null = null;
 
+/**
+ * Gold objects the assistant does not answer from: the retired forecast, and the app's own
+ * internals (the rules lookup, the Explorer's base, the cost view). Without this the Responsible AI
+ * page counted 29 sources against the Genie space's 26.
+ */
+const NOT_SOURCES = new Set(['qry_month_end_forecast', 'qry_rules', 'qry_explorer_base', 'qry_platform_cost']);
+
 /** The certified views and metric views the assistant answers from (cached for an hour). */
 async function dataSources() {
   if (sourcesMemo && Date.now() - sourcesMemo.at < 3_600_000) return sourcesMemo.rows;
@@ -25,7 +32,7 @@ async function dataSources() {
       WHERE table_schema = '${schema.replace(/'/g, '')}' ORDER BY table_name`,
   );
   const list = rows
-    .filter((r) => /^(qry_|mv_|business_rules_config$)/.test(String(r.table_name)) && r.table_name !== 'qry_month_end_forecast')
+    .filter((r) => /^(qry_|mv_|business_rules_config$)/.test(String(r.table_name)) && !NOT_SOURCES.has(String(r.table_name)))
     .map((r) => ({
       name: String(r.table_name),
       kind: String(r.table_name).startsWith('mv_') ? 'Metric view' : r.table_name === 'business_rules_config' ? 'Business rules' : 'Certified view',

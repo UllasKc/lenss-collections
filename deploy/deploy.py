@@ -444,7 +444,9 @@ def step_genie(db: Databricks, cfg: dict, state: dict, cfg_path: Path) -> None:
     from space import build_serialized_space  # noqa: E402
 
     gold = f"{cfg['catalog']}.{cfg['schema_prefix']}_gold"
-    serialized = json.dumps(build_serialized_space(gold))
+    # The instructions quote the thresholds in force, read from the rules table (not typed in).
+    sql = Sql(db, state["warehouse_id"])
+    serialized = json.dumps(build_serialized_space(gold, business_rules(sql, cfg)))
     title = cfg["genie_space_title"]
     space_id = state.get("genie_space_id") or cfg["genie_space_id"]
 
@@ -669,6 +671,56 @@ def project_family(cfg: dict) -> tuple[str, str, str]:
     return (re.sub(r"-v\d+$", "", cfg["app_name"]),
             re.sub(r" v\d+$", "", cfg["genie_space_title"]),
             re.sub(r"_v\d+$", "", cfg["schema_prefix"]))
+
+
+def check_page_scripts(app_dir: Path) -> None:
+    """Stop the deploy if two page scripts declare the same top-level name.
+
+    public/js/*.js load as classic scripts that share one global scope, so a function or const
+    declared at the top of two files makes the second file fail to load (or silently replaces the
+    first). That broke Observability twice: cost.js's renderCost replaced monitoring.js's, and in the
+    Optus copy a duplicate dayLabel stopped Observability loading. Names inside an IIFE
+    ("(() => {" ... "})();" at the start of a line) are private and not counted.
+    """
+    seen: dict[str, list[str]] = {}
+    decl = re.compile(r"^(?:async\s+)?function\s+([A-Za-z_$][\w$]*)|^(?:const|let|var|class)\s+([A-Za-z_$][\w$]*)")
+    for f in sorted((app_dir / "public" / "js").glob("*.js")):
+        private = False
+        for line in f.read_text(encoding="utf-8").splitlines():
+            if line.startswith("(() => {") or line.startswith("(function"):
+                private = True
+            elif line.startswith("})();") or line.startswith("}());"):
+                private = False
+            elif not private and (m := decl.match(line)):
+                seen.setdefault(m.group(1) or m.group(2), []).append(f.name)
+    dupes = {name: files for name, files in seen.items() if len(files) > 1}
+    if dupes:
+        raise DeployError("Page scripts declare the same top-level name in more than one file (the second file "
+                          "would not load): " + "; ".join(f"{n} in {', '.join(fs)}" for n, fs in sorted(dupes.items()))
+                          + ". Rename one, or wrap that file in (() => { ... })();")
+    log("Page scripts: no top-level name declared in two files")
+
+
+def grant_source_read(db: Databricks, ws_path: str, sp: str) -> bool:
+    """CAN_READ for the app's service principal on the app's source folder.
+
+    Starting a stopped app re-runs its last deployment, which downloads the code from this folder.
+    When the person who deployed starts it, their own access covers that. When anyone else starts it
+    (a demo giver with CAN_MANAGE on the app, after idle stop), the app's service principal must read
+    the folder itself, and it has no access to a folder in someone's home directory. Without this the
+    start fails with "Error downloading source code ... no files found".
+    """
+    status = db.run("workspace", "get-status", ws_path, check=False) or {}
+    obj = status.get("object_id")
+    if not obj:
+        log(f"WARNING: couldn't look up {ws_path}; others may not be able to start the app")
+        return False
+    ok = db.run("workspace", "update-permissions", "directories", str(obj), check=False, json_body={
+        "access_control_list": [{"service_principal_name": sp, "permission_level": "CAN_READ"}]}) is not None
+    log("The app's service principal can read its source folder (so anyone with CAN_MANAGE can start the app)"
+        if ok else "WARNING: couldn't give the app's service principal read access to its source folder; "
+                   "only the person who deployed will be able to start the app")
+    return ok
 
 
 def platform_cost_view(db: Databricks, sql: Sql, cfg: dict, state: dict) -> bool:
@@ -932,6 +984,7 @@ def ai_endpoints(ai: dict) -> list[str]:
 def step_app(db: Databricks, sql: Sql, cfg: dict, state: dict, cfg_path: Path) -> None:
     name = cfg["app_name"]
     app_dir = (REPO_DIR / cfg["app_dir"]).resolve()
+    check_page_scripts(app_dir)   # before anything changes in the workspace
     ws_path = cfg["app_workspace_path"] or f"/Workspace/Users/{state['user']}/apps/{name}"
     space = db.run("genie", "get-space", state["genie_space_id"])
     spec = {
@@ -1032,6 +1085,7 @@ def step_app(db: Databricks, sql: Sql, cfg: dict, state: dict, cfg_path: Path) -
     log(f"Syncing {app_dir.name} -> {ws_path}")
     db.run("sync", str(app_dir), ws_path, "--full",
            "--exclude", "node_modules/**", "--exclude", "dist/**", "--exclude", ".git/**", output_json=False)
+    grant_source_read(db, ws_path, sp)
     # A stopped app (idle policy, workspace quota, or someone pressed Stop) rejects deploys.
     compute = (db.run("apps", "get", name).get("compute_status") or {}).get("state")
     if compute != "ACTIVE":
