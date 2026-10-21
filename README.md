@@ -78,6 +78,7 @@ Permissions you need in the workspace: `CREATE SCHEMA` on the catalog, permissio
 
 Databricks Apps **cannot** be made public or anonymous — Databricks' own documentation states that bypassing SSO isn't supported. The app is reachable from anywhere on the internet over HTTPS, but every visitor must sign in with a Databricks-recognised identity. Two supported routes:
 
+- **Demo givers** (people who start the app before demos): put them in the group named by `demo_givers_group` (Workspace access only, no SQL or admin). The deploy gives the group CAN_MANAGE on the app and read access to its source folder, which Start needs.
 - **People:** add them to the workspace (external collaborators via your identity provider with SCIM/JIT provisioning — an admin task), then grant them `CAN_USE` on the app (or set `readers_group`).
 - **Systems / APIs:** a service principal with an OAuth M2M secret can call the app's API. It needs `CAN_USE` on the app **and the `workspace-access` entitlement** — without that entitlement the app returns 401 even with a valid token.
 

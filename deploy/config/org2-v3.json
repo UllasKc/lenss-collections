@@ -10,6 +10,7 @@
   "lakebase_database": "chatappv3",
   "app_name": "lenss-collections-v3",
   "readers_group": "lenss-collections-readers",
+  "demo_givers_group": "lenss-collections-demo-givers",
   "semantic_cache": {
     "threshold": 98,
     "embedding_model": "databricks-gte-large-en"

@@ -210,6 +210,9 @@ def load_config(path: Path) -> dict:
         "app_dir": "appkit-genie-app",
         "app_workspace_path": None,
         "readers_group": None,
+        # People who start the app before demos: CAN_MANAGE on the app (Start needs it) and read access
+        # to its source folder. Give the group Workspace access only (no SQL, no admin).
+        "demo_givers_group": None,
         # Optional chat model that names chat sessions, e.g. "databricks-meta-llama-3-3-70b-instruct".
         # Off by default: sessions are named from the first question.
         "title_endpoint": None,
@@ -1103,6 +1106,17 @@ def step_app(db: Databricks, sql: Sql, cfg: dict, state: dict, cfg_path: Path) -
         db.run("apps", "update-permissions", name, json_body={"access_control_list": [
             {"group_name": cfg["readers_group"], "permission_level": "CAN_USE"}]})
         log(f"Granted CAN_USE on the app (and nothing else) to {cfg['readers_group']}")
+    # Demo givers: CAN_MANAGE so they can press Start (Apps has no narrower level). The source-folder
+    # read they also need is given by grant_source_read, which shares with every CAN_MANAGE holder.
+    if cfg.get("demo_givers_group"):
+        try:
+            db.run("apps", "update-permissions", name, json_body={"access_control_list": [
+                {"group_name": cfg["demo_givers_group"], "permission_level": "CAN_MANAGE"}]})
+            log(f"Granted CAN_MANAGE on the app to {cfg['demo_givers_group']} (they can start it)")
+        except DeployError as e:
+            reason = " ".join(str(e).split("failed:", 1)[-1].split())[:200]
+            log(f"WARNING: couldn't give {cfg['demo_givers_group']} CAN_MANAGE on the app ({reason}). "
+                "Check the group name in the config and that the group exists in this workspace.")
     # Idle stop: the app's own service principal may stop this app (and only this app).
     if cfg.get("idle_stop_minutes"):
         ok = db.run("apps", "update-permissions", name, check=False, json_body={"access_control_list": [
