@@ -13,6 +13,7 @@ Versions match git tags where one exists. Dates are when the change was committe
 
 ## Unreleased
 
+- **Telemetry off on personal** (`personal.json`: `"app_telemetry": false`, to save cost; org v3 stays on). Takes effect on personal's next `--only app`. New `docs/LensS_Logging_Guide.md`: what Lakebase records vs app telemetry. Not yet sent to MLOps/Optus (waiting for the user's go-ahead).
 - **`app_telemetry` switch in the configs** (org v3 and personal: `true`). `false` now clears the app's telemetry destination on the next deploy, so it really stops.
 - **App telemetry on.** The app's server logs, metrics and traces go to Unity Catalog: `<catalog>.<prefix>_telemetry.lenss_otel_{logs,metrics,spans}`. The deploy creates the schema and sets it via the Apps API (`app_telemetry`, default on; a warning, never a failure). Live on personal: 139 log rows after a restart.
 - **Error logs include the stack trace** (`[error]` and `[unhandledRejection]` lines), so the telemetry tables show where an error happened.
