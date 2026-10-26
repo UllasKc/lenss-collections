@@ -690,6 +690,9 @@ def configure_telemetry(db: Databricks, cfg: dict, name: str, spec: dict) -> boo
     fields it is sent). Takes effect on the deployment that follows. Never fails the deploy.
     """
     if not cfg.get("app_telemetry", True):
+        # Off: clear any destination set by an earlier deploy, so the switch really stops the export.
+        db.run("api", "patch", f"/api/2.0/apps/{name}", json_body={**spec, "name": name, "telemetry_export_destinations": []}, check=False)
+        log("App telemetry off (app_telemetry: false)")
         return False
     c, p = cfg["catalog"], cfg["schema_prefix"]
     schema = f"{p}_telemetry"

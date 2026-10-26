@@ -13,6 +13,7 @@ Versions match git tags where one exists. Dates are when the change was committe
 
 ## Unreleased
 
+- **`app_telemetry` switch in the configs** (org v3 and personal: `true`). `false` now clears the app's telemetry destination on the next deploy, so it really stops.
 - **App telemetry on.** The app's server logs, metrics and traces go to Unity Catalog: `<catalog>.<prefix>_telemetry.lenss_otel_{logs,metrics,spans}`. The deploy creates the schema and sets it via the Apps API (`app_telemetry`, default on; a warning, never a failure). Live on personal: 139 log rows after a restart.
 - **Error logs include the stack trace** (`[error]` and `[unhandledRejection]` lines), so the telemetry tables show where an error happened.
 - **Crash protection: only real outages return 503** (from the MLOps review). The pattern matched any "warehouse", "PG" or "postgres" text, so ordinary SQL errors read as "data service unavailable"; it now matches disabled endpoints, connection failures and capacity errors only (7/7 test messages classified correctly).

@@ -53,5 +53,6 @@
   "evals": {
     "max_accuracy_cases": 10
   },
-  "idle_stop_minutes": 60
+  "idle_stop_minutes": 60,
+  "app_telemetry": true
 }

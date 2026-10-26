@@ -24,5 +24,6 @@
   "platform_help": { "enabled": true, "method": "ai" },
   "conversation_memory": { "enabled": true, "compact_every": 5 },
   "evals": { "max_accuracy_cases": 1 },
-  "idle_stop_minutes": 15
+  "idle_stop_minutes": 15,
+  "app_telemetry": true
 }
