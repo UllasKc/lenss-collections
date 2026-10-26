@@ -9,7 +9,7 @@ import { catchAsync, errorHandler } from './lib/asyncRoutes.js';
 
 // A failed request must never take the app down (Express 4 doesn't catch rejected async handlers).
 process.on('unhandledRejection', (reason) => {
-  console.error('[unhandledRejection]', reason instanceof Error ? reason.message : reason);
+  console.error('[unhandledRejection]', reason instanceof Error ? reason.stack || reason.message : reason);
 });
 
 createApp({

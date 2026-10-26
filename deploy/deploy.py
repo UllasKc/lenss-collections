@@ -223,6 +223,9 @@ def load_config(path: Path) -> dict:
         # The app stops itself after this many minutes without use (Databricks Apps never stop on their
         # own and bill while running). 0 = never. Someone with CAN_MANAGE on the app starts it again.
         "idle_stop_minutes": 60,
+        # Databricks Apps telemetry: server logs (incl. the app's [error] lines), metrics and traces
+        # written to <catalog>.<schema_prefix>_telemetry.lenss_otel_*. false = off.
+        "app_telemetry": True,
         # Users or groups who may start the app besides its managers (read access to its source folder).
         "app_starters": [],
     }
@@ -678,6 +681,30 @@ def project_family(cfg: dict) -> tuple[str, str, str]:
             re.sub(r"_v\d+$", "", cfg["schema_prefix"]))
 
 
+def configure_telemetry(db: Databricks, cfg: dict, name: str, spec: dict) -> bool:
+    """Send the app's logs, metrics and traces to Unity Catalog (Databricks Apps telemetry).
+
+    Tables: <catalog>.<schema_prefix>_telemetry.lenss_otel_{logs,metrics,spans} (Databricks also adds
+    lenss_otel_annotations). The schema is created if missing. The CLI's `apps update` doesn't know
+    the telemetry field, so it is set through the REST API with the full spec (an update replaces the
+    fields it is sent). Takes effect on the deployment that follows. Never fails the deploy.
+    """
+    if not cfg.get("app_telemetry", True):
+        return False
+    c, p = cfg["catalog"], cfg["schema_prefix"]
+    schema = f"{p}_telemetry"
+    if db.run("schemas", "get", f"{c}.{schema}", check=False) is None:
+        db.run("schemas", "create", schema, c, "--comment", "LensS app telemetry (Databricks Apps OpenTelemetry logs, metrics, traces)", check=False)
+    full = f"{c}.{schema}"
+    body = {**spec, "name": name, "telemetry_export_destinations": [{"unity_catalog": {
+        "logs_table": f"{full}.lenss_otel_logs", "metrics_table": f"{full}.lenss_otel_metrics", "traces_table": f"{full}.lenss_otel_spans"}}]}
+    ok = db.run("api", "patch", f"/api/2.0/apps/{name}", json_body=body, check=False) is not None
+    log(f"App telemetry → {full}.lenss_otel_* (logs, metrics, traces)" if ok else
+        "WARNING: couldn't turn on app telemetry (the feature may not be available in this workspace or region); "
+        "the app works without it")
+    return ok
+
+
 def check_page_scripts(app_dir: Path) -> None:
     """Stop the deploy if two page scripts declare the same top-level name.
 
@@ -1064,6 +1091,7 @@ def step_app(db: Databricks, sql: Sql, cfg: dict, state: dict, cfg_path: Path) -
         app = db.run("apps", "create", json_body={**spec, "name": name})
     else:
         app = db.run("apps", "update", name, json_body=spec)
+    configure_telemetry(db, cfg, name, spec)
     sp = app["service_principal_client_id"]
     state["app_url"] = app.get("url")
     log(f"App {name}, service principal {sp}")

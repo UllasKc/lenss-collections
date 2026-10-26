@@ -13,6 +13,8 @@ Versions match git tags where one exists. Dates are when the change was committe
 
 ## Unreleased
 
+- **App telemetry on.** The app's server logs, metrics and traces go to Unity Catalog: `<catalog>.<prefix>_telemetry.lenss_otel_{logs,metrics,spans}`. The deploy creates the schema and sets it via the Apps API (`app_telemetry`, default on; a warning, never a failure). Live on personal: 139 log rows after a restart.
+- **Error logs include the stack trace** (`[error]` and `[unhandledRejection]` lines), so the telemetry tables show where an error happened.
 - **Crash protection: only real outages return 503** (from the MLOps review). The pattern matched any "warehouse", "PG" or "postgres" text, so ordinary SQL errors read as "data service unavailable"; it now matches disabled endpoints, connection failures and capacity errors only (7/7 test messages classified correctly).
 - **Fix: `/api/chat/route` now returns `suggestDeep`** (from Optus's org routing test). `decide()` set it but the response dropped it; the UI was unaffected (it reads it from the answer).
 - **Long deep analyses no longer show "couldn't be answered" when the answer was saved.** In org a 92 s deep analysis completed, but the browser's stream dropped (a proxy closing the silent connection). The server now sends a keep-alive line every 15 s (plus `X-Accel-Buffering: no`), and if the stream still drops, the browser polls the chat for up to 5 minutes and shows the answer when it lands.

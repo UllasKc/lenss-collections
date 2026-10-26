@@ -31,7 +31,8 @@ const UNAVAILABLE = /endpoint has been disabled|ECONNREFUSED|ECONNRESET|ETIMEDOU
 /** Last middleware: a failed request gets a clean JSON error instead of crashing the server. */
 export function errorHandler(err: unknown, req: express.Request, res: express.Response, _next: express.NextFunction): void {
   const message = err instanceof Error ? err.message : String(err);
-  console.error(`[error] ${req.method} ${req.path}:`, message);
+  // Message plus stack: with app telemetry on, this line lands in <schema>_telemetry.lenss_otel_logs.
+  console.error(`[error] ${req.method} ${req.path}: ${message}${err instanceof Error && err.stack ? `\n${err.stack}` : ''}`);
   if (res.headersSent) {   // e.g. a streamed answer already under way: just close it
     res.end();
     return;
