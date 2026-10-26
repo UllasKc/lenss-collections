@@ -25,7 +25,8 @@ export function catchAsync(router: express.Router): express.Router {
   return router;
 }
 
-const UNAVAILABLE = /endpoint has been disabled|ECONNREFUSED|ETIMEDOUT|connection terminated|too many connections|warehouse|Cannot create the resource|password authentication failed|PG|postgres/i;
+// Only messages that mean a service is down or unreachable; an ordinary SQL or Postgres error stays a 500.
+const UNAVAILABLE = /endpoint has been disabled|ECONNREFUSED|ECONNRESET|ETIMEDOUT|ENOTFOUND|connection terminated|too many (clients|connections)|password authentication failed|Cannot create the resource|RESOURCE_EXHAUSTED|TEMPORARILY_UNAVAILABLE|Service Unavailable|warehouse (is )?(stopped|starting|not running)/i;
 
 /** Last middleware: a failed request gets a clean JSON error instead of crashing the server. */
 export function errorHandler(err: unknown, req: express.Request, res: express.Response, _next: express.NextFunction): void {
