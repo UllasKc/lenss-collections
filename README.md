@@ -98,6 +98,7 @@ The default is 60 (`org2-v3.json` 60, `personal.json` 15).
 - **Use** means any request from a signed-in person or service principal: opening a page, a question, an evaluation. An answer still streaming, or an evaluation in progress, keeps the app up.
 - **Start it again** from Compute → Apps → Start. That needs CAN_MANAGE on the app, so give it to whoever runs demos. Whoever presses Start must be able to read the app's source folder (it sits in the deployer's home directory), so the deploy gives read access to the app's service principal, everyone with CAN_MANAGE on the app, and anyone in the config's `app_starters` list (for example a demo-giver group). Without it, only the person who deployed can start the app. Starting takes a few minutes. A deploy starts a stopped app by itself.
 - **How it stops:** the app stops itself with its own service principal. The deploy gives that principal CAN_MANAGE on this app only (`server/lib/idleStop.ts`).
+- **Pause it for set hours** (e.g. a demo week): `"idle_stop_pause": { "enabled": true, "from": "17:30", "to": "07:00", "tz": "Asia/Kolkata" }`. In those hours the app never stops itself; the window may cross midnight. It doesn't start a stopped app, so pair it with a scheduled job that starts the app at the start of the window. `"enabled": false` turns it off on the next `--only app`.
 
 ## Smoke test
 

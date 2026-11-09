@@ -13,6 +13,7 @@ Versions match git tags where one exists. Dates are when the change was committe
 
 ## Unreleased
 
+- **Idle stop pause** (`idle_stop_pause`: from, to, tz, enabled). Inside the window the app never stops itself; outside it the usual idle stop applies. It doesn't start the app (a scheduled job does). Org v3: on, 17:30–07:00 IST, for the demo week; set `"enabled": false` and redeploy `--only app` to turn it off. Verified: window logic at 6 IST times (crosses midnight), type-check. Not yet deployed.
 - **Telemetry off on personal** (`personal.json`: `"app_telemetry": false`, to save cost; org v3 stays on). Takes effect on personal's next `--only app`. New `docs/LensS_Logging_Guide.md`: what Lakebase records vs app telemetry. Not yet sent to MLOps/Optus (waiting for the user's go-ahead).
 - **`app_telemetry` switch in the configs** (org v3 and personal: `true`). `false` now clears the app's telemetry destination on the next deploy, so it really stops.
 - **App telemetry on.** The app's server logs, metrics and traces go to Unity Catalog: `<catalog>.<prefix>_telemetry.lenss_otel_{logs,metrics,spans}`. The deploy creates the schema and sets it via the Apps API (`app_telemetry`, default on; a warning, never a failure). Live on personal: 139 log rows after a restart.

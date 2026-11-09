@@ -12,12 +12,26 @@ import { evalRunning } from './evals.js';
  * principal, which the deploy gives CAN_MANAGE on this app only.
  *
  * LENSS_IDLE_STOP_MINUTES (deploy config `idle_stop_minutes`; 0 = never) and LENSS_APP_NAME come
- * from app.yaml.
+ * from app.yaml. LENSS_IDLE_STOP_PAUSE (config `idle_stop_pause`), e.g. "17:30-07:00 Asia/Kolkata",
+ * pauses the idle stop in those hours so the app stays on; empty = no pause. It never starts the app.
  */
 
 const MINUTES = Number(process.env.LENSS_IDLE_STOP_MINUTES ?? 0);
 const APP = process.env.LENSS_APP_NAME || process.env.DATABRICKS_APP_NAME || '';
 const CHECK_EVERY_MS = 5 * 60_000;
+const PAUSE = /^(\d{2}):(\d{2})-(\d{2}):(\d{2}) (\S+)$/.exec(process.env.LENSS_IDLE_STOP_PAUSE ?? '');
+
+/** True inside the pause window (local time in its time zone; the window may cross midnight). */
+function paused(): boolean {
+  if (!PAUSE) return false;
+  const [, fh, fm, th, tm, tz] = PAUSE;
+  const parts = new Intl.DateTimeFormat('en-GB', { timeZone: tz, hour: '2-digit', minute: '2-digit', hourCycle: 'h23' }).formatToParts(new Date());
+  const get = (t: string) => Number(parts.find((p) => p.type === t)?.value);
+  const now = get('hour') * 60 + get('minute');
+  const from = Number(fh) * 60 + Number(fm);
+  const to = Number(th) * 60 + Number(tm);
+  return from < to ? now >= from && now < to : now >= from || now < to;
+}
 
 let lastUse = Date.now();   // a fresh start counts as use, so the app gets a full window first
 let inFlight = 0;
@@ -42,9 +56,11 @@ export function startIdleStop(): void {
     console.log(`[idle stop] off${!APP ? ' (app name unknown)' : ''}`);
     return;
   }
-  console.log(`[idle stop] on: ${APP} stops after ${MINUTES} minutes without use`);
+  console.log(`[idle stop] on: ${APP} stops after ${MINUTES} minutes without use`
+    + (PAUSE ? `, except ${PAUSE[1]}:${PAUSE[2]}-${PAUSE[3]}:${PAUSE[4]} (${PAUSE[5]})` : ''));
   setInterval(async () => {
     if (stopping || inFlight > 0 || evalRunning() || idleMinutes() < MINUTES) return;
+    if (paused()) { lastUse = Date.now(); return; }   // paused hours: stay on; a full idle window once they end
     stopping = true;
     console.log(`[idle stop] no use for ${Math.round(idleMinutes())} minutes: stopping ${APP}`);
     try {

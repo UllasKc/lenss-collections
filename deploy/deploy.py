@@ -223,6 +223,10 @@ def load_config(path: Path) -> dict:
         # The app stops itself after this many minutes without use (Databricks Apps never stop on their
         # own and bill while running). 0 = never. Someone with CAN_MANAGE on the app starts it again.
         "idle_stop_minutes": 60,
+        # Hours when the idle stop is paused, so the app stays on (e.g. a demo week):
+        # {"enabled": true, "from": "17:30", "to": "07:00", "tz": "Asia/Kolkata"}. The window may cross
+        # midnight. "enabled": false (or no entry) = no pause. It never starts the app; a job does that.
+        "idle_stop_pause": None,
         # Databricks Apps telemetry: server logs (incl. the app's [error] lines), metrics and traces
         # written to <catalog>.<schema_prefix>_telemetry.lenss_otel_*. false = off.
         "app_telemetry": True,
@@ -633,6 +637,7 @@ def write_app_yaml(app_dir: Path, cfg: dict, state: dict) -> None:
         # Idle stop (server/lib/idleStop.ts): the app's own name, and minutes without use before it stops itself.
         + f"  - name: LENSS_APP_NAME\n    value: {cfg['app_name']}\n"
         + f"  - name: LENSS_IDLE_STOP_MINUTES\n    value: '{int(cfg.get('idle_stop_minutes') or 0)}'\n"
+        + f"  - name: LENSS_IDLE_STOP_PAUSE\n    value: '{idle_pause_value(cfg)}'\n"
         # Semantic cache, guardrails and judge settings (only the parts that are on).
         + (f"  - name: LENSS_AI_CONFIG\n    value: '{json.dumps(state['ai_config'], separators=(',', ':'))}'\n"
            if state.get("ai_config") else ""),
@@ -706,6 +711,17 @@ def configure_telemetry(db: Databricks, cfg: dict, name: str, spec: dict) -> boo
         "WARNING: couldn't turn on app telemetry (the feature may not be available in this workspace or region); "
         "the app works without it")
     return ok
+
+
+def idle_pause_value(cfg: dict) -> str:
+    """The idle-stop pause window for app.yaml, e.g. "17:30-07:00 Asia/Kolkata", or "" when off."""
+    p = cfg.get("idle_stop_pause") or {}
+    if not p.get("enabled", True) or not p.get("from") or not p.get("to"):
+        return ""
+    for t in (p["from"], p["to"]):
+        if not re.fullmatch(r"([01]\d|2[0-3]):[0-5]\d", str(t)):
+            sys.exit(f"idle_stop_pause: '{t}' is not a 24-hour HH:MM time")
+    return f"{p['from']}-{p['to']} {p.get('tz', 'Asia/Kolkata')}"
 
 
 def check_page_scripts(app_dir: Path) -> None:
@@ -1154,6 +1170,8 @@ def step_app(db: Databricks, sql: Sql, cfg: dict, state: dict, cfg_path: Path) -
             {"service_principal_name": sp, "permission_level": "CAN_MANAGE"}]}) is not None
         log(f"Idle stop: the app stops itself after {cfg['idle_stop_minutes']} minutes without use"
             if ok else "WARNING: couldn't let the app stop itself (CAN_MANAGE for its service principal); idle stop won't work")
+        pause = idle_pause_value(cfg)
+        log(f"Idle stop paused {pause}: the app stays on in those hours" if pause else "Idle stop pause: off")
 
     write_app_yaml(app_dir, cfg, state)
     log(f"Syncing {app_dir.name} -> {ws_path}")
