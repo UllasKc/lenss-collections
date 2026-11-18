@@ -54,6 +54,6 @@
     "max_accuracy_cases": 10
   },
   "idle_stop_minutes": 60,
-  "idle_stop_pause": { "enabled": true, "from": "17:30", "to": "07:00", "tz": "Asia/Kolkata", "days": ["Mon", "Tue", "Wed", "Thu", "Fri"] },
+  "idle_stop_pause": { "enabled": true, "from": "18:00", "to": "04:00", "tz": "Asia/Kolkata", "days": ["Mon", "Tue", "Wed", "Thu", "Fri"] },
   "app_telemetry": true
 }

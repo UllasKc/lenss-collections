@@ -13,6 +13,7 @@ Versions match git tags where one exists. Dates are when the change was committe
 
 ## Unreleased
 
+- **Org idle stop pause now 18:00–04:00 IST, weekdays** (was 17:30–07:00). The scheduler job's cron becomes `0 0 18-23 ? * MON-FRI`.
 - **Two configs only: `personal.json` and `org.json`.** `org2-v3.json` (the live org app, lenss-collections-v3) is now `org.json`; the old templates (`org.json`, `org-v2.json`) and retired v2 (`org2-v2.json`) are removed (in git history). The deploy's saved state is named after the config, so on the org laptop copy `deploy/.state/org2-v3.json` to `deploy/.state/org.json` once before the next deploy. SETUP_GUIDE 11.1 now explains a side-by-side version by copying `org.json`.
 - **Idle stop pause on chosen days only** (`idle_stop_pause.days`, e.g. Mon–Fri; default every day). A window crossing midnight belongs to the day it starts, so weekdays = Mon 17:30 to Sat 07:00 in five nights; weekend evenings use the normal idle stop. Org v3 set to Mon–Fri. Verified: 10 IST times across a week (incl. Sat morning on, Sat evening and Mon early morning off), type-check. Not yet deployed.
 - **Raw data in `raw_data/`.** The workbook the deploy loads moved from `all_details_and _data/` to `raw_data/` (the `xlsx_path` default in `deploy.py`; no config overrides it). Specs and logos stay where they were. Data in Databricks unchanged, so no redeploy is needed.
