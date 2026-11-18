@@ -177,11 +177,9 @@ Configs live in `deploy/config/`:
 | File | What it is |
 |---|---|
 | `personal.json` | The original Free Edition workspace this was built in. Don't use it for a new workspace |
-| `org.json` | A template for an organisation workspace. **Edit this one**, or copy it to a new name such as `deploy/config/myteam.json` |
-| `org-v2.json` | A template for a second version running next to the first (section 11.1) |
-| `org2-v2.json` | The current organisation deployment, app `lenss-collections-v2` (catalog `collectionanalytics1`, profile `lenss-org2`) |
+| `org.json` | The organisation deployment: app `lenss-collections-v3`, catalog `collectionanalytics1`, profile `lenss-org2`. For a new workspace, copy it to a new name such as `deploy/config/myteam.json` and edit that |
 
-`org2.json` (the first app in that organisation workspace) exists only on the laptops that deploy it and is deliberately kept out of git.
+Older configs (the first org templates and v2) were removed; they are in git history.
 
 Open it in any editor (Notepad works):
 
@@ -487,7 +485,7 @@ The first three are switched on per workspace in the config (step 7); leaving a 
 | `databricks auth login` opens nothing / hangs | Browser OAuth blocked on this machine | Use Option B (token) in step 6 |
 | `FAILED: … PERMISSION_DENIED … CREATE SCHEMA` | Missing catalog privileges | Ask an admin for `USE CATALOG` + `CREATE SCHEMA` on the catalog, or point `catalog` at one you own |
 | `No matching SQL warehouse found` | `warehouse_name` doesn't match exactly | Use `warehouse_id` from `databricks warehouses list --profile <p>` |
-| `Workbook not found` | Running from the wrong folder, or the xlsx was not downloaded | `cd` to the project root; check `all_details_and _data/LensS_Collections_Demo_Development_Pack.xlsx` exists |
+| `Workbook not found` | Running from the wrong folder, or the xlsx was not downloaded | `cd` to the project root; check `raw_data/LensS_Collections_Demo_Development_Pack.xlsx` exists |
 | `No Postgres role for <you>` | You don't manage the Lakebase project (someone else created it) | Ask its owner for `CAN_MANAGE`, or set a different `lakebase_project` name |
 | `lakebase` step hangs, or `could not connect to server … 5432` | Corporate network/VPN blocks PostgreSQL port 5432 | Try off VPN or another network, or ask IT to allow outbound 5432 to `*.cloud.databricks.com`. Every other step works without it: run `--skip lakebase` for the rest, then run `--only lakebase,app` from a network that allows 5432 |
 | App URL shows "App not running", or `Cannot deploy app … not in RUNNING state` | The app's compute was stopped (idle policy or workspace quota) | Re-run `--only app`: it starts the app before deploying. Or **Apps → (your app) → Start** |
@@ -525,26 +523,24 @@ Deploying to **another workspace** is the same procedure: a new CLI profile (ste
 
 ### 11.1 Running a new version next to the existing one
 
-To give people a new version without replacing the one they use, deploy it as a second app with its own config. `deploy/config/org-v2.json` is ready for this. It is `org.json` with three names changed:
+To give people a new version without replacing the one they use, deploy it as a second app with its own config: copy `org.json` to a new name (for example `org-next.json`) and change at least these names:
 
-| Field | v1 (`org.json`) | v2 (`org-v2.json`) | Why it must differ |
-|---|---|---|---|
-| `app_name` | `lenss-collections` | `lenss-collections-v2` | A second app with its own URL and service principal |
-| `genie_space_title` | `LensS Collections Analytics` | `LensS Collections Analytics v2` | The deploy finds the space by title; the same title would overwrite v1's instructions and examples |
-| `lakebase_database` | `chatapp` | `chatappv2` | A separate database in the same Lakebase project, so the two versions don't share chat history, cache or logs. Lowercase letters, digits and hyphens only (no underscores) |
+| Field | Example | Why it must differ |
+|---|---|---|
+| `app_name` | `lenss-collections-next` | A second app with its own URL and service principal |
+| `genie_space_title` | `LensS Collections Analytics next` | The deploy finds the space by title; the same title would overwrite the current version's instructions and examples |
+| `lakebase_database` | `chatappnext` | A separate database in the same Lakebase project, so the two versions don't share chat history, cache or logs. Lowercase letters, digits and hyphens only (no underscores) |
+| `schema_prefix` | `lenss_collections_next` | Only if the new version changes the data; keep it the same to share the gold views |
 
-Everything else, including the catalog, gold schema, warehouse and models, is shared and read-only, so both versions answer from the same data. The deploy keeps a separate state file per config (`deploy/.state/org-v2.json`), so nothing in v1's state is touched.
+The deploy keeps a separate state file per config (`deploy/.state/<config name>.json`), so nothing in the current version's state is touched.
 
 1. `git pull` on the laptop that deploys to the org.
-2. Enable the models `org-v2.json` names, under **Serving** in the workspace.
-3. Deploy only what v2 needs:
+2. Enable the models the new config names, under **Serving** in the workspace.
+3. Deploy only what the new version needs:
    ```bash
-   python deploy/deploy.py --config deploy/config/org-v2.json --only genie,lakebase,app
+   python deploy/deploy.py --config deploy/config/org-next.json --only genie,lakebase,app
    ```
-   Don't run `schemas`, `ingest` or `transform`. They rebuild the shared data that v1 also reads. `views` and `summary` are safe on the shared gold schema (they only add views and rewrite the same summary from the same data). For later releases, the organisation deployment uses:
-   ```bash
-   python deploy/deploy.py --config deploy/config/org2-v2.json --only lakebase,views,summary,genie,app
-   ```
+   If it shares the schema prefix, don't run `schemas`, `ingest` or `transform`: they rebuild the shared data the current version reads.
 4. If the deploy prints a `GRANT USE CATALOG …` warning, an admin runs that one statement for the new app's service principal.
 5. Open the URL printed at the end and give people access (`readers_group`, or **Permissions** on the app).
 

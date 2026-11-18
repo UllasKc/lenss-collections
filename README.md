@@ -70,7 +70,7 @@ VS Code is optional; any terminal works. Node.js is **not** needed to deploy; Da
 
 ### Configuration
 
-Configs live in `deploy/config/`: `personal.json` (Free Edition workspace), `org.json` and `org-v2.json` (templates), and `org2-v2.json` (the current organisation deployment). Every field, including the optional AI features (semantic cache, guardrails, faithfulness judge, follow-ups, the question router (`auto_mode`), platform questions, conversation memory, evaluations), is described in [SETUP_GUIDE.md section 7](SETUP_GUIDE.md#7-point-the-config-at-your-workspace).
+Configs live in `deploy/config/`: just two, `personal.json` (Free Edition workspace) and `org.json` (the organisation deployment, app `lenss-collections-v3`). Every field, including the optional AI features (semantic cache, guardrails, faithfulness judge, follow-ups, the question router (`auto_mode`), platform questions, conversation memory, evaluations), is described in [SETUP_GUIDE.md section 7](SETUP_GUIDE.md#7-point-the-config-at-your-workspace).
 
 Permissions you need in the workspace: `CREATE SCHEMA` on the catalog, permission to create Genie spaces, Lakebase project creation, and Databricks Apps creation. If any of those is missing, the script stops at that step with the platform's error message.
 
@@ -94,11 +94,11 @@ Databricks Apps never stop on their own and bill while running, so the app stops
 "idle_stop_minutes": 60      // minutes without use before the app stops; null or 0 = never stop
 ```
 
-The default is 60 (`org2-v3.json` 60, `personal.json` 15).
+The default is 60 (`org.json` 60, `personal.json` 15).
 - **Use** means any request from a signed-in person or service principal: opening a page, a question, an evaluation. An answer still streaming, or an evaluation in progress, keeps the app up.
 - **Start it again** from Compute → Apps → Start. That needs CAN_MANAGE on the app, so give it to whoever runs demos. Whoever presses Start must be able to read the app's source folder (it sits in the deployer's home directory), so the deploy gives read access to the app's service principal, everyone with CAN_MANAGE on the app, and anyone in the config's `app_starters` list (for example a demo-giver group). Without it, only the person who deployed can start the app. Starting takes a few minutes. A deploy starts a stopped app by itself.
 - **How it stops:** the app stops itself with its own service principal. The deploy gives that principal CAN_MANAGE on this app only (`server/lib/idleStop.ts`).
-- **Pause it for set hours** (e.g. a demo week): `"idle_stop_pause": { "enabled": true, "from": "17:30", "to": "07:00", "tz": "Asia/Kolkata" }`. In those hours the app never stops itself; the window may cross midnight. It doesn't start a stopped app, so pair it with a scheduled job that starts the app at the start of the window. `"enabled": false` turns it off on the next `--only app`.
+- **Pause it for set hours** (e.g. a demo week): `"idle_stop_pause": { "enabled": true, "from": "17:30", "to": "07:00", "tz": "Asia/Kolkata", "days": ["Mon", "Tue", "Wed", "Thu", "Fri"] }`. In those hours on those days the app never stops itself. The window may cross midnight and belongs to the day it starts (`Fri` = Friday 17:30 to Saturday 07:00); leave out `days` for every day. It doesn't start a stopped app, so pair it with a scheduled job that starts the app at the start of the window. `"enabled": false` turns it off on the next `--only app`.
 
 ## Smoke test
 
@@ -149,7 +149,8 @@ The routing evaluation in the app (Observability → Evaluations → Routing) ch
 | `deploy/smoke_test.py` | End-to-end test of a deployed app |
 | `appkit-genie-app/` | The app: Node/Express server (`server/`) and static UI (`public/`) |
 | `docs/` | Product and demo guide (Word), client demo playbook, figures reference |
-| `all_details_and _data/` | Source workbook and specification documents |
+| `raw_data/` | Raw data the deploy loads: `LensS_Collections_Demo_Development_Pack.xlsx` (11 sheets) |
+| `all_details_and _data/` | Specification documents and logos |
 
 ## Business rules and view descriptions
 

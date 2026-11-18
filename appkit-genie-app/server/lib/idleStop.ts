@@ -12,25 +12,35 @@ import { evalRunning } from './evals.js';
  * principal, which the deploy gives CAN_MANAGE on this app only.
  *
  * LENSS_IDLE_STOP_MINUTES (deploy config `idle_stop_minutes`; 0 = never) and LENSS_APP_NAME come
- * from app.yaml. LENSS_IDLE_STOP_PAUSE (config `idle_stop_pause`), e.g. "17:30-07:00 Asia/Kolkata",
- * pauses the idle stop in those hours so the app stays on; empty = no pause. It never starts the app.
+ * from app.yaml. LENSS_IDLE_STOP_PAUSE (config `idle_stop_pause`), e.g. "17:30-07:00 Asia/Kolkata
+ * Mon,Tue,Wed,Thu,Fri", pauses the idle stop in those hours on those days (a window crossing midnight
+ * belongs to the day it starts) so the app stays on; no days = every day; empty = no pause. It never
+ * starts the app.
  */
 
 const MINUTES = Number(process.env.LENSS_IDLE_STOP_MINUTES ?? 0);
 const APP = process.env.LENSS_APP_NAME || process.env.DATABRICKS_APP_NAME || '';
 const CHECK_EVERY_MS = 5 * 60_000;
-const PAUSE = /^(\d{2}):(\d{2})-(\d{2}):(\d{2}) (\S+)$/.exec(process.env.LENSS_IDLE_STOP_PAUSE ?? '');
+const PAUSE = /^(\d{2}):(\d{2})-(\d{2}):(\d{2}) (\S+)(?: (\S+))?$/.exec(process.env.LENSS_IDLE_STOP_PAUSE ?? '');
+const WEEK = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
+const PAUSE_DAYS = new Set(PAUSE?.[6] ? PAUSE[6].split(',') : WEEK);
 
-/** True inside the pause window (local time in its time zone; the window may cross midnight). */
-function paused(): boolean {
+/**
+ * True inside the pause window: local time in its time zone, on one of its days. A window that
+ * crosses midnight belongs to the day it starts (Fri 17:30-07:00 runs into Saturday morning).
+ */
+export function paused(at = new Date()): boolean {
   if (!PAUSE) return false;
   const [, fh, fm, th, tm, tz] = PAUSE;
-  const parts = new Intl.DateTimeFormat('en-GB', { timeZone: tz, hour: '2-digit', minute: '2-digit', hourCycle: 'h23' }).formatToParts(new Date());
-  const get = (t: string) => Number(parts.find((p) => p.type === t)?.value);
-  const now = get('hour') * 60 + get('minute');
+  const parts = new Intl.DateTimeFormat('en-GB', { timeZone: tz, weekday: 'short', hour: '2-digit', minute: '2-digit', hourCycle: 'h23' }).formatToParts(at);
+  const get = (t: string) => parts.find((p) => p.type === t)?.value ?? '';
+  const now = Number(get('hour')) * 60 + Number(get('minute'));
+  const today = WEEK.indexOf(get('weekday'));
   const from = Number(fh) * 60 + Number(fm);
   const to = Number(th) * 60 + Number(tm);
-  return from < to ? now >= from && now < to : now >= from || now < to;
+  const on = (d: number) => PAUSE_DAYS.has(WEEK[(d + 7) % 7]);
+  if (from < to) return now >= from && now < to && on(today);
+  return (now >= from && on(today)) || (now < to && on(today - 1));   // early morning: the window began yesterday
 }
 
 let lastUse = Date.now();   // a fresh start counts as use, so the app gets a full window first
@@ -57,7 +67,7 @@ export function startIdleStop(): void {
     return;
   }
   console.log(`[idle stop] on: ${APP} stops after ${MINUTES} minutes without use`
-    + (PAUSE ? `, except ${PAUSE[1]}:${PAUSE[2]}-${PAUSE[3]}:${PAUSE[4]} (${PAUSE[5]})` : ''));
+    + (PAUSE ? `, except ${PAUSE[1]}:${PAUSE[2]}-${PAUSE[3]}:${PAUSE[4]} (${PAUSE[5]}${PAUSE[6] ? `, ${PAUSE[6]}` : ''})` : ''));
   setInterval(async () => {
     if (stopping || inFlight > 0 || evalRunning() || idleMinutes() < MINUTES) return;
     if (paused()) { lastUse = Date.now(); return; }   // paused hours: stay on; a full idle window once they end

@@ -140,7 +140,7 @@ Every capability in LensS Collections Intelligence, one line each: what it is an
 | What | Why |
 |---|---|
 | One-command deploy (schemas, ingest, context, transform, views, summary, Genie, Lakebase, app, smoke test) | Any workspace is set up the same way, repeatably |
-| Separate configs per workspace (personal, org, org-v2, org2-v2) | The same code deploys to every environment |
+| Separate configs per workspace (personal, org) | The same code deploys to every environment |
 | Optional AI features: a missing config section means off, and missing models give a warning | Safe to deploy anywhere, with features chosen per client |
 | Parallel version deploy (v2 with its own app, Genie space and database) | New versions can be tried without disturbing the live one |
 | Early config validation (Lakebase and app names) | Bad names fail at once, not halfway through a deploy |

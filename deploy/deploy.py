@@ -201,7 +201,7 @@ def load_config(path: Path) -> dict:
         "schema_prefix": "lenss_collections",
         "warehouse_id": None,
         "warehouse_name": None,
-        "xlsx_path": "all_details_and _data/LensS_Collections_Demo_Development_Pack.xlsx",
+        "xlsx_path": "raw_data/LensS_Collections_Demo_Development_Pack.xlsx",
         "genie_space_title": "LensS Collections Analytics",
         "genie_space_id": None,
         "lakebase_project": "lenss-collections-app",
@@ -224,8 +224,9 @@ def load_config(path: Path) -> dict:
         # own and bill while running). 0 = never. Someone with CAN_MANAGE on the app starts it again.
         "idle_stop_minutes": 60,
         # Hours when the idle stop is paused, so the app stays on (e.g. a demo week):
-        # {"enabled": true, "from": "17:30", "to": "07:00", "tz": "Asia/Kolkata"}. The window may cross
-        # midnight. "enabled": false (or no entry) = no pause. It never starts the app; a job does that.
+        # {"enabled": true, "from": "17:30", "to": "07:00", "tz": "Asia/Kolkata", "days": ["Mon", ..., "Fri"]}.
+        # The window may cross midnight; it belongs to the day it starts ("Fri" = Friday 17:30 to Saturday
+        # 07:00). No "days" = every day. "enabled": false (or no entry) = no pause. It never starts the app.
         "idle_stop_pause": None,
         # Databricks Apps telemetry: server logs (incl. the app's [error] lines), metrics and traces
         # written to <catalog>.<schema_prefix>_telemetry.lenss_otel_*. false = off.
@@ -721,7 +722,12 @@ def idle_pause_value(cfg: dict) -> str:
     for t in (p["from"], p["to"]):
         if not re.fullmatch(r"([01]\d|2[0-3]):[0-5]\d", str(t)):
             sys.exit(f"idle_stop_pause: '{t}' is not a 24-hour HH:MM time")
-    return f"{p['from']}-{p['to']} {p.get('tz', 'Asia/Kolkata')}"
+    week = ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"]
+    days = [str(d)[:3].title() for d in (p.get("days") or week)]
+    bad = [d for d in days if d not in week]
+    if bad:
+        sys.exit(f"idle_stop_pause: unknown day(s) {bad}; use Mon, Tue, Wed, Thu, Fri, Sat, Sun")
+    return f"{p['from']}-{p['to']} {p.get('tz', 'Asia/Kolkata')} {','.join(d for d in week if d in days)}"
 
 
 def check_page_scripts(app_dir: Path) -> None:
